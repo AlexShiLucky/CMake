@@ -460,7 +460,7 @@ lz4_filter_read_descriptor(struct archive_read_filter *self)
 
 	__archive_read_filter_consume(self->upstream, descriptor_bytes);
 
-	/* Make sure we have an enough buffer for uncompressed data. */
+	/* Make sure we have a large enough buffer for uncompressed data. */
 	if (lz4_allocate_out_block(self) != ARCHIVE_OK)
 		return (ARCHIVE_FATAL);
 	if (state->flags.stream_checksum)
@@ -494,7 +494,7 @@ lz4_filter_read_data_block(struct archive_read_filter *self, const void **p)
 	if (read_buf == NULL)
 		goto truncated_error;
 	compressed_size = archive_le32dec(read_buf);
-	if ((compressed_size & ~(1 << 31)) > state->flags.block_maximum_size)
+	if ((compressed_size & 0x7fffffff) > state->flags.block_maximum_size)
 		goto malformed_error;
 	/* A compressed size == 0 means the end of stream blocks. */
 	if (compressed_size == 0) {
@@ -504,8 +504,8 @@ lz4_filter_read_data_block(struct archive_read_filter *self, const void **p)
 
 	checksum_size = state->flags.block_checksum;
 	/* Check if the block is uncompressed. */
-	if (compressed_size & (1 << 31)) {
-		compressed_size &= ~(1 << 31);
+	if (compressed_size & 0x80000000U) {
+		compressed_size &= 0x7fffffff;
 		uncompressed_size = compressed_size;
 	} else
 		uncompressed_size = 0;/* Unknown yet. */
@@ -520,7 +520,7 @@ lz4_filter_read_data_block(struct archive_read_filter *self, const void **p)
 	if (read_buf == NULL)
 		goto truncated_error;
 
-	/* Optional process, checking a block sum. */
+	/* Optional processing, checking a block sum. */
 	if (checksum_size) {
 		unsigned int chsum = __archive_xxhash.XXH32(
 			read_buf + 4, (int)compressed_size, 0);
@@ -640,7 +640,7 @@ lz4_filter_read_default_stream(struct archive_read_filter *self, const void **p)
 	if (ret == 0 && *p == NULL)
 		state->stage = SELECT_STREAM;
 
-	/* Optional process, checking a stream sum. */
+	/* Optional processing, checking a stream sum. */
 	if (state->flags.stream_checksum) {
 		if (state->stage == SELECT_STREAM) {
 			unsigned int checksum;
@@ -660,7 +660,7 @@ lz4_filter_read_default_stream(struct archive_read_filter *self, const void **p)
 			if (checksum != checksum_stream) {
 				archive_set_error(&self->archive->archive,
 				    ARCHIVE_ERRNO_MISC,
-				    "lz4 stream cheksum error");
+				    "lz4 stream checksum error");
 				return (ARCHIVE_FATAL);
 			}
 		} else if (ret > 0)
@@ -674,7 +674,7 @@ static ssize_t
 lz4_filter_read_legacy_stream(struct archive_read_filter *self, const void **p)
 {
 	struct private_data *state = (struct private_data *)self->data;
-	int compressed;
+	uint32_t compressed;
 	const char *read_buf;
 	ssize_t ret;
 

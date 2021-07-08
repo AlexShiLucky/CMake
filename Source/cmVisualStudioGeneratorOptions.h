@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmVisualStudioGeneratorOptions_h
-#define cmVisualStudioGeneratorOptions_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <string>
@@ -13,10 +12,9 @@
 #include "cmIDEOptions.h"
 
 class cmLocalVisualStudioGenerator;
+class cmGeneratorTarget;
 
-typedef cmIDEFlagTable cmVS7FlagTable;
-
-class cmVisualStudio10TargetGenerator;
+using cmVS7FlagTable = cmIDEFlagTable;
 
 class cmVisualStudioGeneratorOptions : public cmIDEOptions
 {
@@ -34,12 +32,8 @@ public:
     CSharpCompiler
   };
   cmVisualStudioGeneratorOptions(cmLocalVisualStudioGenerator* lg, Tool tool,
-                                 cmVS7FlagTable const* table,
-                                 cmVS7FlagTable const* extraTable = 0,
-                                 cmVisualStudio10TargetGenerator* g = 0);
-
-  cmVisualStudioGeneratorOptions(cmLocalVisualStudioGenerator* lg, Tool tool,
-                                 cmVisualStudio10TargetGenerator* g = 0);
+                                 cmVS7FlagTable const* table = nullptr,
+                                 cmVS7FlagTable const* extraTable = nullptr);
 
   // Add a table of flags.
   void AddTable(cmVS7FlagTable const* table);
@@ -48,7 +42,7 @@ public:
   void ClearTables();
 
   // Store options from command line flags.
-  void Parse(const char* flags);
+  void Parse(const std::string& flags);
   void ParseFinish();
 
   void PrependInheritedString(std::string const& key);
@@ -67,25 +61,26 @@ public:
   bool UsingUnicode() const;
   bool UsingSBCS() const;
 
-  enum CudaRuntime
-  {
-    CudaRuntimeStatic,
-    CudaRuntimeShared,
-    CudaRuntimeNone
-  };
-  CudaRuntime GetCudaRuntime() const;
-
   void FixCudaCodeGeneration();
+
+  void FixManifestUACFlags();
 
   bool IsDebug() const;
   bool IsWinRt() const;
   bool IsManaged() const;
   // Write options to output.
-  void OutputPreprocessorDefinitions(std::ostream& fout, const char* prefix,
-                                     const char* suffix,
+  void OutputPreprocessorDefinitions(std::ostream& fout, int indent,
                                      const std::string& lang);
-  void OutputFlagMap(std::ostream& fout, const char* indent);
-  void SetConfiguration(const char* config);
+  void OutputAdditionalIncludeDirectories(std::ostream& fout, int indent,
+                                          const std::string& lang);
+  void OutputFlagMap(std::ostream& fout, int indent);
+  void SetConfiguration(const std::string& config);
+  const std::string& GetConfiguration() const;
+
+protected:
+  virtual void OutputFlag(std::ostream& fout, int indent,
+                          const std::string& tag,
+                          const std::string& content) = 0;
 
 private:
   cmLocalVisualStudioGenerator* LocalGenerator;
@@ -93,7 +88,6 @@ private:
 
   std::string Configuration;
   Tool CurrentTool;
-  cmVisualStudio10TargetGenerator* TargetGenerator;
 
   bool FortranRuntimeDebug;
   bool FortranRuntimeDLL;
@@ -101,9 +95,7 @@ private:
 
   std::string UnknownFlagField;
 
-  virtual void StoreUnknownFlag(const char* flag);
+  void StoreUnknownFlag(std::string const& flag) override;
 
   FlagValue TakeFlag(std::string const& key);
 };
-
-#endif

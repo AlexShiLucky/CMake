@@ -1,9 +1,9 @@
 #include "testVisualStudioSlnParser.h"
 
+#include <iostream>
+
 #include "cmVisualStudioSlnData.h"
 #include "cmVisualStudioSlnParser.h"
-
-#include <iostream>
 
 static bool parsedRight(cmVisualStudioSlnParser& parser,
                         const std::string& file, cmSlnData& data,
@@ -33,7 +33,7 @@ int testVisualStudioSlnParser(int, char* [])
 
   // Test clean parser
   if (parser.GetParseResult() != cmVisualStudioSlnParser::ResultOK) {
-    std::cerr << "cmVisualStudioSlnParser initialisation failed" << std::endl;
+    std::cerr << "cmVisualStudioSlnParser initialization failed" << std::endl;
     return 1;
   }
 
@@ -45,17 +45,55 @@ int testVisualStudioSlnParser(int, char* [])
     }
     const std::vector<cmSlnProjectEntry>& projects = data.GetProjects();
     const char* const names[] = {
-      "3rdParty", "ALL_BUILD", "CMakeLib", "CMakeLibTests",
-      "CMakePredefinedTargets", "CPackLib", "CTestDashboardTargets",
-      "CTestLib", "Continuous", "Documentation", "Experimental", "INSTALL",
-      "KWSys", "LIBCURL", "Nightly", "NightlyMemoryCheck", "PACKAGE",
-      "RUN_TESTS", "Tests", "Utilities", "Win9xCompat", "ZERO_CHECK",
-      "cmIML_test", "cmake", "cmbzip2", "cmcldeps", "cmcompress", "cmcurl",
-      "cmexpat", "cmlibarchive", "cmsys", "cmsysEncodeExecutable",
-      "cmsysProcessFwd9x", "cmsysTestDynload", "cmsysTestProcess",
-      "cmsysTestSharedForward", "cmsysTestsC", "cmsysTestsCxx", "cmsys_c",
-      "cmw9xcom", "cmzlib", "cpack", "ctest", "documentation", "memcheck_fail",
-      "pseudo_BC", "pseudo_purify", "pseudo_valgrind", "test_clean",
+      "3rdParty",
+      "ALL_BUILD",
+      "CMakeLib",
+      "CMakeLibTests",
+      "CMakePredefinedTargets",
+      "CPackLib",
+      "CTestDashboardTargets",
+      "CTestLib",
+      "Continuous",
+      "Documentation",
+      "Experimental",
+      "INSTALL",
+      "KWSys",
+      "LIBCURL",
+      "Nightly",
+      "NightlyMemoryCheck",
+      "PACKAGE",
+      "RUN_TESTS",
+      "Tests",
+      "Utilities",
+      "Win9xCompat",
+      "ZERO_CHECK",
+      "cmIML_test",
+      "cmake",
+      "cmbzip2",
+      "cmcldeps",
+      "cmcompress",
+      "cmcurl",
+      "cmexpat",
+      "cmlibarchive",
+      "cmsys",
+      "cmsysEncodeExecutable",
+      "cmsysProcessFwd9x",
+      "cmsysTestDynload",
+      "cmsysTestProcess",
+      "cmsysTestSharedForward",
+      "cmsysTestsC",
+      "cmsysTestsCxx",
+      "cmsys_c",
+      "cmw9xcom",
+      "cmzlib",
+      "cpack",
+      "ctest",
+      "documentation",
+      "memcheck_fail",
+      "pseudo_BC",
+      "pseudo_purify",
+      "pseudo_valgrind",
+      "test_clean",
       "uninstall"
       /* clang-format needs this comment to break after the opening brace */
     };

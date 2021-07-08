@@ -1,17 +1,19 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestStartCommand_h
-#define cmCTestStartCommand_h
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmCTestCommand.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <string>
+#include <utility>
 #include <vector>
 
-class cmCommand;
+#include <cm/memory>
+
+#include "cmCTestCommand.h"
+#include "cmCommand.h"
+
 class cmExecutionStatus;
 
 /** \class cmCTestStart
@@ -27,14 +29,14 @@ public:
   /**
    * This is a virtual constructor for the command.
    */
-  cmCommand* Clone() CM_OVERRIDE
+  std::unique_ptr<cmCommand> Clone() override
   {
-    cmCTestStartCommand* ni = new cmCTestStartCommand;
+    auto ni = cm::make_unique<cmCTestStartCommand>();
     ni->CTest = this->CTest;
     ni->CTestScriptHandler = this->CTestScriptHandler;
     ni->CreateNewTag = this->CreateNewTag;
     ni->Quiet = this->Quiet;
-    return ni;
+    return std::unique_ptr<cmCommand>(std::move(ni));
   }
 
   /**
@@ -42,7 +44,7 @@ public:
    * the CMakeLists.txt file.
    */
   bool InitialPass(std::vector<std::string> const& args,
-                   cmExecutionStatus& status) CM_OVERRIDE;
+                   cmExecutionStatus& status) override;
 
   /**
    * Will this invocation of ctest_start create a new TAG file?
@@ -59,5 +61,3 @@ private:
   bool CreateNewTag;
   bool Quiet;
 };
-
-#endif

@@ -1,9 +1,11 @@
 <LANG>_CLANG_TIDY
 -----------------
 
-This property is implemented only when ``<LANG>`` is ``C`` or ``CXX``.
+.. versionadded:: 3.6
 
-Specify a :ref:`;-list <CMake Language Lists>` containing a command
+This property is implemented only when ``<LANG>`` is ``C``, ``CXX``, ``OBJC`` or ``OBJCXX``.
+
+Specify a :ref:`semicolon-separated list <CMake Language Lists>` containing a command
 line for the ``clang-tidy`` tool.  The :ref:`Makefile Generators`
 and the :generator:`Ninja` generator will run this tool along with the
 compiler and report a warning if the tool reports any problems.

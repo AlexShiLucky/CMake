@@ -1,15 +1,19 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
+#if defined(__CYGWIN__)
+// For S_IWRITE symbol
+#  define _DEFAULT_SOURCE
+#endif
+
 #include "cmWIXFilesSourceWriter.h"
 
-#include "cmWIXAccessControlList.h"
+#include "cm_sys_stat.h"
 
+#include "cmCMakeToWixPath.h"
 #include "cmInstalledFile.h"
-
 #include "cmSystemTools.h"
 #include "cmUuid.h"
-
-#include "cm_sys_stat.h"
+#include "cmWIXAccessControlList.h"
 
 cmWIXFilesSourceWriter::cmWIXFilesSourceWriter(cmCPackLog* logger,
                                                std::string const& filename,
@@ -139,7 +143,7 @@ std::string cmWIXFilesSourceWriter::EmitComponentFile(
   patch.ApplyFragment(componentId, *this);
   BeginElement("File");
   AddAttribute("Id", fileId);
-  AddAttribute("Source", filePath);
+  AddAttribute("Source", CMakeToWixPath(filePath));
   AddAttribute("KeyPath", "yes");
 
   mode_t fileMode = 0;

@@ -4,9 +4,9 @@
 #include "file2.h"
 
 #ifdef _WIN32
-#define IMPORT __declspec(dllimport)
+#  define IMPORT __declspec(dllimport)
 #else
-#define IMPORT
+#  define IMPORT
 #endif
 
 IMPORT int choose_cuda_device();
@@ -22,5 +22,6 @@ int main(int argc, char** argv)
 
   int r1 = call_cuda_seperable_code(42);
   int r2 = mixed_launch_kernel(42);
+
   return (r1 == 42 || r2 == 42) ? 1 : 0;
 }

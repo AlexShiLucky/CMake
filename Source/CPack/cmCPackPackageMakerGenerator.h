@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackPackageMakerGenerator_h
-#define cmCPackPackageMakerGenerator_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include "cmCPackGenerator.h"
 #include "cmCPackPKGGenerator.h"
@@ -25,13 +24,13 @@ public:
    * Construct generator
    */
   cmCPackPackageMakerGenerator();
-  virtual ~cmCPackPackageMakerGenerator();
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  ~cmCPackPackageMakerGenerator() override;
+  bool SupportsComponentInstallation() const override;
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
-  int PackageFiles() CM_OVERRIDE;
-  const char* GetOutputExtension() CM_OVERRIDE { return ".dmg"; }
+  int InitializeInternal() override;
+  int PackageFiles() override;
+  const char* GetOutputExtension() override { return ".dmg"; }
 
   // Run PackageMaker with the given command line, which will (if
   // successful) produce the given package file. Returns true if
@@ -49,5 +48,3 @@ protected:
   double PackageMakerVersion;
   unsigned int PackageCompatibilityVersion;
 };
-
-#endif

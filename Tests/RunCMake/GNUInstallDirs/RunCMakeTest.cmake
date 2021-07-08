@@ -1,7 +1,13 @@
 include(RunCMake)
 
-if(SYSTEM_NAME MATCHES "^(.*BSD|DragonFly)$")
-  set(EXPECT_BSD 1)
+if(SYSTEM_NAME STREQUAL "FreeBSD")
+  set(variant "-FreeBSD")
+elseif(SYSTEM_NAME MATCHES "^(([^k].*)?BSD|DragonFly)$")
+  set(variant "-BSD")
+elseif(EXISTS "/etc/debian_version")
+  set(variant "-Debian")
+else()
+  set(variant "")
 endif()
 
 foreach(case
@@ -10,8 +16,10 @@ foreach(case
     Usr
     UsrLocal
     )
-  if(EXPECT_BSD)
-    set(RunCMake-stderr-file ${case}-BSD-stderr.txt)
-  endif()
+  set(RunCMake-stderr-file ${case}${variant}-stderr.txt)
   run_cmake(${case})
+  unset(RunCMake-stderr-file)
 endforeach()
+
+run_cmake(GetAbs)
+run_cmake(NoSystem)

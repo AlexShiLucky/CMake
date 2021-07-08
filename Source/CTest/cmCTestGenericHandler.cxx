@@ -2,55 +2,66 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCTestGenericHandler.h"
 
-#include "cmConfigure.h"
 #include <sstream>
 #include <utility>
 
 #include "cmCTest.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
 cmCTestGenericHandler::cmCTestGenericHandler()
 {
   this->HandlerVerbose = cmSystemTools::OUTPUT_NONE;
-  this->CTest = CM_NULLPTR;
+  this->CTest = nullptr;
   this->SubmitIndex = 0;
   this->AppendXML = false;
   this->Quiet = false;
   this->TestLoad = 0;
 }
 
-cmCTestGenericHandler::~cmCTestGenericHandler()
+cmCTestGenericHandler::~cmCTestGenericHandler() = default;
+
+/* Modify the given `map`, setting key `op` to `value` if `value`
+ * is non-null, otherwise removing key `op` (if it exists).
+ */
+static void SetMapValue(cmCTestGenericHandler::t_StringToString& map,
+                        const std::string& op, const char* value)
 {
+  if (!value) {
+    map.erase(op);
+    return;
+  }
+
+  map[op] = value;
 }
 
 void cmCTestGenericHandler::SetOption(const std::string& op, const char* value)
 {
-  if (!value) {
-    cmCTestGenericHandler::t_StringToString::iterator remit =
-      this->Options.find(op);
-    if (remit != this->Options.end()) {
-      this->Options.erase(remit);
-    }
-    return;
-  }
-
-  this->Options[op] = value;
+  SetMapValue(this->Options, op, value);
 }
 
 void cmCTestGenericHandler::SetPersistentOption(const std::string& op,
                                                 const char* value)
 {
   this->SetOption(op, value);
-  if (!value) {
-    cmCTestGenericHandler::t_StringToString::iterator remit =
-      this->PersistentOptions.find(op);
-    if (remit != this->PersistentOptions.end()) {
-      this->PersistentOptions.erase(remit);
-    }
-    return;
-  }
+  SetMapValue(this->PersistentOptions, op, value);
+}
 
-  this->PersistentOptions[op] = value;
+void cmCTestGenericHandler::AddMultiOption(const std::string& op,
+                                           const std::string& value)
+{
+  if (!value.empty()) {
+    this->MultiOptions[op].emplace_back(value);
+  }
+}
+
+void cmCTestGenericHandler::AddPersistentMultiOption(const std::string& op,
+                                                     const std::string& value)
+{
+  if (!value.empty()) {
+    this->MultiOptions[op].emplace_back(value);
+    this->PersistentMultiOptions[op].emplace_back(value);
+  }
 }
 
 void cmCTestGenericHandler::Initialize()
@@ -58,21 +69,29 @@ void cmCTestGenericHandler::Initialize()
   this->AppendXML = false;
   this->TestLoad = 0;
   this->Options.clear();
-  t_StringToString::iterator it;
-  for (it = this->PersistentOptions.begin();
-       it != this->PersistentOptions.end(); ++it) {
-    this->Options[it->first] = it->second;
+  for (auto const& po : this->PersistentOptions) {
+    this->Options[po.first] = po.second;
   }
 }
 
 const char* cmCTestGenericHandler::GetOption(const std::string& op)
 {
-  cmCTestGenericHandler::t_StringToString::iterator remit =
-    this->Options.find(op);
+  auto remit = this->Options.find(op);
   if (remit == this->Options.end()) {
-    return CM_NULLPTR;
+    return nullptr;
   }
   return remit->second.c_str();
+}
+
+std::vector<std::string> cmCTestGenericHandler::GetMultiOption(
+  const std::string& optionName) const
+{
+  // Avoid inserting a key, which MultiOptions[op] would do.
+  auto remit = this->MultiOptions.find(optionName);
+  if (remit == this->MultiOptions.end()) {
+    return {};
+  }
+  return remit->second;
 }
 
 bool cmCTestGenericHandler::StartResultingXML(cmCTest::Part part,
@@ -103,11 +122,12 @@ bool cmCTestGenericHandler::StartResultingXML(cmCTest::Part part,
   }
   if (!this->CTest->OpenOutputFile(this->CTest->GetCurrentTag(), ostr.str(),
                                    xofs, true)) {
-    cmCTestLog(this->CTest, ERROR_MESSAGE, "Cannot create resulting XML file: "
-                 << ostr.str() << std::endl);
+    cmCTestLog(this->CTest, ERROR_MESSAGE,
+               "Cannot create resulting XML file: " << ostr.str()
+                                                    << std::endl);
     return false;
   }
-  this->CTest->AddSubmitFile(part, ostr.str().c_str());
+  this->CTest->AddSubmitFile(part, ostr.str());
   return true;
 }
 
@@ -129,6 +149,8 @@ bool cmCTestGenericHandler::StartLogFile(const char* name,
     ostr << "_" << this->CTest->GetCurrentTag();
   }
   ostr << ".log";
+  this->LogFileNames[name] =
+    cmStrCat(this->CTest->GetBinaryDir(), "/Testing/Temporary/", ostr.str());
   if (!this->CTest->OpenOutputFile("Temporary", ostr.str(), xofs)) {
     cmCTestLog(this->CTest, ERROR_MESSAGE,
                "Cannot create log file: " << ostr.str() << std::endl);

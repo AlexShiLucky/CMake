@@ -66,6 +66,8 @@ The default value for this global property is ``OPTIONAL``.
 
 .. variable:: FeatureSummary_<TYPE>_DESCRIPTION
 
+.. versionadded:: 3.9
+
 The global property :variable:`FeatureSummary_<TYPE>_DESCRIPTION` can be defined
 for each type to replace the type name with the specified string whenever the
 package type is used in an output string.
@@ -96,8 +98,6 @@ Functions
 ^^^^^^^^^
 
 #]=======================================================================]
-
-include(CMakeParseArguments)
 
 function(_FS_GET_FEATURE_SUMMARY _property _var _includeQuiet)
 
@@ -244,12 +244,13 @@ endfunction()
   ``<TYPE>_PACKAGES_NOT_FOUND``
    only those packages which have not been found which have the type <TYPE>
 
-  With the exception of the ``ALL`` value, these values can be combined
-  in order to customize the output. For example:
+  .. versionchanged:: 3.1
+    With the exception of the ``ALL`` value, these values can be combined
+    in order to customize the output. For example:
 
-  .. code-block:: cmake
+    .. code-block:: cmake
 
-    feature_summary(WHAT ENABLED_FEATURES DISABLED_FEATURES)
+      feature_summary(WHAT ENABLED_FEATURES DISABLED_FEATURES)
 
   If a ``FILENAME`` is given, the information is printed into this file.  If
   ``APPEND`` is used, it is appended to this file, otherwise the file is
@@ -270,14 +271,18 @@ endfunction()
   The default value for the :variable:`FeatureSummary_REQUIRED_PKG_TYPES` global
   property is ``REQUIRED``.
 
+  .. versionadded:: 3.9
+    The ``DEFAULT_DESCRIPTION`` option.
+
   The :variable:`FeatureSummary_DEFAULT_PKG_TYPE` global property can be
   modified to change the default package type assigned when not explicitly
   assigned by the user.
 
-  If the ``QUIET_ON_EMPTY`` option is used, if only one type of package was
-  requested, and no packages belonging to that category were found, then no
-  output (including the ``DESCRIPTION``) is printed or added to the ``VAR``
-  variable.
+  .. versionadded:: 3.8
+    If the ``QUIET_ON_EMPTY`` option is used, if only one type of package was
+    requested, and no packages belonging to that category were found, then no
+    output (including the ``DESCRIPTION``) is printed or added to the ``VAR``
+    variable.
 
   Example 1, append everything to a file:
 
@@ -493,7 +498,7 @@ endfunction()
     by the project when available at buildtime, but it also work without.
     ``RECOMMENDED`` is similar to ``OPTIONAL``, i.e.  the project will build if
     the package is not present, but the functionality of the resulting
-    binaries will be severly limited.  If a ``REQUIRED`` package is not
+    binaries will be severely limited.  If a ``REQUIRED`` package is not
     available at buildtime, the project may not even build.  This can be
     combined with the ``FATAL_ON_MISSING_REQUIRED_PACKAGES`` argument for
     ``feature_summary()``.  Last, a ``RUNTIME`` package is a package which is
@@ -618,6 +623,9 @@ endfunction()
   ``<description>`` is a text describing the feature.  The information can
   be displayed using ``feature_summary()`` for ``ENABLED_FEATURES`` and
   ``DISABLED_FEATURES`` respectively.
+
+  .. versionchanged:: 3.8
+    ``<enabled>`` can be a list of conditions.
 
   Example for setting the info for a feature:
 

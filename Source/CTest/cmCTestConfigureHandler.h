@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestConfigureHandler_h
-#define cmCTestConfigureHandler_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include "cmCTestGenericHandler.h"
 
@@ -14,16 +13,14 @@
 class cmCTestConfigureHandler : public cmCTestGenericHandler
 {
 public:
-  typedef cmCTestGenericHandler Superclass;
+  using Superclass = cmCTestGenericHandler;
 
   /*
    * The main entry point for this class
    */
-  int ProcessHandler() CM_OVERRIDE;
+  int ProcessHandler() override;
 
   cmCTestConfigureHandler();
 
-  void Initialize() CM_OVERRIDE;
+  void Initialize() override;
 };
-
-#endif

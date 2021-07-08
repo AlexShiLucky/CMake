@@ -11,8 +11,11 @@ add_library(Framework ${FRAMEWORK_TYPE}
             flatresource.txt
             deepresource.txt
             some.txt)
+if("${CMAKE_FRAMEWORK}" STREQUAL "")
+  set_target_properties(Framework PROPERTIES
+                        FRAMEWORK TRUE)
+endif()
 set_target_properties(Framework PROPERTIES
-                      FRAMEWORK TRUE
                       PUBLIC_HEADER foo.h
                       RESOURCE "res.txt")
 set_source_files_properties(flatresource.txt PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
@@ -22,4 +25,4 @@ set_source_files_properties(some.txt PROPERTIES MACOSX_PACKAGE_LOCATION somedir)
 add_custom_command(TARGET Framework POST_BUILD
                    COMMAND /usr/bin/file $<TARGET_FILE:Framework>)
 
-file(GENERATE OUTPUT FrameworkName.cmake CONTENT "set(framework-dir \"$<TARGET_BUNDLE_DIR:Framework>\")\n")
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/FrameworkName.cmake CONTENT "set(framework-dir \"$<TARGET_BUNDLE_DIR:Framework>\")\n")

@@ -27,6 +27,8 @@ when creating a new build tree.
 CMake Generators
 ================
 
+.. _`Command-Line Build Tool Generators`:
+
 Command-Line Build Tool Generators
 ----------------------------------
 
@@ -50,13 +52,18 @@ Makefile Generators
    /generator/Unix Makefiles
    /generator/Watcom WMake
 
-Ninja Generator
-^^^^^^^^^^^^^^^
+.. _`Ninja Generators`:
+
+Ninja Generators
+^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 1
 
    /generator/Ninja
+   /generator/Ninja Multi-Config
+
+.. _`IDE Build Tool Generators`:
 
 IDE Build Tool Generators
 -------------------------
@@ -83,6 +90,8 @@ Visual Studio Generators
    /generator/Visual Studio 12 2013
    /generator/Visual Studio 14 2015
    /generator/Visual Studio 15 2017
+   /generator/Visual Studio 16 2019
+   /generator/Visual Studio 17 2022
 
 Other Generators
 ^^^^^^^^^^^^^^^^
@@ -108,6 +117,5 @@ The following extra generators are known to CMake.
    /generator/CodeBlocks
    /generator/CodeLite
    /generator/Eclipse CDT4
-   /generator/KDevelop3
    /generator/Kate
    /generator/Sublime Text 2

@@ -3,11 +3,16 @@
 #include "cmComputeComponentGraph.h"
 
 #include <algorithm>
-
-#include <assert.h>
+#include <cassert>
 
 cmComputeComponentGraph::cmComputeComponentGraph(Graph const& input)
   : InputGraph(input)
+{
+}
+
+cmComputeComponentGraph::~cmComputeComponentGraph() = default;
+
+void cmComputeComponentGraph::Compute()
 {
   // Identify components.
   this->Tarjan();
@@ -16,10 +21,6 @@ cmComputeComponentGraph::cmComputeComponentGraph(Graph const& input)
   this->ComponentGraph.resize(0);
   this->ComponentGraph.resize(this->Components.size());
   this->TransferEdges();
-}
-
-cmComputeComponentGraph::~cmComputeComponentGraph()
-{
 }
 
 void cmComputeComponentGraph::Tarjan()
@@ -57,8 +58,8 @@ void cmComputeComponentGraph::TarjanVisit(int i)
 
   // Follow outgoing edges.
   EdgeList const& nl = this->InputGraph[i];
-  for (EdgeList::const_iterator ni = nl.begin(); ni != nl.end(); ++ni) {
-    int j = *ni;
+  for (cmGraphEdge const& ni : nl) {
+    int j = ni;
 
     // Ignore edges to nodes that have been reached by a previous DFS
     // walk.  Since we did not reach the current node from that walk
@@ -88,7 +89,7 @@ void cmComputeComponentGraph::TarjanVisit(int i)
   if (this->TarjanEntries[i].Root == i) {
     // Yes.  Create it.
     int c = static_cast<int>(this->Components.size());
-    this->Components.push_back(NodeList());
+    this->Components.emplace_back();
     NodeList& component = this->Components[c];
 
     // Populate the component list.
@@ -119,14 +120,14 @@ void cmComputeComponentGraph::TransferEdges()
   for (int i = 0; i < n; ++i) {
     int i_component = this->TarjanComponents[i];
     EdgeList const& nl = this->InputGraph[i];
-    for (EdgeList::const_iterator ni = nl.begin(); ni != nl.end(); ++ni) {
-      int j = *ni;
+    for (cmGraphEdge const& ni : nl) {
+      int j = ni;
       int j_component = this->TarjanComponents[j];
       if (i_component != j_component) {
         // We do not attempt to combine duplicate edges, but instead
         // store the inter-component edges with suitable multiplicity.
-        this->ComponentGraph[i_component].push_back(
-          cmGraphEdge(j_component, ni->IsStrong()));
+        this->ComponentGraph[i_component].emplace_back(
+          j_component, ni.IsStrong(), ni.IsCross(), ni.GetBacktrace());
       }
     }
   }

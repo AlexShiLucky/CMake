@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestCommand_h
-#define cmCTestCommand_h
+#pragma once
 
 #include "cmCommand.h"
 
@@ -20,12 +19,10 @@ class cmCTestCommand : public cmCommand
 public:
   cmCTestCommand()
   {
-    this->CTest = CM_NULLPTR;
-    this->CTestScriptHandler = CM_NULLPTR;
+    this->CTest = nullptr;
+    this->CTestScriptHandler = nullptr;
   }
 
   cmCTest* CTest;
   cmCTestScriptHandler* CTestScriptHandler;
 };
-
-#endif

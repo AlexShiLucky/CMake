@@ -1,16 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmInstallFilesGenerator_h
-#define cmInstallFilesGenerator_h
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmInstallGenerator.h"
-#include "cmScriptGenerator.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <string>
 #include <vector>
+
+#include "cmInstallGenerator.h"
+#include "cmListFileCache.h"
+#include "cmScriptGenerator.h"
 
 class cmLocalGenerator;
 
@@ -21,32 +21,33 @@ class cmInstallFilesGenerator : public cmInstallGenerator
 {
 public:
   cmInstallFilesGenerator(std::vector<std::string> const& files,
-                          const char* dest, bool programs,
-                          const char* file_permissions,
+                          std::string const& dest, bool programs,
+                          std::string file_permissions,
                           std::vector<std::string> const& configurations,
-                          const char* component, MessageLevel message,
-                          bool exclude_from_all, const char* rename,
-                          bool optional = false);
-  ~cmInstallFilesGenerator() CM_OVERRIDE;
+                          std::string const& component, MessageLevel message,
+                          bool exclude_from_all, std::string rename,
+                          bool optional, cmListFileBacktrace backtrace);
+  ~cmInstallFilesGenerator() override;
 
-  void Compute(cmLocalGenerator* lg) CM_OVERRIDE;
+  bool Compute(cmLocalGenerator* lg) override;
 
   std::string GetDestination(std::string const& config) const;
+  std::string GetRename(std::string const& config) const;
+  std::vector<std::string> GetFiles(std::string const& config) const;
+  bool GetOptional() const { return this->Optional; }
 
 protected:
-  void GenerateScriptActions(std::ostream& os, Indent indent) CM_OVERRIDE;
+  void GenerateScriptActions(std::ostream& os, Indent indent) override;
   void GenerateScriptForConfig(std::ostream& os, const std::string& config,
-                               Indent indent) CM_OVERRIDE;
+                               Indent indent) override;
   void AddFilesInstallRule(std::ostream& os, std::string const& config,
                            Indent indent,
                            std::vector<std::string> const& files);
 
   cmLocalGenerator* LocalGenerator;
-  std::vector<std::string> Files;
-  std::string FilePermissions;
-  std::string Rename;
-  bool Programs;
-  bool Optional;
+  std::vector<std::string> const Files;
+  std::string const FilePermissions;
+  std::string const Rename;
+  bool const Programs;
+  bool const Optional;
 };
-
-#endif

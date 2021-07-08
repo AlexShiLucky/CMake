@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestVC_h
-#define cmCTestVC_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <string>
@@ -36,7 +35,7 @@ public:
   std::string GetNightlyTime();
 
   /** Prepare the work tree.  */
-  bool InitialCheckout(const char* command);
+  bool InitialCheckout(const std::string& command);
 
   /** Perform cleanup operations on the work tree.  */
   void Cleanup();
@@ -70,6 +69,7 @@ protected:
   virtual bool NoteOldRevision();
   virtual bool UpdateImpl();
   virtual bool NoteNewRevision();
+  virtual void SetNewRevision(std::string const& revision);
   virtual bool WriteXMLUpdates(cmXMLWriter& xml);
 
 #if defined(__SUNPRO_CC) && __SUNPRO_CC <= 0x510
@@ -100,8 +100,8 @@ protected:
     Revision const* PriorRev;
     File()
       : Status(PathUpdated)
-      , Rev(CM_NULLPTR)
-      , PriorRev(CM_NULLPTR)
+      , Rev(nullptr)
+      , PriorRev(nullptr)
     {
     }
     File(PathStatus status, Revision const* rev, Revision const* priorRev)
@@ -117,12 +117,12 @@ protected:
 
   /** Run a command line and send output to given parsers.  */
   bool RunChild(char const* const* cmd, OutputParser* out, OutputParser* err,
-                const char* workDir = CM_NULLPTR,
+                const char* workDir = nullptr,
                 Encoding encoding = cmProcessOutput::Auto);
 
   /** Run VC update command line and send output to given parsers.  */
   bool RunUpdateCommand(char const* const* cmd, OutputParser* out,
-                        OutputParser* err = CM_NULLPTR,
+                        OutputParser* err = nullptr,
                         Encoding encoding = cmProcessOutput::Auto);
 
   /** Write xml element for one file.  */
@@ -149,5 +149,3 @@ protected:
   // Count paths reported with each PathStatus value.
   int PathCount[3];
 };
-
-#endif

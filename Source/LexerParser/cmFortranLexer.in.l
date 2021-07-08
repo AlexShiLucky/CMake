@@ -17,17 +17,17 @@ This file must be translated to C++ and modified to build everywhere.
 
 Run flex >= 2.6 like this:
 
-  flex -i --nounistd -DFLEXINT_H --prefix=cmFortran_yy --header-file=cmFortranLexer.h -ocmFortranLexer.cxx cmFortranLexer.in.l
+  flex -i --nounistd -DFLEXINT_H --noline --header-file=cmFortranLexer.h -ocmFortranLexer.cxx cmFortranLexer.in.l
 
 Modify cmFortranLexer.cxx:
-  - remove trailing whitespace: sed -i 's/\s*$//' cmFortranLexer.h cmFortranLexer.cxx
-  - remove blank lines at end of file
-  - #include "cmStandardLexer.h" at the top
-  - add cast in yy_scan_bytes for loop condition of _yybytes_len to size_t
-
+  - remove trailing whitespace:              sed -i 's/\s*$//' cmFortranLexer.h cmFortranLexer.cxx
+  - remove blank lines at end of file:       sed -i '${/^$/d;}' cmFortranLexer.h cmFortranLexer.cxx
+  - #include "cmStandardLexer.h" at the top: sed -i '1i#include "cmStandardLexer.h"' cmFortranLexer.cxx
 */
 
 /* IWYU pragma: no_forward_declare yyguts_t */
+
+#ifndef __clang_analyzer__ /* Suppress clang-analyzer warnings */
 
 #undef YY_NO_UNPUT
 
@@ -37,7 +37,7 @@ Modify cmFortranLexer.cxx:
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = cmFortranParser_Input(yyextra, buf, max_size); }
+  do { result = cmFortranParser_Input(yyextra, buf, max_size); } while (0)
 
 /* Include the set of tokens from the parser.  */
 #include "cmFortranParserTokens.h"
@@ -45,6 +45,7 @@ Modify cmFortranLexer.cxx:
 /*--------------------------------------------------------------------------*/
 %}
 
+%option prefix="cmFortran_yy"
 
 %option reentrant
 %option noyywrap
@@ -147,7 +148,7 @@ $[ \t]*endif    { return F90PPR_ENDIF; }
 [Ii][Nn][Cc][Ll][Uu][Dd][Ee] { return INCLUDE; }
 [Ii][Nn][Tt][Ee][Rr][Ff][Aa][Cc][Ee] { return INTERFACE; }
 [Mm][Oo][Dd][Uu][Ll][Ee] { return MODULE; }
-[Ss][Uu][bb][Mm][Oo][Dd][Uu][Ll][Ee] { return SUBMODULE; }
+[Ss][Uu][Bb][Mm][Oo][Dd][Uu][Ll][Ee] { return SUBMODULE; }
 [Uu][Ss][Ee] { return USE; }
 
 [a-zA-Z_][a-zA-Z_0-9]* {
@@ -184,3 +185,5 @@ YY_BUFFER_STATE cmFortranLexer_GetCurrentBuffer(yyscan_t yyscanner)
   struct yyguts_t * yyg = (struct yyguts_t*)yyscanner;
   return YY_CURRENT_BUFFER;
 }
+
+#endif /* __clang_analyzer__ */

@@ -7,17 +7,18 @@ This file must be translated to C++ and modified to build everywhere.
 
 Run flex >= 2.6 like this:
 
-  flex --nounistd -DFLEXINT_H --prefix=cmDependsJava_yy --header-file=cmDependsJavaLexer.h -ocmDependsJavaLexer.cxx cmDependsJavaLexer.in.l
+  flex --nounistd -DFLEXINT_H --noline --header-file=cmDependsJavaLexer.h -ocmDependsJavaLexer.cxx cmDependsJavaLexer.in.l
 
 Modify cmDependsJavaLexer.cxx:
-  - remove trailing whitespace: sed -i 's/\s*$//' cmDependsJavaLexer.h cmDependsJavaLexer.cxx
-  - remove blank lines at end of file
-  - #include "cmStandardLexer.h" at the top
-  - add cast in yy_scan_bytes for loop condition of _yybytes_len to size_t
+  - remove trailing whitespace:              sed -i 's/\s*$//' cmDependsJavaLexer.h cmDependsJavaLexer.cxx
+  - remove blank lines at end of file:       sed -i '${/^$/d;}' cmDependsJavaLexer.h cmDependsJavaLexer.cxx
+  - #include "cmStandardLexer.h" at the top: sed -i '1i#include "cmStandardLexer.h"' cmDependsJavaLexer.cxx
 
 */
 
 /* IWYU pragma: no_forward_declare yyguts_t */
+
+#ifndef __clang_analyzer__ /* Suppress clang-analyzer warnings */
 
 #include <iostream>
 
@@ -26,7 +27,7 @@ Modify cmDependsJavaLexer.cxx:
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = yyextra->LexInput(buf, max_size); }
+  do { result = yyextra->LexInput(buf, max_size); } while (0)
 
 /* Include the set of tokens from the parser.  */
 #include "cmDependsJavaParserTokens.h"
@@ -37,6 +38,8 @@ Modify cmDependsJavaLexer.cxx:
 
 /*--------------------------------------------------------------------------*/
 %}
+
+%option prefix="cmDependsJava_yy"
 
 %option reentrant
 %option noyywrap
@@ -172,3 +175,7 @@ null { PRIMITIVE; return jp_NULLLITERAL; }
 }
 
 %%
+
+/*--------------------------------------------------------------------------*/
+
+#endif /* __clang_analyzer__ */

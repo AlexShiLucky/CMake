@@ -7,38 +7,45 @@ This file must be translated to C++ and modified to build everywhere.
 
 Run flex >= 2.6 like this:
 
-  flex --nounistd -DFLEXINT_H --prefix=cmExpr_yy --header-file=cmExprLexer.h -ocmExprLexer.cxx cmExprLexer.in.l
+  flex --nounistd -DFLEXINT_H --noline --header-file=cmExprLexer.h -ocmExprLexer.cxx cmExprLexer.in.l
 
 Modify cmExprLexer.cxx:
-  - remove trailing whitespace: sed -i 's/\s*$//' cmExprLexer.h cmExprLexer.cxx
-  - remove blank lines at end of file
-  - #include "cmStandardLexer.h" at the top
-  - add cast in yy_scan_bytes for loop condition of _yybytes_len to size_t
+  - remove trailing whitespace:              sed -i 's/\s*$//' cmExprLexer.h cmExprLexer.cxx
+  - remove blank lines at end of file:       sed -i '${/^$/d;}' cmExprLexer.h cmExprLexer.cxx
+  - #include "cmStandardLexer.h" at the top: sed -i '1i#include "cmStandardLexer.h"' cmExprLexer.cxx
 
 */
 
 /* IWYU pragma: no_forward_declare yyguts_t */
+
+#ifndef __clang_analyzer__ /* Suppress clang-analyzer warnings */
 
 #include "cmExprParserHelper.h"
 
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = yyextra->LexInput(buf, max_size); }
+  do { result = yyextra->LexInput(buf, max_size); } while (0)
 
 /* Include the set of tokens from the parser.  */
 #include "cmExprParserTokens.h"
 
+#include <string>
+
 /*--------------------------------------------------------------------------*/
 %}
+
+%option prefix="cmExpr_yy"
 
 %option reentrant
 %option noyywrap
 %pointer
 
 %%
+[ \t]  {}
 
-[0-9][0-9]* { yylvalp->Number = atoi(yytext); return exp_NUMBER; }
+[0-9][0-9]* { yylvalp->Number = std::stoll(yytext, nullptr, 10); return exp_NUMBER; }
+0[xX][0-9a-fA-F][0-9a-fA-F]* {  yylvalp->Number = std::stoll(yytext, nullptr, 16); return exp_NUMBER; }
 
 "+" { return exp_PLUS; }
 "-" { return exp_MINUS; }
@@ -53,5 +60,10 @@ Modify cmExprLexer.cxx:
 ">>" { return exp_SHIFTRIGHT; }
 "(" { return exp_OPENPARENT; }
 ")" { return exp_CLOSEPARENT; }
+. { yyextra->UnexpectedChar(yytext[0]); }
 
 %%
+
+/*--------------------------------------------------------------------------*/
+
+#endif /* __clang_analyzer__ */

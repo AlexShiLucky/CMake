@@ -7,10 +7,7 @@ This file must be translated to C and modified to build everywhere.
 
 Run bison like this:
 
-  bison --yacc --name-prefix=cmCommandArgument_yy --defines=cmCommandArgumentParserTokens.h -ocmCommandArgumentParser.cxx cmCommandArgumentParser.y
-
-Modify cmCommandArgumentParser.cxx:
-  - "#if 0" out yyerrorlab block in range ["goto yyerrlab1", "yyerrlab1:"]
+  bison --name-prefix=cmCommandArgument_yy --defines=cmCommandArgumentParserTokens.h -ocmCommandArgumentParser.cxx cmCommandArgumentParser.y
 
 */
 
@@ -25,6 +22,7 @@ Modify cmCommandArgumentParser.cxx:
 # include <malloc.h>
 #endif
 
+#include <stdint.h>
 /* Make sure the parser uses standard memory allocation.  The default
    generated parser malloc/free declarations do not work on all
    platforms.  */
@@ -35,7 +33,6 @@ Modify cmCommandArgumentParser.cxx:
 /*-------------------------------------------------------------------------*/
 #include "cmCommandArgumentParserHelper.h" /* Interface to parser object.  */
 #include "cmCommandArgumentLexer.h"  /* Interface to lexer object.  */
-#include "cmCommandArgumentParserTokens.h" /* Need YYSTYPE for YY_DECL.  */
 
 /* Forward declare the lexer entry point.  */
 YY_DECL;
@@ -54,6 +51,10 @@ static void cmCommandArgument_yyerror(yyscan_t yyscanner, const char* message);
                                     case. */
 # pragma warning (disable: 4244) /* loss of precision */
 # pragma warning (disable: 4702) /* unreachable code */
+#endif
+#if defined(__GNUC__) && __GNUC__ >= 8
+# pragma GCC diagnostic ignored "-Wconversion"
+# pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
 %}
 

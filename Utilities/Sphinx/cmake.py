@@ -4,33 +4,58 @@
 import os
 import re
 
-# Monkey patch for pygments reporting an error when generator expressions are
-# used.
-# https://bitbucket.org/birkenfeld/pygments-main/issue/942/cmake-generator-expressions-not-handled
+# Override much of pygments' CMakeLexer.
+# We need to parse CMake syntax definitions, not CMake code.
+
+# For hard test cases that use much of the syntax below, see
+# - module/FindPkgConfig.html (with "glib-2.0>=2.10 gtk+-2.0" and similar)
+# - module/ExternalProject.html (with http:// https:// git@; also has command options -E --build)
+# - manual/cmake-buildsystem.7.html (with nested $<..>; relative and absolute paths, "::")
+
 from pygments.lexers import CMakeLexer
-from pygments.token import Name, Operator
+from pygments.token import Name, Operator, Punctuation, String, Text, Comment, Generic, Whitespace, Number
 from pygments.lexer import bygroups
-CMakeLexer.tokens["args"].append(('(\\$<)(.+?)(>)',
-                                  bygroups(Operator, Name.Variable, Operator)))
 
-# Monkey patch for sphinx generating invalid content for qcollectiongenerator
-# https://bitbucket.org/birkenfeld/sphinx/issue/1435/qthelp-builder-should-htmlescape-keywords
-from sphinx.util.pycompat import htmlescape
-from sphinx.builders.qthelp import QtHelpBuilder
-old_build_keywords = QtHelpBuilder.build_keywords
-def new_build_keywords(self, title, refs, subitems):
-  old_items = old_build_keywords(self, title, refs, subitems)
-  new_items = []
-  for item in old_items:
-    before, rest = item.split("ref=\"", 1)
-    ref, after = rest.split("\"")
-    if ("<" in ref and ">" in ref):
-      new_items.append(before + "ref=\"" + htmlescape(ref) + "\"" + after)
-    else:
-      new_items.append(item)
-  return new_items
-QtHelpBuilder.build_keywords = new_build_keywords
+# Notes on regular expressions below:
+# - [\.\+-] are needed for string constants like gtk+-2.0
+# - Unix paths are recognized by '/'; support for Windows paths may be added if needed
+# - (\\.) allows for \-escapes (used in manual/cmake-language.7)
+# - $<..$<..$>..> nested occurrence in cmake-buildsystem
+# - Nested variable evaluations are only supported in a limited capacity. Only
+#   one level of nesting is supported and at most one nested variable can be present.
 
+CMakeLexer.tokens["root"] = [
+  (r'\b(\w+)([ \t]*)(\()', bygroups(Name.Function, Text, Name.Function), '#push'),     # fctn(
+  (r'\(', Name.Function, '#push'),
+  (r'\)', Name.Function, '#pop'),
+  (r'\[', Punctuation, '#push'),
+  (r'\]', Punctuation, '#pop'),
+  (r'[|;,.=*\-]', Punctuation),
+  (r'\\\\', Punctuation),                                   # used in commands/source_group
+  (r'[:]', Operator),
+  (r'[<>]=', Punctuation),                                  # used in FindPkgConfig.cmake
+  (r'\$<', Operator, '#push'),                              # $<...>
+  (r'<[^<|]+?>(\w*\.\.\.)?', Name.Variable),                # <expr>
+  (r'(\$\w*\{)([^\}\$]*)?(?:(\$\w*\{)([^\}]+?)(\}))?([^\}]*?)(\})',  # ${..} $ENV{..}, possibly nested
+    bygroups(Operator, Name.Tag, Operator, Name.Tag, Operator, Name.Tag, Operator)),
+  (r'([A-Z]+\{)(.+?)(\})', bygroups(Operator, Name.Tag, Operator)),  # DATA{ ...}
+  (r'[a-z]+(@|(://))((\\.)|[\w.+-:/\\])+', Name.Attribute),          # URL, git@, ...
+  (r'/\w[\w\.\+-/\\]*', Name.Attribute),                    # absolute path
+  (r'/', Name.Attribute),
+  (r'\w[\w\.\+-]*/[\w.+-/\\]*', Name.Attribute),            # relative path
+  (r'[A-Z]((\\.)|[\w.+-])*[a-z]((\\.)|[\w.+-])*', Name.Builtin), # initial A-Z, contains a-z
+  (r'@?[A-Z][A-Z0-9_]*', Name.Constant),
+  (r'[a-z_]((\\;)|(\\ )|[\w.+-])*', Name.Builtin),
+  (r'[0-9][0-9\.]*', Number),
+  (r'(?s)"(\\"|[^"])*"', String),                           # "string"
+  (r'\.\.\.', Name.Variable),
+  (r'<', Operator, '#push'),                                # <..|..> is different from <expr>
+  (r'>', Operator, '#pop'),
+  (r'\n', Whitespace),
+  (r'[ \t]+', Whitespace),
+  (r'#.*\n', Comment),
+  #  (r'[^<>\])\}\|$"# \t\n]+', Name.Exception),            # fallback, for debugging only
+]
 
 from docutils.parsers.rst import Directive, directives
 from docutils.transforms import Transform
@@ -48,18 +73,37 @@ from sphinx.roles import XRefRole
 from sphinx.util.nodes import make_refnode
 from sphinx import addnodes
 
-# Needed for checking if Sphinx version is >= 1.4.
-# See https://github.com/sphinx-doc/sphinx/issues/2673
-old_sphinx = False
-
+sphinx_before_1_4 = False
+sphinx_before_1_7_2 = False
 try:
     from sphinx import version_info
     if version_info < (1, 4):
-        old_sphinx = True
+        sphinx_before_1_4 = True
+    if version_info < (1, 7, 2):
+        sphinx_before_1_7_2 = True
 except ImportError:
     # The `sphinx.version_info` tuple was added in Sphinx v1.2:
-    old_sphinx = True
+    sphinx_before_1_4 = True
+    sphinx_before_1_7_2 = True
 
+if sphinx_before_1_7_2:
+  # Monkey patch for sphinx generating invalid content for qcollectiongenerator
+  # https://github.com/sphinx-doc/sphinx/issues/1435
+  from sphinx.util.pycompat import htmlescape
+  from sphinx.builders.qthelp import QtHelpBuilder
+  old_build_keywords = QtHelpBuilder.build_keywords
+  def new_build_keywords(self, title, refs, subitems):
+    old_items = old_build_keywords(self, title, refs, subitems)
+    new_items = []
+    for item in old_items:
+      before, rest = item.split("ref=\"", 1)
+      ref, after = rest.split("\"")
+      if ("<" in ref and ">" in ref):
+        new_items.append(before + "ref=\"" + htmlescape(ref) + "\"" + after)
+      else:
+        new_items.append(item)
+    return new_items
+  QtHelpBuilder.build_keywords = new_build_keywords
 
 class CMakeModule(Directive):
     required_arguments = 1
@@ -137,14 +181,18 @@ class _cmake_index_entry:
 
     def __call__(self, title, targetid, main = 'main'):
         # See https://github.com/sphinx-doc/sphinx/issues/2673
-        if old_sphinx:
+        if sphinx_before_1_4:
             return ('pair', u'%s ; %s' % (self.desc, title), targetid, main)
         else:
             return ('pair', u'%s ; %s' % (self.desc, title), targetid, main, None)
 
 _cmake_index_objs = {
     'command':    _cmake_index_entry('command'),
+    'cpack_gen':  _cmake_index_entry('cpack generator'),
+    'envvar':     _cmake_index_entry('envvar'),
     'generator':  _cmake_index_entry('generator'),
+    'genex':      _cmake_index_entry('genex'),
+    'guide':      _cmake_index_entry('guide'),
     'manual':     _cmake_index_entry('manual'),
     'module':     _cmake_index_entry('module'),
     'policy':     _cmake_index_entry('policy'),
@@ -177,7 +225,7 @@ class CMakeTransform(Transform):
         self.titles = {}
 
     def parse_title(self, docname):
-        """Parse a document title as the first line starting in [A-Za-z0-9<]
+        """Parse a document title as the first line starting in [A-Za-z0-9<$]
            or fall back to the document basename if no such line exists.
            The cmake --help-*-list commands also depend on this convention.
            Return the title or False if the document file does not exist.
@@ -192,7 +240,7 @@ class CMakeTransform(Transform):
                 title = False
             else:
                 for line in f:
-                    if len(line) > 0 and (line[0].isalnum() or line[0] == '<'):
+                    if len(line) > 0 and (line[0].isalnum() or line[0] == '<' or line[0] == '$'):
                         title = line.rstrip()
                         break
                 f.close()
@@ -205,14 +253,20 @@ class CMakeTransform(Transform):
         env = self.document.settings.env
 
         # Treat some documents as cmake domain objects.
-        objtype, sep, tail = env.docname.rpartition('/')
+        objtype, sep, tail = env.docname.partition('/')
         make_index_entry = _cmake_index_objs.get(objtype)
         if make_index_entry:
             title = self.parse_title(env.docname)
             # Insert the object link target.
             if objtype == 'command':
                 targetname = title.lower()
+            elif objtype == 'guide' and not tail.endswith('/index'):
+                targetname = tail
             else:
+                if objtype == 'genex':
+                    m = CMakeXRefRole._re_genex.match(title)
+                    if m:
+                        title = m.group(1)
                 targetname = title
             targetid = '%s:%s' % (objtype, targetname)
             targetnode = nodes.target('', '', ids=[targetid])
@@ -230,6 +284,10 @@ class CMakeObject(ObjectDescription):
     def handle_signature(self, sig, signode):
         # called from sphinx.directives.ObjectDescription.run()
         signode += addnodes.desc_name(sig, sig)
+        if self.objtype == 'genex':
+            m = CMakeXRefRole._re_genex.match(sig)
+            if m:
+                sig = m.group(1)
         return sig
 
     def add_target_and_index(self, name, sig, signode):
@@ -255,6 +313,8 @@ class CMakeXRefRole(XRefRole):
     # See sphinx.util.nodes.explicit_title_re; \x00 escapes '<'.
     _re = re.compile(r'^(.+?)(\s*)(?<!\x00)<(.*?)>$', re.DOTALL)
     _re_sub = re.compile(r'^([^()\s]+)\s*\(([^()]*)\)$', re.DOTALL)
+    _re_genex = re.compile(r'^\$<([^<>:]+)(:[^<>]+)?>$', re.DOTALL)
+    _re_guide = re.compile(r'^([^<>/]+)/([^<>]*)$', re.DOTALL)
 
     def __call__(self, typ, rawtext, text, *args, **keys):
         # Translate CMake command cross-references of the form:
@@ -265,6 +325,14 @@ class CMakeXRefRole(XRefRole):
             m = CMakeXRefRole._re_sub.match(text)
             if m:
                 text = '%s <%s>' % (text, m.group(1))
+        elif typ == 'cmake:genex':
+            m = CMakeXRefRole._re_genex.match(text)
+            if m:
+                text = '%s <%s>' % (text, m.group(1))
+        elif typ == 'cmake:guide':
+            m = CMakeXRefRole._re_guide.match(text)
+            if m:
+                text = '%s <%s>' % (m.group(2), text)
         # CMake cross-reference targets frequently contain '<' so escape
         # any explicit `<target>` with '<' not preceded by whitespace.
         while True:
@@ -278,7 +346,7 @@ class CMakeXRefRole(XRefRole):
     # We cannot insert index nodes using the result_nodes method
     # because CMakeXRefRole is processed before substitution_reference
     # nodes are evaluated so target nodes (with 'ids' fields) would be
-    # duplicated in each evaluted substitution replacement.  The
+    # duplicated in each evaluated substitution replacement.  The
     # docutils substitution transform does not allow this.  Instead we
     # use our own CMakeXRefTransform below to add index entries after
     # substitutions are completed.
@@ -308,6 +376,10 @@ class CMakeXRefTransform(Transform):
                 continue
 
             objname = ref['reftarget']
+            if objtype == 'guide' and CMakeXRefRole._re_guide.match(objname):
+                # Do not index cross-references to guide sections.
+                continue
+
             targetnum = env.new_serialno('index-%s:%s' % (objtype, objname))
 
             targetid = 'index-%s-%s:%s' % (targetnum, objtype, objname)
@@ -324,7 +396,11 @@ class CMakeDomain(Domain):
     label = 'CMake'
     object_types = {
         'command':    ObjType('command',    'command'),
+        'cpack_gen':  ObjType('cpack_gen',  'cpack_gen'),
+        'envvar':     ObjType('envvar',     'envvar'),
         'generator':  ObjType('generator',  'generator'),
+        'genex':      ObjType('genex',      'genex'),
+        'guide':      ObjType('guide',      'guide'),
         'variable':   ObjType('variable',   'variable'),
         'module':     ObjType('module',     'module'),
         'policy':     ObjType('policy',     'policy'),
@@ -339,6 +415,8 @@ class CMakeDomain(Domain):
     }
     directives = {
         'command':    CMakeObject,
+        'envvar':     CMakeObject,
+        'genex':      CMakeObject,
         'variable':   CMakeObject,
         # Other object types cannot be created except by the CMakeTransform
         # 'generator':  CMakeObject,
@@ -355,7 +433,11 @@ class CMakeDomain(Domain):
     }
     roles = {
         'command':    CMakeXRefRole(fix_parens = True, lowercase = True),
+        'cpack_gen':  CMakeXRefRole(),
+        'envvar':     CMakeXRefRole(),
         'generator':  CMakeXRefRole(),
+        'genex':      CMakeXRefRole(),
+        'guide':      CMakeXRefRole(),
         'variable':   CMakeXRefRole(),
         'module':     CMakeXRefRole(),
         'policy':     CMakeXRefRole(),

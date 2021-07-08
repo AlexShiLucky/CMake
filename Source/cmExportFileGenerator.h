@@ -1,19 +1,19 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmExportFileGenerator_h
-#define cmExportFileGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmGeneratorExpression.h"
-#include "cmVersion.h"
-#include "cmVersionConfig.h"
 
 #include <iosfwd>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
+
+#include "cmGeneratorExpression.h"
+#include "cmStateTypes.h"
+#include "cmVersion.h"
+#include "cmVersionConfig.h"
 
 class cmGeneratorTarget;
 
@@ -41,11 +41,11 @@ class cmExportFileGenerator
 {
 public:
   cmExportFileGenerator();
-  virtual ~cmExportFileGenerator() {}
+  virtual ~cmExportFileGenerator() = default;
 
   /** Set the full path to the export file to generate.  */
   void SetExportFile(const char* mainFile);
-  const char* GetMainExportFileName() const;
+  const std::string& GetMainExportFileName() const;
 
   /** Set the namespace in which to place exported target names.  */
   void SetNamespace(const std::string& ns) { this->Namespace = ns; }
@@ -61,7 +61,7 @@ public:
   bool GenerateImportFile();
 
 protected:
-  typedef std::map<std::string, std::string> ImportPropertyMap;
+  using ImportPropertyMap = std::map<std::string, std::string>;
 
   // Generate per-configuration target information to the given output
   // stream.
@@ -76,7 +76,8 @@ protected:
   virtual void GenerateImportFooterCode(std::ostream& os);
   void GenerateImportVersionCode(std::ostream& os);
   virtual void GenerateImportTargetCode(std::ostream& os,
-                                        cmGeneratorTarget const* target);
+                                        cmGeneratorTarget const* target,
+                                        cmStateEnums::TargetType targetType);
   virtual void GenerateImportPropertyCode(std::ostream& os,
                                           const std::string& config,
                                           cmGeneratorTarget const* target,
@@ -100,13 +101,19 @@ protected:
                                  ImportPropertyMap& properties,
                                  std::vector<std::string>& missingTargets);
 
+  enum class ImportLinkPropertyTargetNames
+  {
+    Yes,
+    No,
+  };
   template <typename T>
   void SetImportLinkProperty(std::string const& suffix,
                              cmGeneratorTarget* target,
                              const std::string& propName,
                              std::vector<T> const& entries,
                              ImportPropertyMap& properties,
-                             std::vector<std::string>& missingTargets);
+                             std::vector<std::string>& missingTargets,
+                             ImportLinkPropertyTargetNames targetNames);
 
   /** Each subclass knows how to generate its kind of export file.  */
   virtual bool GenerateMainFile(std::ostream& os) = 0;
@@ -145,6 +152,14 @@ protected:
     cmTargetExport* target,
     cmGeneratorExpression::PreprocessContext preprocessRule,
     ImportPropertyMap& properties, std::vector<std::string>& missingTargets);
+  void PopulateLinkDirectoriesInterface(
+    cmTargetExport* target,
+    cmGeneratorExpression::PreprocessContext preprocessRule,
+    ImportPropertyMap& properties, std::vector<std::string>& missingTargets);
+  void PopulateLinkDependsInterface(
+    cmTargetExport* target,
+    cmGeneratorExpression::PreprocessContext preprocessRule,
+    ImportPropertyMap& properties, std::vector<std::string>& missingTargets);
 
   void SetImportLinkInterface(
     const std::string& config, std::string const& suffix,
@@ -165,6 +180,10 @@ protected:
 
   virtual void GenerateRequiredCMakeVersion(std::ostream& os,
                                             const char* versionString);
+
+  bool PopulateExportProperties(cmGeneratorTarget* gte,
+                                ImportPropertyMap& properties,
+                                std::string& errorMessage);
 
   // The namespace in which the exports are placed in the generated file.
   std::string Namespace;
@@ -203,5 +222,3 @@ private:
   virtual std::string InstallNameDir(cmGeneratorTarget* target,
                                      const std::string& config) = 0;
 };
-
-#endif

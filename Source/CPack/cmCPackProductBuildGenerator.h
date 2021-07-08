@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackProductBuildGenerator_h
-#define cmCPackProductBuildGenerator_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 
@@ -25,12 +24,12 @@ public:
    * Construct generator
    */
   cmCPackProductBuildGenerator();
-  virtual ~cmCPackProductBuildGenerator();
+  ~cmCPackProductBuildGenerator() override;
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
-  int PackageFiles() CM_OVERRIDE;
-  const char* GetOutputExtension() CM_OVERRIDE { return ".pkg"; }
+  int InitializeInternal() override;
+  int PackageFiles() override;
+  const char* GetOutputExtension() override { return ".pkg"; }
 
   // Run ProductBuild with the given command line, which will (if
   // successful) produce the given package file. Returns true if
@@ -49,5 +48,3 @@ protected:
   const char* GetComponentScript(const char* script,
                                  const char* script_component);
 };
-
-#endif

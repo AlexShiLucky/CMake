@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCoreTryCompile_h
-#define cmCoreTryCompile_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -33,7 +32,7 @@ protected:
    * This way we do not have to rely on the timing and
    * dependencies of makefiles.
    */
-  void CleanupFiles(const char* binDir);
+  void CleanupFiles(std::string const& binDir);
 
   /**
    * This tries to find the (executable) file created by
@@ -46,11 +45,5 @@ protected:
   std::string BinaryDirectory;
   std::string OutputFile;
   std::string FindErrorMessage;
-  bool SrcFileSignature;
-
-private:
-  std::vector<std::string> WarnCMP0067;
-  std::string LookupStdVar(std::string const& var, bool warnCMP0067);
+  bool SrcFileSignature = false;
 };
-
-#endif

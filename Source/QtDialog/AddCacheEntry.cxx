@@ -21,8 +21,8 @@ AddCacheEntry::AddCacheEntry(QWidget* p, const QStringList& varNames,
   , VarTypes(varTypes)
 {
   this->setupUi(this);
-  for (int i = 0; i < NumTypes; i++) {
-    this->Type->addItem(TypeStrings[i]);
+  for (auto const& elem : TypeStrings) {
+    this->Type->addItem(elem);
   }
   QWidget* cb = new QCheckBox();
   QWidget* path = new QCMakePathEditor();
@@ -32,16 +32,18 @@ AddCacheEntry::AddCacheEntry(QWidget* p, const QStringList& varNames,
   this->StackedWidget->addWidget(path);
   this->StackedWidget->addWidget(filepath);
   this->StackedWidget->addWidget(string);
-  this->setTabOrder(this->Name, this->Type);
-  this->setTabOrder(this->Type, cb);
-  this->setTabOrder(cb, path);
-  this->setTabOrder(path, filepath);
-  this->setTabOrder(filepath, string);
-  this->setTabOrder(string, this->Description);
+  AddCacheEntry::setTabOrder(this->Name, this->Type);
+  AddCacheEntry::setTabOrder(this->Type, cb);
+  AddCacheEntry::setTabOrder(cb, path);
+  AddCacheEntry::setTabOrder(path, filepath);
+  AddCacheEntry::setTabOrder(filepath, string);
+  AddCacheEntry::setTabOrder(string, this->Description);
   QCompleter* completer = new QCompleter(this->VarNames, this);
   this->Name->setCompleter(completer);
-  connect(completer, SIGNAL(activated(const QString&)), this,
-          SLOT(onCompletionActivated(const QString&)));
+  connect(
+    completer,
+    static_cast<void (QCompleter::*)(const QString&)>(&QCompleter::activated),
+    this, &AddCacheEntry::onCompletionActivated);
 }
 
 QString AddCacheEntry::name() const

@@ -1,16 +1,18 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestReadCustomFilesCommand_h
-#define cmCTestReadCustomFilesCommand_h
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmCTestCommand.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
+#include <utility>
 #include <vector>
 
-class cmCommand;
+#include <cm/memory>
+
+#include "cmCTestCommand.h"
+#include "cmCommand.h"
+
 class cmExecutionStatus;
 
 /** \class cmCTestReadCustomFiles
@@ -27,11 +29,11 @@ public:
   /**
    * This is a virtual constructor for the command.
    */
-  cmCommand* Clone() CM_OVERRIDE
+  std::unique_ptr<cmCommand> Clone() override
   {
-    cmCTestReadCustomFilesCommand* ni = new cmCTestReadCustomFilesCommand;
+    auto ni = cm::make_unique<cmCTestReadCustomFilesCommand>();
     ni->CTest = this->CTest;
-    return ni;
+    return std::unique_ptr<cmCommand>(std::move(ni));
   }
 
   /**
@@ -39,7 +41,5 @@ public:
    * the CMakeLists.txt file.
    */
   bool InitialPass(std::vector<std::string> const& args,
-                   cmExecutionStatus& status) CM_OVERRIDE;
+                   cmExecutionStatus& status) override;
 };
-
-#endif

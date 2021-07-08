@@ -7,20 +7,18 @@ This file must be translated to C and modified to build everywhere.
 
 Run flex >= 2.6 like this:
 
-  flex --nounistd -DFLEXINT_H --prefix=cmListFileLexer_yy -ocmListFileLexer.c cmListFileLexer.in.l
+  flex --nounistd -DFLEXINT_H --noline -ocmListFileLexer.c cmListFileLexer.in.l
 
 Modify cmListFileLexer.c:
-  - remove trailing whitespace: sed -i 's/\s*$//' cmListFileLexer.c
-  - remove blank lines at end of file
-  - #include "cmStandardLexer.h" at the top
-  - add cast in yy_scan_bytes for loop condition of _yybytes_len to size_t
-  - change type of variable yyl under yy_find_action from yy_size_t to int
+  - remove trailing whitespace:              sed -i 's/\s*$//' cmListFileLexer.c
+  - remove blank lines at end of file:       sed -i '${/^$/d;}' cmListFileLexer.c
+  - #include "cmStandardLexer.h" at the top: sed -i '1i#include "cmStandardLexer.h"' cmListFileLexer.c
 
 */
 
 /* IWYU pragma: no_forward_declare yyguts_t */
 
-#ifdef WIN32
+#ifdef _WIN32
 #include "cmsys/Encoding.h"
 #endif
 
@@ -59,10 +57,12 @@ static void cmListFileLexerDestroy(cmListFileLexer* lexer);
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = cmListFileLexerInput(cmListFileLexer_yyget_extra(yyscanner), buf, max_size); }
+  do { result = cmListFileLexerInput(cmListFileLexer_yyget_extra(yyscanner), buf, max_size); } while (0)
 
 /*--------------------------------------------------------------------------*/
 %}
+
+%option prefix="cmListFileLexer_yy"
 
 %option reentrant
 %option yylineno
@@ -74,7 +74,7 @@ static void cmListFileLexerDestroy(cmListFileLexer* lexer);
 %x COMMENT
 
 MAKEVAR \$\([A-Za-z0-9_]*\)
-UNQUOTED ([^ \t\r\n\(\)#\\\"[=]|\\.)
+UNQUOTED ([^ \0\t\r\n\(\)#\\\"[=]|\\[^\0\n])
 LEGACY {MAKEVAR}|{UNQUOTED}|\"({MAKEVAR}|{UNQUOTED}|[ \t[=])*\"
 
 %%
@@ -113,7 +113,7 @@ LEGACY {MAKEVAR}|{UNQUOTED}|\"({MAKEVAR}|{UNQUOTED}|[ \t[=])*\"
   BEGIN(COMMENT);
 }
 
-<COMMENT>.* {
+<COMMENT>[^\0\n]* {
   lexer->column += yyleng;
 }
 
@@ -156,7 +156,7 @@ LEGACY {MAKEVAR}|{UNQUOTED}|\"({MAKEVAR}|{UNQUOTED}|[ \t[=])*\"
   return 1;
 }
 
-<BRACKET>([^]\n])+ {
+<BRACKET>([^]\0\n])+ {
   cmListFileLexerAppend(lexer, yytext, yyleng);
   lexer->column += yyleng;
 }
@@ -168,7 +168,7 @@ LEGACY {MAKEVAR}|{UNQUOTED}|\"({MAKEVAR}|{UNQUOTED}|[ \t[=])*\"
   BEGIN(BRACKET);
 }
 
-<BRACKET,BRACKETEND>. {
+<BRACKET,BRACKETEND>[^\0\n] {
   cmListFileLexerAppend(lexer, yytext, yyleng);
   lexer->column += yyleng;
   BEGIN(BRACKET);
@@ -208,7 +208,7 @@ LEGACY {MAKEVAR}|{UNQUOTED}|\"({MAKEVAR}|{UNQUOTED}|[ \t[=])*\"
   BEGIN(STRING);
 }
 
-<STRING>([^\\\n\"]|\\.)+ {
+<STRING>([^\\\0\n\"]|\\[^\0\n])+ {
   cmListFileLexerAppend(lexer, yytext, yyleng);
   lexer->column += yyleng;
 }
@@ -231,7 +231,7 @@ LEGACY {MAKEVAR}|{UNQUOTED}|\"({MAKEVAR}|{UNQUOTED}|[ \t[=])*\"
   return 1;
 }
 
-<STRING>. {
+<STRING>[^\0\n] {
   cmListFileLexerAppend(lexer, yytext, yyleng);
   lexer->column += yyleng;
 }
@@ -439,11 +439,15 @@ static cmListFileLexer_BOM cmListFileLexer_ReadBOM(FILE* f)
       if (fread(b, 1, 2, f) == 2 && b[0] == 0 && b[1] == 0) {
         return cmListFileLexer_BOM_UTF32LE;
       }
-      fsetpos(f, &p);
+      if (fsetpos(f, &p) != 0) {
+        return cmListFileLexer_BOM_Broken;
+      }
       return cmListFileLexer_BOM_UTF16LE;
     }
   }
-  rewind(f);
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    return cmListFileLexer_BOM_Broken;
+  }
   return cmListFileLexer_BOM_None;
 }
 
@@ -496,7 +500,7 @@ int cmListFileLexer_SetString(cmListFileLexer* lexer, const char* text)
 /*--------------------------------------------------------------------------*/
 cmListFileLexer_Token* cmListFileLexer_Scan(cmListFileLexer* lexer)
 {
-  if (!lexer->file) {
+  if (!lexer->file && !lexer->string_buffer) {
     return 0;
   }
   if (cmListFileLexer_yylex(lexer->scanner, lexer)) {
@@ -510,21 +514,13 @@ cmListFileLexer_Token* cmListFileLexer_Scan(cmListFileLexer* lexer)
 /*--------------------------------------------------------------------------*/
 long cmListFileLexer_GetCurrentLine(cmListFileLexer* lexer)
 {
-  if (lexer->file) {
-    return lexer->line;
-  } else {
-    return 0;
-  }
+  return lexer->line;
 }
 
 /*--------------------------------------------------------------------------*/
 long cmListFileLexer_GetCurrentColumn(cmListFileLexer* lexer)
 {
-  if (lexer->file) {
-    return lexer->column;
-  } else {
-    return 0;
-  }
+  return lexer->column;
 }
 
 /*--------------------------------------------------------------------------*/

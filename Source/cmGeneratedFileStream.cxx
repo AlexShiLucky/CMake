@@ -2,46 +2,51 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmGeneratedFileStream.h"
 
-#include <stdio.h>
+#include <cstdio>
 
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
-#if defined(CMAKE_BUILD_WITH_CMAKE)
-#include "cm_codecvt.hxx"
-#include "cm_zlib.h"
+#if !defined(CMAKE_BOOTSTRAP)
+#  include <cm3p/zlib.h>
+
+#  include "cm_codecvt.hxx"
 #endif
 
 cmGeneratedFileStream::cmGeneratedFileStream(Encoding encoding)
-  : cmGeneratedFileStreamBase()
-  , Stream()
+  : OriginalLocale(this->getloc())
 {
-#ifdef CMAKE_BUILD_WITH_CMAKE
+#ifndef CMAKE_BOOTSTRAP
   if (encoding != codecvt::None) {
-    imbue(std::locale(getloc(), new codecvt(encoding)));
+    this->imbue(std::locale(this->OriginalLocale, new codecvt(encoding)));
   }
 #else
   static_cast<void>(encoding);
 #endif
 }
 
-cmGeneratedFileStream::cmGeneratedFileStream(const char* name, bool quiet,
-                                             Encoding encoding)
+cmGeneratedFileStream::cmGeneratedFileStream(std::string const& name,
+                                             bool quiet, Encoding encoding)
   : cmGeneratedFileStreamBase(name)
-  , Stream(TempName.c_str())
+  , Stream(this->TempName.c_str())
 {
   // Check if the file opened.
   if (!*this && !quiet) {
-    cmSystemTools::Error("Cannot open file for write: ",
-                         this->TempName.c_str());
+    cmSystemTools::Error("Cannot open file for write: " + this->TempName);
     cmSystemTools::ReportLastSystemError("");
   }
-#ifdef CMAKE_BUILD_WITH_CMAKE
+#ifndef CMAKE_BOOTSTRAP
   if (encoding != codecvt::None) {
-    imbue(std::locale(getloc(), new codecvt(encoding)));
+    this->imbue(std::locale(this->getloc(), new codecvt(encoding)));
   }
 #else
   static_cast<void>(encoding);
 #endif
+  if (encoding == codecvt::UTF8_WITH_BOM) {
+    // Write the BOM encoding header into the file
+    char magic[] = { char(0xEF), char(0xBB), char(0xBF) };
+    this->write(magic, 3);
+  }
 }
 
 cmGeneratedFileStream::~cmGeneratedFileStream()
@@ -54,7 +59,7 @@ cmGeneratedFileStream::~cmGeneratedFileStream()
   this->Okay = !this->fail();
 }
 
-cmGeneratedFileStream& cmGeneratedFileStream::Open(const char* name,
+cmGeneratedFileStream& cmGeneratedFileStream::Open(std::string const& name,
                                                    bool quiet, bool binaryFlag)
 {
   // Store the file name and construct the temporary file name.
@@ -70,8 +75,7 @@ cmGeneratedFileStream& cmGeneratedFileStream::Open(const char* name,
 
   // Check if the file opened.
   if (!*this && !quiet) {
-    cmSystemTools::Error("Cannot open file for write: ",
-                         this->TempName.c_str());
+    cmSystemTools::Error("Cannot open file for write: " + this->TempName);
     cmSystemTools::ReportLastSystemError("");
   }
   return *this;
@@ -104,23 +108,9 @@ void cmGeneratedFileStream::SetCompressionExtraExtension(bool ext)
   this->CompressExtraExtension = ext;
 }
 
-cmGeneratedFileStreamBase::cmGeneratedFileStreamBase()
-  : Name()
-  , TempName()
-  , CopyIfDifferent(false)
-  , Okay(false)
-  , Compress(false)
-  , CompressExtraExtension(true)
-{
-}
+cmGeneratedFileStreamBase::cmGeneratedFileStreamBase() = default;
 
-cmGeneratedFileStreamBase::cmGeneratedFileStreamBase(const char* name)
-  : Name()
-  , TempName()
-  , CopyIfDifferent(false)
-  , Okay(false)
-  , Compress(false)
-  , CompressExtraExtension(true)
+cmGeneratedFileStreamBase::cmGeneratedFileStreamBase(std::string const& name)
 {
   this->Open(name);
 }
@@ -130,7 +120,7 @@ cmGeneratedFileStreamBase::~cmGeneratedFileStreamBase()
   this->Close();
 }
 
-void cmGeneratedFileStreamBase::Open(const char* name)
+void cmGeneratedFileStreamBase::Open(std::string const& name)
 {
   // Save the original name of the file.
   this->Name = name;
@@ -138,16 +128,23 @@ void cmGeneratedFileStreamBase::Open(const char* name)
   // Create the name of the temporary file.
   this->TempName = name;
 #if defined(__VMS)
-  this->TempName += "_tmp";
+  this->TempName += "_";
 #else
-  this->TempName += ".tmp";
+  this->TempName += ".";
 #endif
+  if (!this->TempExt.empty()) {
+    this->TempName += this->TempExt;
+  } else {
+    char buf[64];
+    sprintf(buf, "tmp%05x", cmSystemTools::RandomSeed() & 0xFFFFF);
+    this->TempName += buf;
+  }
 
   // Make sure the temporary file that will be used is not present.
   cmSystemTools::RemoveFile(this->TempName);
 
   std::string dir = cmSystemTools::GetFilenamePath(this->TempName);
-  cmSystemTools::MakeDirectory(dir.c_str());
+  cmSystemTools::MakeDirectory(dir);
 }
 
 bool cmGeneratedFileStreamBase::Close()
@@ -167,13 +164,13 @@ bool cmGeneratedFileStreamBase::Close()
     // The destination is to be replaced.  Rename the temporary to the
     // destination atomically.
     if (this->Compress) {
-      std::string gzname = this->TempName + ".temp.gz";
-      if (this->CompressFile(this->TempName.c_str(), gzname.c_str())) {
-        this->RenameFile(gzname.c_str(), resname.c_str());
+      std::string gzname = cmStrCat(this->TempName, ".temp.gz");
+      if (this->CompressFile(this->TempName, gzname)) {
+        this->RenameFile(gzname, resname);
       }
       cmSystemTools::RemoveFile(gzname);
     } else {
-      this->RenameFile(this->TempName.c_str(), resname.c_str());
+      this->RenameFile(this->TempName, resname);
     }
 
     replaced = true;
@@ -187,16 +184,17 @@ bool cmGeneratedFileStreamBase::Close()
   return replaced;
 }
 
-#ifdef CMAKE_BUILD_WITH_CMAKE
-int cmGeneratedFileStreamBase::CompressFile(const char* oldname,
-                                            const char* newname)
+#ifndef CMAKE_BOOTSTRAP
+int cmGeneratedFileStreamBase::CompressFile(std::string const& oldname,
+                                            std::string const& newname)
 {
-  gzFile gf = gzopen(newname, "w");
+  gzFile gf = gzopen(newname.c_str(), "w");
   if (!gf) {
     return 0;
   }
   FILE* ifs = cmsys::SystemTools::Fopen(oldname, "r");
   if (!ifs) {
+    gzclose(gf);
     return 0;
   }
   size_t res;
@@ -214,14 +212,15 @@ int cmGeneratedFileStreamBase::CompressFile(const char* oldname,
   return 1;
 }
 #else
-int cmGeneratedFileStreamBase::CompressFile(const char*, const char*)
+int cmGeneratedFileStreamBase::CompressFile(std::string const&,
+                                            std::string const&)
 {
   return 0;
 }
 #endif
 
-int cmGeneratedFileStreamBase::RenameFile(const char* oldname,
-                                          const char* newname)
+int cmGeneratedFileStreamBase::RenameFile(std::string const& oldname,
+                                          std::string const& newname)
 {
   return cmSystemTools::RenameFile(oldname, newname);
 }
@@ -229,4 +228,20 @@ int cmGeneratedFileStreamBase::RenameFile(const char* oldname,
 void cmGeneratedFileStream::SetName(const std::string& fname)
 {
   this->Name = fname;
+}
+
+void cmGeneratedFileStream::SetTempExt(std::string const& ext)
+{
+  this->TempExt = ext;
+}
+
+void cmGeneratedFileStream::WriteRaw(std::string const& data)
+{
+#ifndef CMAKE_BOOTSTRAP
+  std::locale activeLocale = this->imbue(this->OriginalLocale);
+  this->write(data.data(), data.size());
+  this->imbue(activeLocale);
+#else
+  this->write(data.data(), data.size());
+#endif
 }

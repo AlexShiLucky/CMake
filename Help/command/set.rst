@@ -8,18 +8,18 @@ and cache entries.
 
 Signatures of this command that specify a ``<value>...`` placeholder
 expect zero or more arguments.  Multiple arguments will be joined as
-a :ref:`;-list <CMake Language Lists>` to form the actual variable
+a :ref:`semicolon-separated list <CMake Language Lists>` to form the actual variable
 value to be set.  Zero arguments will cause normal variables to be
 unset.  See the :command:`unset` command to unset variables explicitly.
 
 Set Normal Variable
 ^^^^^^^^^^^^^^^^^^^
 
-::
+.. code-block:: cmake
 
   set(<variable> <value>... [PARENT_SCOPE])
 
-Set the given ``<variable>`` in the current function or directory scope.
+Sets the given ``<variable>`` in the current function or directory scope.
 
 If the ``PARENT_SCOPE`` option is given the variable will be set in
 the scope above the current scope.  Each new directory or function
@@ -32,11 +32,11 @@ undefined and if it had a value, it is still that value).
 Set Cache Entry
 ^^^^^^^^^^^^^^^
 
-::
+.. code-block:: cmake
 
   set(<variable> <value>... CACHE <type> <docstring> [FORCE])
 
-Set the given cache ``<variable>`` (cache entry).  Since cache entries
+Sets the given cache ``<variable>`` (cache entry).  Since cache entries
 are meant to provide user-settable values this does not overwrite
 existing cache entries by default.  Use the ``FORCE`` option to
 overwrite existing entries.
@@ -68,9 +68,13 @@ users.
 
 If the cache entry does not exist prior to the call or the ``FORCE``
 option is given then the cache entry will be set to the given value.
-Furthermore, any normal variable binding in the current scope will
-be removed to expose the newly cached value to any immediately
-following evaluation.
+
+.. note::
+
+  The content of the cache variable will not be directly accessible if a normal
+  variable of the same name already exists (see :ref:`rules of variable
+  evaluation <CMake Language Variables>`). If policy :policy:`CMP0126` is set
+  to ``OLD``, any normal variable binding in the current scope will be removed.
 
 It is possible for the cache entry to exist prior to the call but
 have no type set if it was created on the :manual:`cmake(1)` command
@@ -84,8 +88,21 @@ current working directory and convert it to an absolute path.
 Set Environment Variable
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-::
+.. code-block:: cmake
 
-  set(ENV{<variable>} <value>...)
+  set(ENV{<variable>} [<value>])
 
-Set the current process environment ``<variable>`` to the given value.
+Sets an :manual:`Environment Variable <cmake-env-variables(7)>`
+to the given value.
+Subsequent calls of ``$ENV{<variable>}`` will return this new value.
+
+This command affects only the current CMake process, not the process
+from which CMake was called, nor the system environment at large,
+nor the environment of subsequent build or test processes.
+
+If no argument is given after ``ENV{<variable>}`` or if ``<value>`` is
+an empty string, then this command will clear any existing value of the
+environment variable.
+
+Arguments after ``<value>`` are ignored. If extra arguments are found,
+then an author warning is issued.

@@ -1,16 +1,17 @@
 #include "cmParseMumpsCoverage.h"
 
-#include "cmCTest.h"
-#include "cmCTestCoverageHandler.h"
-#include "cmSystemTools.h"
-
-#include "cmConfigure.h"
-#include "cmsys/FStream.hxx"
-#include "cmsys/Glob.hxx"
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "cmsys/FStream.hxx"
+#include "cmsys/Glob.hxx"
+
+#include "cmCTest.h"
+#include "cmCTestCoverageHandler.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
 
 cmParseMumpsCoverage::cmParseMumpsCoverage(
   cmCTestCoverageHandlerContainer& cont, cmCTest* ctest)
@@ -19,9 +20,7 @@ cmParseMumpsCoverage::cmParseMumpsCoverage(
 {
 }
 
-cmParseMumpsCoverage::~cmParseMumpsCoverage()
-{
-}
+cmParseMumpsCoverage::~cmParseMumpsCoverage() = default;
 
 bool cmParseMumpsCoverage::ReadCoverageFile(const char* file)
 {
@@ -40,9 +39,9 @@ bool cmParseMumpsCoverage::ReadCoverageFile(const char* file)
       std::string type = line.substr(0, pos);
       std::string path = line.substr(pos + 1);
       if (type == "packages") {
-        this->LoadPackages(path.c_str());
+        this->LoadPackages(path);
       } else if (type == "coverage_dir") {
-        this->LoadCoverageData(path.c_str());
+        this->LoadCoverageData(path);
       } else {
         cmCTestLog(this->CTest, ERROR_MESSAGE,
                    "Parse Error in Mumps coverage file :\n"
@@ -106,21 +105,19 @@ void cmParseMumpsCoverage::InitializeMumpsFile(std::string& file)
   }
 }
 
-bool cmParseMumpsCoverage::LoadPackages(const char* d)
+bool cmParseMumpsCoverage::LoadPackages(std::string const& d)
 {
   cmsys::Glob glob;
   glob.RecurseOn();
-  std::string pat = d;
-  pat += "/*.m";
+  std::string pat = cmStrCat(d, "/*.m");
   glob.FindFiles(pat);
-  std::vector<std::string>& files = glob.GetFiles();
-  std::vector<std::string>::iterator fileIt;
-  for (fileIt = files.begin(); fileIt != files.end(); ++fileIt) {
-    std::string name = cmSystemTools::GetFilenameName(*fileIt);
-    this->RoutineToDirectory[name.substr(0, name.size() - 2)] = *fileIt;
-    // initialze each file, this is left out until CDash is fixed
+  for (std::string& file : glob.GetFiles()) {
+    std::string name = cmSystemTools::GetFilenameName(file);
+    name.erase(name.size() - 2);
+    this->RoutineToDirectory[name] = file;
+    // initialize each file, this is left out until CDash is fixed
     // to handle large numbers of files
-    this->InitializeMumpsFile(*fileIt);
+    this->InitializeMumpsFile(file);
   }
   return true;
 }
@@ -128,15 +125,14 @@ bool cmParseMumpsCoverage::LoadPackages(const char* d)
 bool cmParseMumpsCoverage::FindMumpsFile(std::string const& routine,
                                          std::string& filepath)
 {
-  std::map<std::string, std::string>::iterator i =
-    this->RoutineToDirectory.find(routine);
+  auto i = this->RoutineToDirectory.find(routine);
   if (i != this->RoutineToDirectory.end()) {
     filepath = i->second;
     return true;
   }
   // try some alternate names
-  const char* tryname[] = { "GUX", "GTM", "ONT", CM_NULLPTR };
-  for (int k = 0; tryname[k] != CM_NULLPTR; k++) {
+  const char* tryname[] = { "GUX", "GTM", "ONT", nullptr };
+  for (int k = 0; tryname[k] != nullptr; k++) {
     std::string routine2 = routine + tryname[k];
     i = this->RoutineToDirectory.find(routine2);
     if (i != this->RoutineToDirectory.end()) {

@@ -3,12 +3,17 @@
 
 project(CMAKE_FORM)
 
-include_regular_expression("^.*$")
-include_directories(${CURSES_INCLUDE_PATH} "${CMAKE_CURRENT_BINARY_DIR}")
+# Disable warnings to avoid changing 3rd party code.
+if(CMAKE_C_COMPILER_ID MATCHES
+    "^(GNU|Clang|AppleClang|XLClang|XL|VisualAge|SunPro|HP|Intel|IntelLLVM|NVHPC)$")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
+elseif(CMAKE_C_COMPILER_ID STREQUAL "PathScale")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -woffall")
+endif()
 
 configure_file(cmFormConfigure.h.in "${CMAKE_CURRENT_BINARY_DIR}/cmFormConfigure.h")
 
-set(  FORM_SRCS
+add_library(cmForm
              fld_arg.c
              fld_attr.c
              fld_current.c
@@ -49,10 +54,16 @@ set(  FORM_SRCS
              fty_num.c
              fty_regex.c
    )
-             
-include_directories(${CMAKE_FORM_SOURCE_DIR})
-add_library(cmForm ${FORM_SRCS} )
+
+target_include_directories(cmForm
+  PUBLIC
+    ${CURSES_INCLUDE_PATH}
+    ${CMAKE_FORM_BINARY_DIR}
+    ${CMAKE_FORM_SOURCE_DIR}
+  )
+
 target_link_libraries(cmForm ${CURSES_LIBRARY})
+
 if(CURSES_EXTRA_LIBRARY)
   target_link_libraries(cmForm ${CURSES_EXTRA_LIBRARY})
 endif()

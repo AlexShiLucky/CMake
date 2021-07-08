@@ -1,18 +1,19 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmFindCommon_h
-#define cmFindCommon_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "cmCommand.h"
 #include "cmPathLabel.h"
 #include "cmSearchPath.h"
+
+class cmExecutionStatus;
+class cmMakefile;
 
 /** \class cmFindCommon
  * \brief Base class for FIND_XXX implementations.
@@ -21,14 +22,18 @@
  * cmFindProgramCommand, cmFindPathCommand, cmFindLibraryCommand,
  * cmFindFileCommand, and cmFindPackageCommand.
  */
-class cmFindCommon : public cmCommand
+class cmFindCommon
 {
 public:
-  cmFindCommon();
-  ~cmFindCommon() CM_OVERRIDE;
+  cmFindCommon(cmExecutionStatus& status);
+
+  void SetError(std::string const& e);
+
+  bool DebugModeEnabled() const { return this->DebugMode; }
 
 protected:
   friend class cmSearchPath;
+  friend class cmFindBaseDebugState;
 
   /** Used to define groups of path labels */
   class PathGroup : public cmPathLabel
@@ -84,14 +89,18 @@ protected:
   /** Compute final search path list (reroot + trailing slash).  */
   void ComputeFinalPaths();
 
-  /** Decide whether to enable the PACKAGE_ROOT search entries.  */
-  void SelectDefaultNoPackageRootPath();
-
   /** Compute the current default root path mode.  */
   void SelectDefaultRootPathMode();
 
   /** Compute the current default bundle/framework search policy.  */
   void SelectDefaultMacMode();
+
+  /** Compute the current default search modes based on global variables.  */
+  void SelectDefaultSearchModes();
+
+  /** The `InitialPass` functions of the child classes should set
+      this->DebugMode to the result of this.  */
+  bool ComputeIfDebugModeWanted();
 
   // Path arguments prior to path manipulation routines
   std::vector<std::string> UserHintsArgs;
@@ -103,6 +112,8 @@ protected:
   bool CheckCommonArgument(std::string const& arg);
   void AddPathSuffix(std::string const& arg);
 
+  void DebugMessage(std::string const& msg) const;
+  bool DebugMode;
   bool NoDefaultPath;
   bool NoPackageRootPath;
   bool NoCMakePath;
@@ -112,7 +123,7 @@ protected:
 
   std::vector<std::string> SearchPathSuffixes;
 
-  std::map<PathGroup, std::vector<PathLabel> > PathGroupLabelMap;
+  std::map<PathGroup, std::vector<PathLabel>> PathGroupLabelMap;
   std::vector<PathGroup> PathGroupOrder;
   std::map<std::string, PathLabel> PathLabelStringMap;
   std::map<PathLabel, cmSearchPath> LabeledPaths;
@@ -127,6 +138,7 @@ protected:
   bool SearchAppBundleFirst;
   bool SearchAppBundleOnly;
   bool SearchAppBundleLast;
-};
 
-#endif
+  cmMakefile* Makefile;
+  cmExecutionStatus& Status;
+};

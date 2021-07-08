@@ -386,6 +386,11 @@ _warc_read(struct archive_read *a, const void **buf, size_t *bsz, int64_t *off)
 		return (ARCHIVE_EOF);
 	}
 
+	if (w->unconsumed) {
+		__archive_read_consume(a, w->unconsumed);
+		w->unconsumed = 0U;
+	}
+
 	rab = __archive_read_ahead(a, 1U, &nrd);
 	if (nrd < 0) {
 		*bsz = 0U;
@@ -600,9 +605,10 @@ _warc_rdver(const char *buf, size_t bsz)
 	/* looks good so far, read the version number for a laugh */
 	buf += sizeof(magic) - 1U;
 
-	if (isdigit(buf[0U]) && (buf[1U] == '.') && isdigit(buf[2U])) {
+	if (isdigit((unsigned char)buf[0U]) && (buf[1U] == '.') &&
+	    isdigit((unsigned char)buf[2U])) {
 		/* we support a maximum of 2 digits in the minor version */
-		if (isdigit(buf[3U]))
+		if (isdigit((unsigned char)buf[3U]))
 			end = 1U;
 		/* set up major version */
 		ver = (buf[0U] - '0') * 10000U;
@@ -620,7 +626,8 @@ _warc_rdver(const char *buf, size_t bsz)
 		if (ver >= 1200U) {
 			if (memcmp(c, "\r\n", 2U) != 0)
 				ver = 0U;
-		} else if (ver < 1200U) {
+		} else {
+			/* ver < 1200U */
 			if (*c != ' ' && *c != '\t')
 				ver = 0U;
 		}
@@ -686,7 +693,7 @@ _warc_rduri(const char *buf, size_t bsz)
 
 	/* spaces inside uri are not allowed, CRLF should follow */
 	for (p = val; p < eol; p++) {
-		if (isspace(*p))
+		if (isspace((unsigned char)*p))
 			return res;
 	}
 
@@ -736,10 +743,11 @@ _warc_rdlen(const char *buf, size_t bsz)
 	while (val < eol && (*val == ' ' || *val == '\t'))
 		val++;
 	/* there must be at least one digit */
-	if (!isdigit(*val))
+	if (!isdigit((unsigned char)*val))
 		return -1;
+	errno = 0;
 	len = strtol(val, &on, 10);
-	if (on != eol) {
+	if (errno != 0 || on != eol) {
 		/* line must end here */
 		return -1;
 	}

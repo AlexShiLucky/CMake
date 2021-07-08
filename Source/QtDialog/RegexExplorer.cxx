@@ -8,7 +8,7 @@ RegexExplorer::RegexExplorer(QWidget* p)
 {
   this->setupUi(this);
 
-  for (int i = 1; i < cmsys::RegularExpression::NSUBEXP; ++i) {
+  for (int i = 1; i < cmsys::RegularExpressionMatch::NSUBEXP; ++i) {
     matchNumber->addItem(QString("Match %1").arg(QString::number(i)),
                          QVariant(i));
   }
@@ -20,7 +20,7 @@ void RegexExplorer::setStatusColor(QWidget* widget, bool successful)
   QColor color = successful ? QColor(0, 127, 0) : Qt::red;
 
   QPalette palette = widget->palette();
-  palette.setColor(QPalette::Foreground, color);
+  palette.setColor(QPalette::WindowText, color);
   widget->setPalette(palette);
 }
 
@@ -105,7 +105,7 @@ void RegexExplorer::on_matchNumber_currentIndexChanged(int index)
   QVariant itemData = matchNumber->itemData(index);
   int idx = itemData.toInt();
 
-  if (idx < 1 || idx >= cmsys::RegularExpression::NSUBEXP) {
+  if (idx < 1 || idx >= cmsys::RegularExpressionMatch::NSUBEXP) {
     return;
   }
 
@@ -146,9 +146,6 @@ bool RegexExplorer::stripEscapes(std::string& source)
         in++;
       } else if (nextc == 'n') {
         result.append(1, '\n');
-        in++;
-      } else if (nextc == 't') {
-        result.append(1, '\t');
         in++;
       } else if (isalnum(nextc) || nextc == '\0') {
         return false;

@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmLocalVisualStudioGenerator_h
-#define cmLocalVisualStudioGenerator_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <map>
 #include <memory>
@@ -11,7 +10,6 @@
 
 #include "cmGlobalVisualStudioGenerator.h"
 #include "cmLocalGenerator.h"
-#include "cm_auto_ptr.hxx"
 
 class cmCustomCommand;
 class cmCustomCommandGenerator;
@@ -45,20 +43,15 @@ public:
   virtual std::string ComputeLongestObjectDirectory(
     cmGeneratorTarget const*) const = 0;
 
-  virtual void AddCMakeListsRules() = 0;
-
-  virtual void ComputeObjectFilenames(
+  void ComputeObjectFilenames(
     std::map<cmSourceFile const*, std::string>& mapping,
-    cmGeneratorTarget const* = 0);
+    cmGeneratorTarget const* = 0) override;
 
 protected:
   virtual const char* ReportErrorLabel() const;
   virtual bool CustomCommandUseLocal() const { return false; }
 
   /** Construct a custom command to make exe import lib dir.  */
-  CM_AUTO_PTR<cmCustomCommand> MaybeCreateImplibDir(cmGeneratorTarget* target,
-                                                    const std::string& config,
-                                                    bool isFortran);
+  std::unique_ptr<cmCustomCommand> MaybeCreateImplibDir(
+    cmGeneratorTarget* target, const std::string& config, bool isFortran);
 };
-
-#endif

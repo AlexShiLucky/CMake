@@ -3,11 +3,12 @@
 #include "cm_codecvt.hxx"
 
 #if defined(_WIN32)
-#include <assert.h>
-#include <string.h>
-#include <windows.h>
-#undef max
-#include "cmsys/Encoding.hxx"
+#  include <windows.h>
+
+#  include <assert.h>
+#  include <string.h>
+#  undef max
+#  include "cmsys/Encoding.hxx"
 #endif
 
 #if defined(_WIN32)
@@ -30,20 +31,21 @@ codecvt::codecvt(Encoding e)
     // We don't know which ANSI encoding to use for other platforms than
     // Windows so we don't do any conversion there
     case codecvt::UTF8:
+    case codecvt::UTF8_WITH_BOM:
     // Assume internal encoding is UTF-8
     case codecvt::None:
     // No encoding
     default:
-      m_noconv = true;
+      this->m_noconv = true;
   }
 }
 
-codecvt::~codecvt(){};
+codecvt::~codecvt() = default;
 
 bool codecvt::do_always_noconv() const throw()
 {
-  return m_noconv;
-};
+  return this->m_noconv;
+}
 
 std::codecvt_base::result codecvt::do_out(mbstate_t& state, const char* from,
                                           const char* from_end,
@@ -52,7 +54,7 @@ std::codecvt_base::result codecvt::do_out(mbstate_t& state, const char* from,
 {
   from_next = from;
   to_next = to;
-  if (m_noconv) {
+  if (this->m_noconv) {
     return std::codecvt_base::noconv;
   }
 #if defined(_WIN32)
@@ -122,14 +124,14 @@ std::codecvt_base::result codecvt::do_out(mbstate_t& state, const char* from,
   static_cast<void>(to_next);
   return std::codecvt_base::noconv;
 #endif
-};
+}
 
 std::codecvt_base::result codecvt::do_unshift(mbstate_t& state, char* to,
                                               char* to_end,
                                               char*& to_next) const
 {
   to_next = to;
-  if (m_noconv) {
+  if (this->m_noconv) {
     return std::codecvt_base::noconv;
   }
 #if defined(_WIN32)
@@ -143,7 +145,7 @@ std::codecvt_base::result codecvt::do_unshift(mbstate_t& state, char* to,
   static_cast<void>(to_end);
   return std::codecvt_base::ok;
 #endif
-};
+}
 
 #if defined(_WIN32)
 std::codecvt_base::result codecvt::Decode(mbstate_t& state, int size,
@@ -235,9 +237,9 @@ void codecvt::BufferPartial(mbstate_t& state, int size,
 int codecvt::do_max_length() const throw()
 {
   return 4;
-};
+}
 
 int codecvt::do_encoding() const throw()
 {
   return 0;
-};
+}

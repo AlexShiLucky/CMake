@@ -2,22 +2,22 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmScriptGenerator.h"
 
+#include <algorithm>
+#include <utility>
+
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
-cmScriptGenerator::cmScriptGenerator(
-  const std::string& config_var,
-  std::vector<std::string> const& configurations)
-  : RuntimeConfigVariable(config_var)
-  , Configurations(configurations)
-  , ConfigurationName("")
-  , ConfigurationTypes(CM_NULLPTR)
+cmScriptGenerator::cmScriptGenerator(std::string config_var,
+                                     std::vector<std::string> configurations)
+  : RuntimeConfigVariable(std::move(config_var))
+  , Configurations(std::move(configurations))
+  , ConfigurationTypes(nullptr)
   , ActionsPerConfig(false)
 {
 }
 
-cmScriptGenerator::~cmScriptGenerator()
-{
-}
+cmScriptGenerator::~cmScriptGenerator() = default;
 
 void cmScriptGenerator::Generate(
   std::ostream& os, const std::string& config,
@@ -26,8 +26,8 @@ void cmScriptGenerator::Generate(
   this->ConfigurationName = config;
   this->ConfigurationTypes = &configurationTypes;
   this->GenerateScript(os);
-  this->ConfigurationName = "";
-  this->ConfigurationTypes = CM_NULLPTR;
+  this->ConfigurationName.clear();
+  this->ConfigurationTypes = nullptr;
 }
 
 static void cmScriptGeneratorEncodeConfig(const std::string& config,
@@ -52,9 +52,8 @@ static void cmScriptGeneratorEncodeConfig(const std::string& config,
 
 std::string cmScriptGenerator::CreateConfigTest(const std::string& config)
 {
-  std::string result = "\"${";
-  result += this->RuntimeConfigVariable;
-  result += "}\" MATCHES \"^(";
+  std::string result =
+    cmStrCat("\"${", this->RuntimeConfigVariable, "}\" MATCHES \"^(");
   if (!config.empty()) {
     cmScriptGeneratorEncodeConfig(config, result);
   }
@@ -65,15 +64,13 @@ std::string cmScriptGenerator::CreateConfigTest(const std::string& config)
 std::string cmScriptGenerator::CreateConfigTest(
   std::vector<std::string> const& configs)
 {
-  std::string result = "\"${";
-  result += this->RuntimeConfigVariable;
-  result += "}\" MATCHES \"^(";
+  std::string result =
+    cmStrCat("\"${", this->RuntimeConfigVariable, "}\" MATCHES \"^(");
   const char* sep = "";
-  for (std::vector<std::string>::const_iterator ci = configs.begin();
-       ci != configs.end(); ++ci) {
+  for (std::string const& config : configs) {
     result += sep;
     sep = "|";
-    cmScriptGeneratorEncodeConfig(*ci, result);
+    cmScriptGeneratorEncodeConfig(config, result);
   }
   result += ")$\"";
   return result;
@@ -123,14 +120,10 @@ bool cmScriptGenerator::GeneratesForConfig(const std::string& config)
   // This is a configuration-specific rule.  Check if the config
   // matches this rule.
   std::string config_upper = cmSystemTools::UpperCase(config);
-  for (std::vector<std::string>::const_iterator i =
-         this->Configurations.begin();
-       i != this->Configurations.end(); ++i) {
-    if (cmSystemTools::UpperCase(*i) == config_upper) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(this->Configurations.begin(), this->Configurations.end(),
+                     [&config_upper](std::string const& cfg) -> bool {
+                       return cmSystemTools::UpperCase(cfg) == config_upper;
+                     });
 }
 
 void cmScriptGenerator::GenerateScriptActionsOnce(std::ostream& os,
@@ -163,15 +156,12 @@ void cmScriptGenerator::GenerateScriptActionsPerConfig(std::ostream& os,
     // in a block for each configuration that is built.  We restrict
     // the list of configurations to those to which this rule applies.
     bool first = true;
-    for (std::vector<std::string>::const_iterator i =
-           this->ConfigurationTypes->begin();
-         i != this->ConfigurationTypes->end(); ++i) {
-      const char* config = i->c_str();
-      if (this->GeneratesForConfig(config)) {
+    for (std::string const& cfgType : *this->ConfigurationTypes) {
+      if (this->GeneratesForConfig(cfgType)) {
         // Generate a per-configuration block.
-        std::string config_test = this->CreateConfigTest(config);
+        std::string config_test = this->CreateConfigTest(cfgType);
         os << indent << (first ? "if(" : "elseif(") << config_test << ")\n";
-        this->GenerateScriptForConfig(os, config, indent.Next());
+        this->GenerateScriptForConfig(os, cfgType, indent.Next());
         first = false;
       }
     }

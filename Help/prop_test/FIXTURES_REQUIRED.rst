@@ -1,8 +1,10 @@
 FIXTURES_REQUIRED
 -----------------
 
+.. versionadded:: 3.7
+
 Specifies a list of fixtures the test requires. Fixture names are case
-sensitive.
+sensitive and they are not required to have any similarity to test names.
 
 Fixtures are a way to attach setup and cleanup tasks to a set of tests. If a
 test requires a given fixture, then all tests marked as setup tasks for that
@@ -19,7 +21,9 @@ some setup tests fail.
 When CTest is asked to execute only a subset of tests (e.g. by the use of
 regular expressions or when run with the ``--rerun-failed`` command line
 option), it will automatically add any setup or cleanup tests for fixtures
-required by any of the tests that are in the execution set.
+required by any of the tests that are in the execution set. This behavior can
+be overridden with the ``-FS``, ``-FC`` and ``-FA`` command line options to
+:manual:`ctest(1)` if desired.
 
 Since setup and cleanup tasks are also tests, they can have an ordering
 specified by the :prop_test:`DEPENDS` test property just like any other tests.
@@ -31,9 +35,9 @@ The concept of a fixture is different to that of a resource specified by
 set of tests which share setup and cleanup requirements, whereas a resource
 lock has the effect of ensuring a particular set of tests do not run in
 parallel. Some situations may need both, such as setting up a database,
-serialising test access to that database and deleting the database again at the
+serializing test access to that database and deleting the database again at the
 end. For such cases, tests would populate both ``FIXTURES_REQUIRED`` and
-:prop_test:`RESOURCE_LOCK` to combine the two behaviours. Names used for
+:prop_test:`RESOURCE_LOCK` to combine the two behaviors. Names used for
 :prop_test:`RESOURCE_LOCK` have no relationship with names of fixtures, so note
 that a resource lock does not imply a fixture and vice versa.
 

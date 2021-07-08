@@ -2,13 +2,13 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCPackIFWRepository.h"
 
+#include <cstddef>
+
 #include "cmCPackIFWGenerator.h"
 #include "cmGeneratedFileStream.h"
 #include "cmSystemTools.h"
 #include "cmXMLParser.h"
 #include "cmXMLWriter.h"
-
-#include <stddef.h>
 
 cmCPackIFWRepository::cmCPackIFWRepository()
   : Update(cmCPackIFWRepository::None)
@@ -21,11 +21,7 @@ bool cmCPackIFWRepository::IsValid() const
 
   switch (this->Update) {
     case cmCPackIFWRepository::None:
-      valid = !this->Url.empty();
-      break;
     case cmCPackIFWRepository::Add:
-      valid = !this->Url.empty();
-      break;
     case cmCPackIFWRepository::Remove:
       valid = !this->Url.empty();
       break;
@@ -50,9 +46,9 @@ bool cmCPackIFWRepository::ConfigureFromOptions()
   // Update
   if (this->IsOn(prefix + "ADD")) {
     this->Update = cmCPackIFWRepository::Add;
-  } else if (IsOn(prefix + "REMOVE")) {
+  } else if (this->IsOn(prefix + "REMOVE")) {
     this->Update = cmCPackIFWRepository::Remove;
-  } else if (IsOn(prefix + "REPLACE")) {
+  } else if (this->IsOn(prefix + "REPLACE")) {
     this->Update = cmCPackIFWRepository::Replace;
   } else {
     this->Update = cmCPackIFWRepository::None;
@@ -62,49 +58,49 @@ bool cmCPackIFWRepository::ConfigureFromOptions()
   if (const char* url = this->GetOption(prefix + "URL")) {
     this->Url = url;
   } else {
-    this->Url = "";
+    this->Url.clear();
   }
 
   // Old url
   if (const char* oldUrl = this->GetOption(prefix + "OLD_URL")) {
     this->OldUrl = oldUrl;
   } else {
-    this->OldUrl = "";
+    this->OldUrl.clear();
   }
 
   // New url
   if (const char* newUrl = this->GetOption(prefix + "NEW_URL")) {
     this->NewUrl = newUrl;
   } else {
-    this->NewUrl = "";
+    this->NewUrl.clear();
   }
 
   // Enabled
   if (this->IsOn(prefix + "DISABLED")) {
     this->Enabled = "0";
   } else {
-    this->Enabled = "";
+    this->Enabled.clear();
   }
 
   // Username
   if (const char* username = this->GetOption(prefix + "USERNAME")) {
     this->Username = username;
   } else {
-    this->Username = "";
+    this->Username.clear();
   }
 
   // Password
   if (const char* password = this->GetOption(prefix + "PASSWORD")) {
     this->Password = password;
   } else {
-    this->Password = "";
+    this->Password.clear();
   }
 
   // DisplayName
   if (const char* displayName = this->GetOption(prefix + "DISPLAY_NAME")) {
     this->DisplayName = displayName;
   } else {
-    this->DisplayName = "";
+    this->DisplayName.clear();
   }
 
   return this->IsValid();
@@ -128,7 +124,7 @@ public:
   bool patched;
 
 protected:
-  void StartElement(const std::string& name, const char** atts) CM_OVERRIDE
+  void StartElement(const std::string& name, const char** atts) override
   {
     this->xout.StartElement(name);
     this->StartFragment(atts);
@@ -143,7 +139,7 @@ protected:
     }
   }
 
-  void EndElement(const std::string& name) CM_OVERRIDE
+  void EndElement(const std::string& name) override
   {
     if (name == "Updates" && !this->patched) {
       this->repository->WriteRepositoryUpdates(this->xout);
@@ -159,10 +155,10 @@ protected:
     }
   }
 
-  void CharacterDataHandler(const char* data, int length) CM_OVERRIDE
+  void CharacterDataHandler(const char* data, int length) override
   {
     std::string content(data, data + length);
-    if (content == "" || content == " " || content == "  " ||
+    if (content.empty() || content == " " || content == "  " ||
         content == "\n") {
       return;
     }
@@ -183,7 +179,7 @@ bool cmCPackIFWRepository::PatchUpdatesXml()
     this->Directory + "/repository/UpdatesPatch.xml";
 
   // Output stream
-  cmGeneratedFileStream fout(updatesPatchXml.data());
+  cmGeneratedFileStream fout(updatesPatchXml);
   cmXMLWriter xout(fout);
 
   xout.StartDocument();
@@ -200,10 +196,10 @@ bool cmCPackIFWRepository::PatchUpdatesXml()
 
   fout.Close();
 
-  return cmSystemTools::RenameFile(updatesPatchXml.data(), updatesXml.data());
+  return cmSystemTools::RenameFile(updatesPatchXml, updatesXml);
 }
 
-void cmCPackIFWRepository::WriteRepositoryConfig(cmXMLWriter& xout)
+void cmCPackIFWRepository::WriteRepositoryConfig(cmXMLWriter& xout) const
 {
   xout.StartElement("Repository");
 
@@ -229,7 +225,7 @@ void cmCPackIFWRepository::WriteRepositoryConfig(cmXMLWriter& xout)
   xout.EndElement();
 }
 
-void cmCPackIFWRepository::WriteRepositoryUpdate(cmXMLWriter& xout)
+void cmCPackIFWRepository::WriteRepositoryUpdate(cmXMLWriter& xout) const
 {
   xout.StartElement("Repository");
 
@@ -251,7 +247,7 @@ void cmCPackIFWRepository::WriteRepositoryUpdate(cmXMLWriter& xout)
   if (this->Update == cmCPackIFWRepository::Add ||
       this->Update == cmCPackIFWRepository::Remove) {
     xout.Attribute("url", this->Url);
-  } else if (Update == cmCPackIFWRepository::Replace) {
+  } else if (this->Update == cmCPackIFWRepository::Replace) {
     xout.Attribute("oldUrl", this->OldUrl);
     xout.Attribute("newUrl", this->NewUrl);
   }
@@ -279,9 +275,8 @@ void cmCPackIFWRepository::WriteRepositoryUpdates(cmXMLWriter& xout)
 {
   if (!this->RepositoryUpdate.empty()) {
     xout.StartElement("RepositoryUpdate");
-    for (RepositoriesVector::iterator rit = this->RepositoryUpdate.begin();
-         rit != this->RepositoryUpdate.end(); ++rit) {
-      (*rit)->WriteRepositoryUpdate(xout);
+    for (cmCPackIFWRepository* r : this->RepositoryUpdate) {
+      r->WriteRepositoryUpdate(xout);
     }
     xout.EndElement();
   }

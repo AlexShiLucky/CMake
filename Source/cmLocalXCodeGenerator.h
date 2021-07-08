@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmLocalXCodeGenerator_h
-#define cmLocalXCodeGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -24,21 +23,19 @@ class cmSourceFile;
 class cmLocalXCodeGenerator : public cmLocalGenerator
 {
 public:
-  ///! Set cache only and recurse to false by default.
+  //! Set cache only and recurse to false by default.
   cmLocalXCodeGenerator(cmGlobalGenerator* gg, cmMakefile* mf);
 
-  virtual ~cmLocalXCodeGenerator();
-  virtual std::string GetTargetDirectory(
-    cmGeneratorTarget const* target) const;
-  virtual void AppendFlagEscape(std::string& flags,
-                                const std::string& rawFlag);
-  virtual void Generate();
-  virtual void GenerateInstallRules();
-  virtual void ComputeObjectFilenames(
+  ~cmLocalXCodeGenerator() override;
+  std::string GetTargetDirectory(
+    cmGeneratorTarget const* target) const override;
+  void AppendFlagEscape(std::string& flags,
+                        const std::string& rawFlag) const override;
+  void Generate() override;
+  void AddGeneratorSpecificInstallSetup(std::ostream& os) override;
+  void ComputeObjectFilenames(
     std::map<cmSourceFile const*, std::string>& mapping,
-    cmGeneratorTarget const* gt = 0);
+    cmGeneratorTarget const* gt = nullptr) override;
 
 private:
 };
-
-#endif

@@ -1,16 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackIFWPackage_h
-#define cmCPackIFWPackage_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmCPackIFWCommon.h"
 
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
+
+#include "cmCPackIFWCommon.h"
 
 class cmCPackComponent;
 class cmCPackComponentGroup;
@@ -54,7 +53,7 @@ public:
 
     bool operator<(const DependenceStruct& other) const
     {
-      return Name < other.Name;
+      return this->Name < other.Name;
     }
   };
 
@@ -114,8 +113,14 @@ public:
   /// Determines that the package must always be installed
   std::string ForcedInstallation;
 
+  /// List of components to replace
+  std::vector<std::string> Replaces;
+
   /// Package needs to be installed with elevated permissions
   std::string RequiresAdminRights;
+
+  /// Set to false if you want to hide the checkbox for an item
+  std::string Checkable;
 
 public:
   // Internal implementation
@@ -143,5 +148,3 @@ public:
   // Patch to package directory
   std::string Directory;
 };
-
-#endif // cmCPackIFWPackage_h

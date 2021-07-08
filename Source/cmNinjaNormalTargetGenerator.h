@@ -1,52 +1,59 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmNinjaNormalTargetGenerator_h
-#define cmNinjaNormalTargetGenerator_h
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmNinjaTargetGenerator.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
-class cmGeneratorTarget;
+#include "cmGeneratorTarget.h"
+#include "cmNinjaTargetGenerator.h"
 
 class cmNinjaNormalTargetGenerator : public cmNinjaTargetGenerator
 {
 public:
   cmNinjaNormalTargetGenerator(cmGeneratorTarget* target);
-  ~cmNinjaNormalTargetGenerator() CM_OVERRIDE;
+  ~cmNinjaNormalTargetGenerator() override;
 
-  void Generate() CM_OVERRIDE;
+  void Generate(const std::string& config) override;
 
 private:
-  std::string LanguageLinkerRule() const;
-  std::string LanguageLinkerDeviceRule() const;
+  std::string LanguageLinkerRule(const std::string& config) const;
+  std::string LanguageLinkerDeviceRule(const std::string& config) const;
+  std::string LanguageLinkerCudaDeviceRule(const std::string& config) const;
+  std::string LanguageLinkerCudaDeviceCompileRule(
+    const std::string& config) const;
+  std::string LanguageLinkerCudaFatbinaryRule(const std::string& config) const;
 
   const char* GetVisibleTypeName() const;
-  void WriteLanguagesRules();
+  void WriteLanguagesRules(const std::string& config);
 
-  void WriteLinkRule(bool useResponseFile);
-  void WriteDeviceLinkRule(bool useResponseFile);
+  void WriteLinkRule(bool useResponseFile, const std::string& config);
+  void WriteDeviceLinkRules(const std::string& config);
+  void WriteNvidiaDeviceLinkRule(bool useResponseFile,
+                                 const std::string& config);
 
-  void WriteLinkStatement();
-  void WriteDeviceLinkStatement();
+  void WriteLinkStatement(const std::string& config,
+                          const std::string& fileConfig, bool firstForConfig);
+  void WriteDeviceLinkStatement(const std::string& config,
+                                const std::string& fileConfig,
+                                bool firstForConfig);
+  void WriteDeviceLinkStatements(const std::string& config,
+                                 const std::vector<std::string>& architectures,
+                                 const std::string& output);
+  void WriteNvidiaDeviceLinkStatement(const std::string& config,
+                                      const std::string& fileConfig,
+                                      const std::string& outputDir,
+                                      const std::string& output);
 
-  void WriteObjectLibStatement();
+  void WriteObjectLibStatement(const std::string& config);
 
-  std::vector<std::string> ComputeLinkCmd();
+  std::vector<std::string> ComputeLinkCmd(const std::string& config);
   std::vector<std::string> ComputeDeviceLinkCmd();
 
-private:
   // Target name info.
-  std::string TargetNameOut;
-  std::string TargetNameSO;
-  std::string TargetNameReal;
-  std::string TargetNameImport;
-  std::string TargetNamePDB;
-  std::string TargetLinkLanguage;
+  cmGeneratorTarget::Names TargetNames(const std::string& config) const;
+  std::string TargetLinkLanguage(const std::string& config) const;
   std::string DeviceLinkObject;
 };
-
-#endif // ! cmNinjaNormalTargetGenerator_h

@@ -14,22 +14,21 @@
 
 
 extern lzma_ret
-lzma_simple_props_decode(void **options, lzma_allocator *allocator,
+lzma_simple_props_decode(void **options, const lzma_allocator *allocator,
 		const uint8_t *props, size_t props_size)
 {
-	lzma_options_bcj *opt;
-
 	if (props_size == 0)
 		return LZMA_OK;
 
 	if (props_size != 4)
 		return LZMA_OPTIONS_ERROR;
 
-	opt = lzma_alloc(sizeof(lzma_options_bcj), allocator);
+	lzma_options_bcj *opt = lzma_alloc(
+			sizeof(lzma_options_bcj), allocator);
 	if (opt == NULL)
 		return LZMA_MEM_ERROR;
 
-	opt->start_offset = unaligned_read32le(props);
+	opt->start_offset = read32le(props);
 
 	// Don't leave an options structure allocated if start_offset is zero.
 	if (opt->start_offset == 0)

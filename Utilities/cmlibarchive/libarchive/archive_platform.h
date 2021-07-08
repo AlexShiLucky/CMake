@@ -52,12 +52,25 @@
 #error Oops: No config.h and no pre-built configuration in archive_platform.h.
 #endif
 
+/* On macOS check for some symbols based on the deployment target version.  */
+#if defined(__APPLE__)
+# undef HAVE_FUTIMENS
+# undef HAVE_UTIMENSAT
+# include <AvailabilityMacros.h>
+# if MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
+#  define HAVE_FUTIMENS 1
+#  define HAVE_UTIMENSAT 1
+# endif
+#endif
+
 /* It should be possible to get rid of this by extending the feature-test
  * macros to cover Windows API functions, probably along with non-trivial
  * refactoring of code to find structures that sit more cleanly on top of
  * either Windows or Posix APIs. */
 #if (defined(__WIN32__) || defined(_WIN32) || defined(__WIN32)) && !defined(__CYGWIN__)
 #include "archive_windows.h"
+#else
+#define la_stat(path,stref)		stat(path,stref)
 #endif
 
 /*
@@ -94,83 +107,45 @@
 
 /* Borland warns about its own constants!  */
 #if defined(__BORLANDC__)
-# if HAVE_DECL_UINT64_MAX
-#  undef	UINT64_MAX
-#  undef	HAVE_DECL_UINT64_MAX
-# endif
-# if HAVE_DECL_UINT64_MIN
-#  undef	UINT64_MIN
-#  undef	HAVE_DECL_UINT64_MIN
-# endif
-# if HAVE_DECL_INT64_MAX
-#  undef	INT64_MAX
-#  undef	HAVE_DECL_INT64_MAX
-# endif
-# if HAVE_DECL_INT64_MIN
-#  undef	INT64_MIN
-#  undef	HAVE_DECL_INT64_MIN
-# endif
+# undef	UINT64_MAX
+# undef	UINT64_MIN
+# undef	INT64_MAX
+# undef	INT64_MIN
 #endif
 
 /* Some platforms lack the standard *_MAX definitions. */
-#if !HAVE_DECL_SIZE_MAX
+#ifndef SIZE_MAX
 #define	SIZE_MAX (~(size_t)0)
 #endif
-#if !HAVE_DECL_SSIZE_MAX
+#ifndef SSIZE_MAX
 #define	SSIZE_MAX ((ssize_t)(SIZE_MAX >> 1))
 #endif
-#if !HAVE_DECL_UINT32_MAX
+#ifndef UINT32_MAX
 #define	UINT32_MAX (~(uint32_t)0)
 #endif
-#if !HAVE_DECL_INT32_MAX
+#ifndef INT32_MAX
 #define	INT32_MAX ((int32_t)(UINT32_MAX >> 1))
 #endif
-#if !HAVE_DECL_INT32_MIN
+#ifndef INT32_MIN
 #define	INT32_MIN ((int32_t)(~INT32_MAX))
 #endif
-#if !HAVE_DECL_UINT64_MAX
+#ifndef UINT64_MAX
 #define	UINT64_MAX (~(uint64_t)0)
 #endif
-#if !HAVE_DECL_INT64_MAX
+#ifndef INT64_MAX
 #define	INT64_MAX ((int64_t)(UINT64_MAX >> 1))
 #endif
-#if !HAVE_DECL_INT64_MIN
+#ifndef INT64_MIN
 #define	INT64_MIN ((int64_t)(~INT64_MAX))
 #endif
-#if !HAVE_DECL_UINTMAX_MAX
+#ifndef UINTMAX_MAX
 #define	UINTMAX_MAX (~(uintmax_t)0)
 #endif
-#if !HAVE_DECL_INTMAX_MAX
+#ifndef INTMAX_MAX
 #define	INTMAX_MAX ((intmax_t)(UINTMAX_MAX >> 1))
 #endif
-#if !HAVE_DECL_INTMAX_MIN
+#ifndef INTMAX_MIN
 #define	INTMAX_MIN ((intmax_t)(~INTMAX_MAX))
-#endif
-
-/*
- * If this platform has <sys/acl.h>, acl_create(), acl_init(),
- * acl_set_file(), and ACL_USER, we assume it has the rest of the
- * POSIX.1e draft functions used in archive_read_extract.c.
- */
-#if HAVE_SYS_ACL_H && HAVE_ACL_CREATE_ENTRY && HAVE_ACL_INIT && HAVE_ACL_SET_FILE
-#if HAVE_ACL_USER
-#define	HAVE_POSIX_ACL	1
-#elif HAVE_ACL_TYPE_EXTENDED
-#define HAVE_DARWIN_ACL 1
-#endif
-#endif
-
-/*
- * If this platform has <sys/acl.h>, acl_get(), facl_get(), acl_set(),
- * facl_set() and types aclent_t and ace_t it uses Solaris-style ACL functions
- */
-#if HAVE_SYS_ACL_H && HAVE_ACL_GET && HAVE_FACL_GET && HAVE_ACL_SET && HAVE_FACL_SET && HAVE_ACLENT_T && HAVE_ACE_T
-#define	HAVE_SUN_ACL	1
-#endif
-
-/* Define if platform supports NFSv4 ACLs */
-#if (HAVE_POSIX_ACL && HAVE_ACL_TYPE_NFS4) || HAVE_SUN_ACL || HAVE_DARWIN_ACL
-#define HAVE_NFS4_ACL	1
 #endif
 
 /*
@@ -209,6 +184,12 @@
 
 #ifndef ARCHIVE_ERRNO_MISC
 #define	ARCHIVE_ERRNO_MISC (-1)
+#endif
+
+#if defined(__GNUC__) && (__GNUC__ >= 7)
+#define	__LA_FALLTHROUGH	__attribute__((fallthrough))
+#else
+#define	__LA_FALLTHROUGH
 #endif
 
 #endif /* !ARCHIVE_PLATFORM_H_INCLUDED */

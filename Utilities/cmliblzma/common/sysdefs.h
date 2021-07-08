@@ -18,6 +18,7 @@
 
 #if defined(_MSC_VER)
 # pragma warning(push,1)
+# pragma warning(disable: 4028) /* formal parameter different from decl */
 # pragma warning(disable: 4142) /* benign redefinition of type */
 # pragma warning(disable: 4761) /* integral size mismatch in argument */
 #endif
@@ -48,9 +49,7 @@
 
 // Some pre-C99 systems have SIZE_MAX in limits.h instead of stdint.h. The
 // limits are also used to figure out some macros missing from pre-C99 systems.
-#ifdef HAVE_LIMITS_H
-#	include <limits.h>
-#endif
+#include <limits.h>
 
 
 #if defined(_MSC_VER) && (_MSC_VER < 1310)
@@ -124,9 +123,9 @@
 
 // The code currently assumes that size_t is either 32-bit or 64-bit.
 #ifndef SIZE_MAX
-#	if SIZE_OF_SIZE_T == 4
+#	if SIZEOF_SIZE_T == 4
 #		define SIZE_MAX UINT32_MAX
-#	elif SIZE_OF_SIZE_T == 8
+#	elif SIZEOF_SIZE_T == 8
 #		define SIZE_MAX UINT64_MAX
 #	else
 #		error size_t is not 32-bit or 64-bit
@@ -163,9 +162,7 @@ typedef unsigned char _Bool;
 
 // string.h should be enough but let's include strings.h and memory.h too if
 // they exists, since that shouldn't do any harm, but may improve portability.
-#ifdef HAVE_STRING_H
-#	include <string.h>
-#endif
+#include <string.h>
 
 #ifdef HAVE_STRINGS_H
 #	include <strings.h>
@@ -175,6 +172,16 @@ typedef unsigned char _Bool;
 #	include <memory.h>
 #endif
 
+// As of MSVC 2013, inline and restrict are supported with
+// non-standard keywords.
+#if defined(_WIN32) && defined(_MSC_VER)
+#	ifndef inline
+#		define inline __inline
+#	endif
+#	ifndef restrict
+#		define restrict __restrict
+#	endif
+#endif
 
 ////////////
 // Macros //
@@ -193,7 +200,8 @@ typedef unsigned char _Bool;
 #	define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #endif
 
-#if (__GNUC__ == 4 && __GNUC_MINOR__ >= 3) || __GNUC__ > 4
+#if defined(__GNUC__) \
+		&& ((__GNUC__ == 4 && __GNUC_MINOR__ >= 3) || __GNUC__ > 4)
 #	define lzma_attr_alloc_size(x) __attribute__((__alloc_size__(x)))
 #else
 #	define lzma_attr_alloc_size(x)

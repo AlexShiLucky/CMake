@@ -1,16 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmInstallGenerator_h
-#define cmInstallGenerator_h
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmInstallType.h"
-#include "cmScriptGenerator.h"
-
+#include <functional>
 #include <iosfwd>
 #include <string>
 #include <vector>
+
+#include "cmInstallType.h"
+#include "cmListFileCache.h"
+#include "cmScriptGenerator.h"
 
 class cmLocalGenerator;
 class cmMakefile;
@@ -21,8 +22,6 @@ class cmMakefile;
  */
 class cmInstallGenerator : public cmScriptGenerator
 {
-  CM_DISABLE_COPY(cmInstallGenerator)
-
 public:
   enum MessageLevel
   {
@@ -32,22 +31,31 @@ public:
     MessageNever
   };
 
-  cmInstallGenerator(const char* destination,
+  cmInstallGenerator(std::string destination,
                      std::vector<std::string> const& configurations,
-                     const char* component, MessageLevel message,
-                     bool exclude_from_all);
-  ~cmInstallGenerator() CM_OVERRIDE;
+                     std::string component, MessageLevel message,
+                     bool exclude_from_all, bool all_components,
+                     cmListFileBacktrace backtrace);
+  ~cmInstallGenerator() override;
+
+  cmInstallGenerator(cmInstallGenerator const&) = delete;
+  cmInstallGenerator& operator=(cmInstallGenerator const&) = delete;
+
+  virtual bool HaveInstall();
+  virtual void CheckCMP0082(bool& haveSubdirectoryInstall,
+                            bool& haveInstallAfterSubdirectory);
 
   void AddInstallRule(
     std::ostream& os, std::string const& dest, cmInstallType type,
     std::vector<std::string> const& files, bool optional = false,
-    const char* permissions_file = CM_NULLPTR,
-    const char* permissions_dir = CM_NULLPTR, const char* rename = CM_NULLPTR,
-    const char* literal_args = CM_NULLPTR, Indent indent = Indent());
+    const char* permissions_file = nullptr,
+    const char* permissions_dir = nullptr, const char* rename = nullptr,
+    const char* literal_args = nullptr, Indent indent = Indent(),
+    const char* files_var = nullptr);
 
   /** Get the install destination as it should appear in the
       installation script.  */
-  std::string ConvertToAbsoluteDestination(std::string const& dest) const;
+  static std::string ConvertToAbsoluteDestination(std::string const& dest);
 
   /** Test if this generator installs something for a given configuration.  */
   bool InstallsForConfig(const std::string& config);
@@ -55,19 +63,39 @@ public:
   /** Select message level from CMAKE_INSTALL_MESSAGE or 'never'.  */
   static MessageLevel SelectMessageLevel(cmMakefile* mf, bool never = false);
 
-  virtual void Compute(cmLocalGenerator*) {}
+  virtual bool Compute(cmLocalGenerator*) { return true; }
+
+  std::string const& GetComponent() const { return this->Component; }
+
+  bool GetExcludeFromAll() const { return this->ExcludeFromAll; }
+  bool GetAllComponentsFlag() const { return this->AllComponents; }
+
+  cmListFileBacktrace const& GetBacktrace() const { return this->Backtrace; }
+
+  static std::string GetDestDirPath(std::string const& file);
 
 protected:
-  void GenerateScript(std::ostream& os) CM_OVERRIDE;
+  void GenerateScript(std::ostream& os) override;
 
-  std::string CreateComponentTest(const char* component,
+  std::string CreateComponentTest(const std::string& component,
                                   bool exclude_from_all);
 
-  // Information shared by most generator types.
-  std::string Destination;
-  std::string Component;
-  MessageLevel Message;
-  bool ExcludeFromAll;
-};
+  using TweakMethod =
+    std::function<void(std::ostream& os, Indent indent,
+                       const std::string& config, const std::string& file)>;
+  static void AddTweak(std::ostream& os, Indent indent,
+                       const std::string& config, std::string const& file,
+                       const TweakMethod& tweak);
+  static void AddTweak(std::ostream& os, Indent indent,
+                       const std::string& config, std::string const& dir,
+                       std::vector<std::string> const& files,
+                       const TweakMethod& tweak);
 
-#endif
+  // Information shared by most generator types.
+  std::string const Destination;
+  std::string const Component;
+  MessageLevel const Message;
+  bool const ExcludeFromAll;
+  bool const AllComponents;
+  cmListFileBacktrace const Backtrace;
+};

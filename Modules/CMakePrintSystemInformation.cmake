@@ -1,16 +1,17 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
 # file Copyright.txt or https://cmake.org/licensing for details.
 
-#.rst:
-# CMakePrintSystemInformation
-# ---------------------------
-#
-# print system information
-#
-# This file can be used for diagnostic purposes just include it in a
-# project to see various internal CMake variables.
+#[=======================================================================[.rst:
+CMakePrintSystemInformation
+---------------------------
 
-message("CMAKE_SYSTEM is ${CMAKE_SYSTEM} ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_VERSION}")
+Print system information.
+
+This module serves diagnostic purposes. Just include it in a
+project to see various internal CMake variables.
+#]=======================================================================]
+
+message("CMAKE_SYSTEM is ${CMAKE_SYSTEM} ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_VERSION} ${CMAKE_SYSTEM_PROCESSOR}")
 message("CMAKE_SYSTEM file is ${CMAKE_SYSTEM_INFO_FILE}")
 message("CMAKE_C_COMPILER is ${CMAKE_C_COMPILER}")
 message("CMAKE_CXX_COMPILER is ${CMAKE_CXX_COMPILER}")
