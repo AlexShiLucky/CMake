@@ -2,27 +2,30 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmRST.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
+#include <iterator>
+#include <utility>
+
+#include "cmsys/FStream.hxx"
+
 #include "cmAlgorithms.h"
+#include "cmRange.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 #include "cmVersion.h"
 
-#include "cmsys/FStream.hxx"
-#include <algorithm>
-#include <ctype.h>
-#include <iterator>
-#include <stddef.h>
-#include <utility>
-
-cmRST::cmRST(std::ostream& os, std::string const& docroot)
+cmRST::cmRST(std::ostream& os, std::string docroot)
   : OS(os)
-  , DocRoot(docroot)
+  , DocRoot(std::move(docroot))
   , IncludeDepth(0)
   , OutputLinePending(false)
   , LastLineEndedInColonColon(false)
   , Markup(MarkupNone)
   , Directive(DirectiveNone)
   , CMakeDirective("^.. (cmake:)?("
-                   "command|variable"
+                   "command|envvar|genex|variable"
                    ")::[ \t]+([^ \t\n]+)$")
   , CMakeModuleDirective("^.. cmake-module::[ \t]+([^ \t\n]+)$")
   , ParsedLiteralDirective("^.. parsed-literal::[ \t]*(.*)$")
@@ -32,13 +35,16 @@ cmRST::cmRST(std::ostream& os, std::string const& docroot)
   , TocTreeDirective("^.. toctree::[ \t]*(.*)$")
   , ProductionListDirective("^.. productionlist::[ \t]*(.*)$")
   , NoteDirective("^.. note::[ \t]*(.*)$")
-  , ModuleRST("^#\\[(=*)\\[\\.rst:$")
+  , ModuleRST(R"(^#\[(=*)\[\.rst:$)")
   , CMakeRole("(:cmake)?:("
-              "command|generator|variable|module|policy|"
+              "command|cpack_gen|generator|genex|"
+              "variable|envvar|module|policy|"
               "prop_cache|prop_dir|prop_gbl|prop_inst|prop_sf|"
               "prop_test|prop_tgt|"
               "manual"
               "):`(<*([^`<]|[^` \t]<)*)([ \t]+<[^`]*>)?`")
+  , InlineLink("`(<*([^`<]|[^` \t]<)*)([ \t]+<[^`]*>)?`_")
+  , InlineLiteral("``([^`]*)``")
   , Substitution("(^|[^A-Za-z0-9_])"
                  "((\\|[^| \t\r\n]([^|\r\n]*[^| \t\r\n])?\\|)(__|_|))"
                  "([^A-Za-z0-9_]|$)")
@@ -84,9 +90,10 @@ void cmRST::ProcessModule(std::istream& is)
         this->ProcessLine(line);
       } else {
         if (line[0] != '#') {
-          this->ProcessLine(line.substr(0, pos));
+          line.resize(pos);
+          this->ProcessLine(line);
         }
-        rst = "";
+        rst.clear();
         this->Reset();
         this->OutputLinePending = true;
       }
@@ -97,11 +104,12 @@ void cmRST::ProcessModule(std::istream& is)
           this->ProcessLine("");
           continue;
         }
-        if (line.substr(0, 2) == "# ") {
-          this->ProcessLine(line.substr(2));
+        if (cmHasLiteralPrefix(line, "# ")) {
+          line.erase(0, 2);
+          this->ProcessLine(line);
           continue;
         }
-        rst = "";
+        rst.clear();
         this->Reset();
         this->OutputLinePending = true;
       }
@@ -120,7 +128,7 @@ void cmRST::ProcessModule(std::istream& is)
 void cmRST::Reset()
 {
   if (!this->MarkupLines.empty()) {
-    this->UnindentLines(this->MarkupLines);
+    cmRST::UnindentLines(this->MarkupLines);
   }
   switch (this->Directive) {
     case DirectiveNone:
@@ -152,12 +160,15 @@ void cmRST::ProcessLine(std::string const& line)
   this->LastLineEndedInColonColon = false;
 
   // A line starting in .. is an explicit markup start.
-  if (line == ".." || (line.size() >= 3 && line[0] == '.' && line[1] == '.' &&
-                       isspace(line[2]))) {
+  if (line == ".." ||
+      (line.size() >= 3 && line[0] == '.' && line[1] == '.' &&
+       isspace(line[2]))) {
     this->Reset();
     this->Markup =
       (line.find_first_not_of(" \t", 2) == std::string::npos ? MarkupEmpty
                                                              : MarkupNormal);
+    // XXX(clang-tidy): https://bugs.llvm.org/show_bug.cgi?id=44165
+    // NOLINTNEXTLINE(bugprone-branch-clone)
     if (this->CMakeDirective.find(line)) {
       // Output cmake domain directives and their content normally.
       this->NormalLine(line);
@@ -175,7 +186,7 @@ void cmRST::ProcessLine(std::string const& line)
       // Record the literal lines to output after whole block.
       // Ignore the language spec and record the opening line as blank.
       this->Directive = DirectiveCodeBlock;
-      this->MarkupLines.push_back("");
+      this->MarkupLines.emplace_back();
     } else if (this->ReplaceDirective.find(line)) {
       // Record the replace directive content.
       this->Directive = DirectiveReplace;
@@ -218,15 +229,14 @@ void cmRST::ProcessLine(std::string const& line)
     // Record the literal lines to output after whole block.
     this->Markup = MarkupNormal;
     this->Directive = DirectiveLiteralBlock;
-    this->MarkupLines.push_back("");
+    this->MarkupLines.emplace_back();
     this->OutputLine("", false);
   }
   // Print non-markup lines.
   else {
     this->NormalLine(line);
     this->LastLineEndedInColonColon =
-      (line.size() >= 2 && line[line.size() - 2] == ':' &&
-       line[line.size() - 1] == ':');
+      (line.size() >= 2 && line[line.size() - 2] == ':' && line.back() == ':');
   }
 }
 
@@ -245,18 +255,62 @@ void cmRST::OutputLine(std::string const& line_in, bool inlineMarkup)
   if (inlineMarkup) {
     std::string line = this->ReplaceSubstitutions(line_in);
     std::string::size_type pos = 0;
-    while (this->CMakeRole.find(line.c_str() + pos)) {
-      this->OS << line.substr(pos, this->CMakeRole.start());
-      std::string text = this->CMakeRole.match(3);
-      // If a command reference has no explicit target and
-      // no explicit "(...)" then add "()" to the text.
-      if (this->CMakeRole.match(2) == "command" &&
-          this->CMakeRole.match(5).empty() &&
-          text.find_first_of("()") == std::string::npos) {
-        text += "()";
+    for (;;) {
+      std::string::size_type* first = nullptr;
+      std::string::size_type role_start = std::string::npos;
+      std::string::size_type link_start = std::string::npos;
+      std::string::size_type lit_start = std::string::npos;
+      if (this->CMakeRole.find(line.c_str() + pos)) {
+        role_start = this->CMakeRole.start();
+        first = &role_start;
       }
-      this->OS << "``" << text << "``";
-      pos += this->CMakeRole.end();
+      if (this->InlineLiteral.find(line.c_str() + pos)) {
+        lit_start = this->InlineLiteral.start();
+        if (!first || lit_start < *first) {
+          first = &lit_start;
+        }
+      }
+      if (this->InlineLink.find(line.c_str() + pos)) {
+        link_start = this->InlineLink.start();
+        if (!first || link_start < *first) {
+          first = &link_start;
+        }
+      }
+      if (first == &role_start) {
+        this->OS << line.substr(pos, role_start);
+        std::string text = this->CMakeRole.match(3);
+        // If a command reference has no explicit target and
+        // no explicit "(...)" then add "()" to the text.
+        if (this->CMakeRole.match(2) == "command" &&
+            this->CMakeRole.match(5).empty() &&
+            text.find_first_of("()") == std::string::npos) {
+          text += "()";
+        }
+        this->OS << "``" << text << "``";
+        pos += this->CMakeRole.end();
+      } else if (first == &lit_start) {
+        this->OS << line.substr(pos, lit_start);
+        std::string text = this->InlineLiteral.match(1);
+        pos += this->InlineLiteral.end();
+        this->OS << "``" << text << "``";
+      } else if (first == &link_start) {
+        this->OS << line.substr(pos, link_start);
+        std::string text = this->InlineLink.match(1);
+        bool escaped = false;
+        for (char c : text) {
+          if (escaped) {
+            escaped = false;
+            this->OS << c;
+          } else if (c == '\\') {
+            escaped = true;
+          } else {
+            this->OS << c;
+          }
+        }
+        pos += this->InlineLink.end();
+      } else {
+        break;
+      }
     }
     this->OS << line.substr(pos) << "\n";
   } else {
@@ -272,8 +326,7 @@ std::string cmRST::ReplaceSubstitutions(std::string const& line)
     std::string::size_type start = this->Substitution.start(2);
     std::string::size_type end = this->Substitution.end(2);
     std::string substitute = this->Substitution.match(3);
-    std::map<std::string, std::string>::iterator replace =
-      this->Replace.find(substitute);
+    auto replace = this->Replace.find(substitute);
     if (replace != this->Replace.end()) {
       std::pair<std::set<std::string>::iterator, bool> replaced =
         this->Replaced.insert(substitute);
@@ -292,11 +345,9 @@ std::string cmRST::ReplaceSubstitutions(std::string const& line)
 
 void cmRST::OutputMarkupLines(bool inlineMarkup)
 {
-  for (std::vector<std::string>::iterator i = this->MarkupLines.begin();
-       i != this->MarkupLines.end(); ++i) {
-    std::string line = *i;
+  for (auto line : this->MarkupLines) {
     if (!line.empty()) {
-      line = " " + line;
+      line = cmStrCat(" ", line);
     }
     this->OutputLine(line, inlineMarkup);
   }
@@ -347,15 +398,13 @@ void cmRST::ProcessDirectiveReplace()
   // Record markup lines as replacement text.
   std::string& replacement = this->Replace[this->ReplaceName];
   replacement += cmJoin(this->MarkupLines, " ");
-  this->ReplaceName = "";
+  this->ReplaceName.clear();
 }
 
 void cmRST::ProcessDirectiveTocTree()
 {
   // Process documents referenced by toctree directive.
-  for (std::vector<std::string>::iterator i = this->MarkupLines.begin();
-       i != this->MarkupLines.end(); ++i) {
-    std::string const& line = *i;
+  for (std::string const& line : this->MarkupLines) {
     if (!line.empty() && line[0] != ':') {
       if (this->TocTreeLink.find(line)) {
         std::string const& link = this->TocTreeLink.match(1);
@@ -407,14 +456,20 @@ void cmRST::UnindentLines(std::vector<std::string>& lines)
     }
   }
 
-  std::vector<std::string>::const_iterator it = lines.begin();
+  auto it = lines.cbegin();
   size_t leadingEmpty = std::distance(it, cmFindNot(lines, std::string()));
 
-  std::vector<std::string>::const_reverse_iterator rit = lines.rbegin();
+  auto rit = lines.crbegin();
   size_t trailingEmpty =
     std::distance(rit, cmFindNot(cmReverseRange(lines), std::string()));
 
-  std::vector<std::string>::iterator contentEnd = cmRotate(
-    lines.begin(), lines.begin() + leadingEmpty, lines.end() - trailingEmpty);
+  if ((leadingEmpty + trailingEmpty) >= lines.size()) {
+    // All lines are empty.  The markup block is empty.  Leave only one.
+    lines.resize(1);
+    return;
+  }
+
+  auto contentEnd = cmRotate(lines.begin(), lines.begin() + leadingEmpty,
+                             lines.end() - trailingEmpty);
   lines.erase(contentEnd, lines.end());
 }

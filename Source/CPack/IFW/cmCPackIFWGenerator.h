@@ -1,9 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackIFWGenerator_h
-#define cmCPackIFWGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
+
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
 
 #include "cmCPackComponentGroup.h"
 #include "cmCPackGenerator.h"
@@ -12,27 +16,24 @@
 #include "cmCPackIFWPackage.h"
 #include "cmCPackIFWRepository.h"
 
-#include <map>
-#include <set>
-#include <string>
-#include <vector>
-
 /** \class cmCPackIFWGenerator
  * \brief A generator for Qt Installer Framework tools
  *
  * http://qt-project.org/doc/qtinstallerframework/index.html
  */
-class cmCPackIFWGenerator : public cmCPackGenerator, public cmCPackIFWCommon
+class cmCPackIFWGenerator
+  : public cmCPackGenerator
+  , public cmCPackIFWCommon
 {
 public:
   cmCPackTypeMacro(cmCPackIFWGenerator, cmCPackGenerator);
 
-  typedef std::map<std::string, cmCPackIFWPackage> PackagesMap;
-  typedef std::map<std::string, cmCPackIFWRepository> RepositoriesMap;
-  typedef std::map<std::string, cmCPackComponent> ComponentsMap;
-  typedef std::map<std::string, cmCPackComponentGroup> ComponentGoupsMap;
-  typedef std::map<std::string, cmCPackIFWPackage::DependenceStruct>
-    DependenceMap;
+  using PackagesMap = std::map<std::string, cmCPackIFWPackage>;
+  using RepositoriesMap = std::map<std::string, cmCPackIFWRepository>;
+  using ComponentsMap = std::map<std::string, cmCPackComponent>;
+  using ComponentGoupsMap = std::map<std::string, cmCPackComponentGroup>;
+  using DependenceMap =
+    std::map<std::string, cmCPackIFWPackage::DependenceStruct>;
 
   using cmCPackIFWCommon::GetOption;
   using cmCPackIFWCommon::IsOn;
@@ -47,7 +48,7 @@ public:
   /**
    * Destruct IFW generator
    */
-  ~cmCPackIFWGenerator() CM_OVERRIDE;
+  ~cmCPackIFWGenerator() override;
 
 protected:
   // cmCPackGenerator reimplementation
@@ -56,18 +57,18 @@ protected:
    * @brief Initialize generator
    * @return 0 on failure
    */
-  int InitializeInternal() CM_OVERRIDE;
-  int PackageFiles() CM_OVERRIDE;
-  const char* GetPackagingInstallPrefix() CM_OVERRIDE;
+  int InitializeInternal() override;
+  int PackageFiles() override;
+  const char* GetPackagingInstallPrefix() override;
 
   /**
    * @brief Target binary extension
    * @return Executable suffix or disk image format
    */
-  const char* GetOutputExtension() CM_OVERRIDE;
+  const char* GetOutputExtension() override;
 
   std::string GetComponentInstallDirNameSuffix(
-    const std::string& componentName) CM_OVERRIDE;
+    const std::string& componentName) override;
 
   /**
    * @brief Get Component
@@ -79,7 +80,7 @@ protected:
    * @return Pointer to component
    */
   cmCPackComponent* GetComponent(const std::string& projectName,
-                                 const std::string& componentName) CM_OVERRIDE;
+                                 const std::string& componentName) override;
 
   /**
    * @brief Get group of component
@@ -91,12 +92,12 @@ protected:
    * @return Pointer to component group
    */
   cmCPackComponentGroup* GetComponentGroup(
-    const std::string& projectName, const std::string& groupName) CM_OVERRIDE;
+    const std::string& projectName, const std::string& groupName) override;
 
-  enum cmCPackGenerator::CPackSetDestdirSupport SupportsSetDestdir() const
-    CM_OVERRIDE;
-  bool SupportsAbsoluteDestination() const CM_OVERRIDE;
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  enum cmCPackGenerator::CPackSetDestdirSupport SupportsSetDestdir()
+    const override;
+  bool SupportsAbsoluteDestination() const override;
+  bool SupportsComponentInstallation() const override;
 
 protected:
   // Methods
@@ -150,5 +151,3 @@ private:
   std::vector<std::string> PkgsDirsVector;
   std::vector<std::string> RepoDirsVector;
 };
-
-#endif

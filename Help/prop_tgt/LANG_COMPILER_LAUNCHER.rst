@@ -1,10 +1,12 @@
 <LANG>_COMPILER_LAUNCHER
 ------------------------
 
-This property is implemented only when ``<LANG>`` is ``C``, ``CXX``,
-or ``CUDA``.
+.. versionadded:: 3.4
 
-Specify a :ref:`;-list <CMake Language Lists>` containing a command line
+This property is implemented only when ``<LANG>`` is ``C``, ``CXX``,
+``Fortran``, ``HIP``, ``ISPC``, ``OBJC``, ``OBJCXX``, or ``CUDA``.
+
+Specify a :ref:`semicolon-separated list <CMake Language Lists>` containing a command line
 for a compiler launching tool. The :ref:`Makefile Generators` and the
 :generator:`Ninja` generator will run this tool and pass the compiler and
 its arguments to the tool. Some example tools are distcc and ccache.

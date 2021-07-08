@@ -1,16 +1,17 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.12)
 cmake_policy(SET CMP0054 NEW)
 project(PDBDirectoryAndName C)
 
 # Make sure the proper compiler is in use.
-if(NOT MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL "Intel")
-  message(FATAL_ERROR "The PDBDirectoryAndName test works only with MSVC or Intel")
+if(NOT MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL "Intel" AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
+  message(FATAL_ERROR "The PDBDirectoryAndName test works only with MSVC, Clang or Intel")
 endif()
 
 # Intel 11.1 does not support /Fd but Intel 14.0 does.
 # TODO: Did a version in between these add it?
-if(CMAKE_C_COMPILER_ID STREQUAL Intel AND
-   CMAKE_C_COMPILER_VERSION VERSION_LESS 14.0)
+if((CMAKE_C_COMPILER_ID STREQUAL Intel AND
+    CMAKE_C_COMPILER_VERSION VERSION_LESS 14.0) OR
+   CMAKE_C_COMPILER_ID STREQUAL "IntelLLVM")
   set(NO_COMPILE_PDB 1)
 endif()
 
@@ -19,7 +20,7 @@ set(my_targets "")
 add_library(mylibA SHARED mylibA.c)
 set_target_properties(mylibA PROPERTIES
     PDB_NAME "mylibA_Special"
-    PDB_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mylibA_PDB"
+    PDB_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mylibA_PDB/$<CONFIG>"
 )
 list(APPEND my_targets mylibA)
 
@@ -87,7 +88,13 @@ foreach(t ${my_targets})
   if(NOT pdb_dir)
     set(pdb_dir ${CMAKE_CURRENT_BINARY_DIR})
   endif()
-  list(APPEND pdbs ${pdb_dir}/${CMAKE_CFG_INTDIR}/${pdb_name}.pdb)
+  if (pdb_dir MATCHES "\\$<.*>")
+    # Skip per-configuration subdirectory if the value contained
+    # a generator expression.
+    list(APPEND pdbs ${pdb_dir}/${pdb_name}.pdb)
+  else()
+    list(APPEND pdbs ${pdb_dir}/${CMAKE_CFG_INTDIR}/${pdb_name}.pdb)
+  endif()
 endforeach()
 add_custom_target(check_pdbs ALL VERBATIM
   COMMAND ${CMAKE_COMMAND} -Dconfig=$<CONFIGURATION> "-Dpdbs=${pdbs}"

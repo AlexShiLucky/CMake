@@ -1,15 +1,28 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
+
+#if !defined(_WIN32) && !defined(__sun) && !defined(__OpenBSD__)
+// POSIX APIs are needed
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+#  define _POSIX_C_SOURCE 200809L
+#endif
+#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__QNX__)
+// For isascii
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+#  define _XOPEN_SOURCE 700
+#endif
+
 #include "cmTimestamp.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
-#include <stdlib.h>
 
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
 std::string cmTimestamp::CurrentTime(const std::string& formatString,
-                                     bool utcFlag)
+                                     bool utcFlag) const
 {
   time_t currentTimeT = time(nullptr);
   std::string source_date_epoch;
@@ -26,19 +39,22 @@ std::string cmTimestamp::CurrentTime(const std::string& formatString,
     return std::string();
   }
 
-  return CreateTimestampFromTimeT(currentTimeT, formatString, utcFlag);
+  return this->CreateTimestampFromTimeT(currentTimeT, formatString, utcFlag);
 }
 
 std::string cmTimestamp::FileModificationTime(const char* path,
                                               const std::string& formatString,
-                                              bool utcFlag)
+                                              bool utcFlag) const
 {
-  if (!cmsys::SystemTools::FileExists(path)) {
+  std::string real_path =
+    cmSystemTools::GetRealPathResolvingWindowsSubst(path);
+
+  if (!cmsys::SystemTools::FileExists(real_path)) {
     return std::string();
   }
 
-  time_t mtime = cmsys::SystemTools::ModifiedTime(path);
-  return CreateTimestampFromTimeT(mtime, formatString, utcFlag);
+  time_t mtime = cmsys::SystemTools::ModifiedTime(real_path);
+  return this->CreateTimestampFromTimeT(mtime, formatString, utcFlag);
 }
 
 std::string cmTimestamp::CreateTimestampFromTimeT(time_t timeT,
@@ -75,7 +91,7 @@ std::string cmTimestamp::CreateTimestampFromTimeT(time_t timeT,
                                             : static_cast<char>(0);
 
     if (c1 == '%' && c2 != 0) {
-      result += AddTimestampComponent(c2, timeStruct, timeT);
+      result += this->AddTimestampComponent(c2, timeStruct, timeT);
       ++i;
     } else {
       result += c1;
@@ -93,7 +109,7 @@ time_t cmTimestamp::CreateUtcTimeTFromTm(struct tm& tm) const
   // From Linux timegm() manpage.
 
   std::string tz_old;
-  cmSystemTools::GetEnv("TZ", tz_old);
+  bool const tz_was_set = cmSystemTools::GetEnv("TZ", tz_old);
   tz_old = "TZ=" + tz_old;
 
   // The standard says that "TZ=" or "TZ=[UNRECOGNIZED_TZ]" means UTC.
@@ -106,7 +122,17 @@ time_t cmTimestamp::CreateUtcTimeTFromTm(struct tm& tm) const
 
   time_t result = mktime(&tm);
 
+#  ifndef CMAKE_BOOTSTRAP
+  if (tz_was_set) {
+    cmSystemTools::PutEnv(tz_old);
+  } else {
+    cmSystemTools::UnsetEnv("TZ");
+  }
+#  else
+  // No UnsetEnv during bootstrap.  This is good enough for CMake itself.
   cmSystemTools::PutEnv(tz_old);
+  static_cast<void>(tz_was_set);
+#  endif
 
   tzset();
 
@@ -118,12 +144,13 @@ std::string cmTimestamp::AddTimestampComponent(char flag,
                                                struct tm& timeStruct,
                                                const time_t timeT) const
 {
-  std::string formatString = "%";
-  formatString += flag;
+  std::string formatString = cmStrCat('%', flag);
 
   switch (flag) {
     case 'a':
+    case 'A':
     case 'b':
+    case 'B':
     case 'd':
     case 'H':
     case 'I':
@@ -139,7 +166,7 @@ std::string cmTimestamp::AddTimestampComponent(char flag,
       break;
     case 's': // Seconds since UNIX epoch (midnight 1-jan-1970)
     {
-      // Build a time_t for UNIX epoch and substract from the input "timeT":
+      // Build a time_t for UNIX epoch and subtract from the input "timeT":
       struct tm tmUnixEpoch;
       memset(&tmUnixEpoch, 0, sizeof(tmUnixEpoch));
       tmUnixEpoch.tm_mday = 1;
@@ -149,13 +176,11 @@ std::string cmTimestamp::AddTimestampComponent(char flag,
       if (unixEpoch == -1) {
         cmSystemTools::Error(
           "Error generating UNIX epoch in "
-          "STRING(TIMESTAMP ...). Please, file a bug report aginst CMake");
+          "STRING(TIMESTAMP ...). Please, file a bug report against CMake");
         return std::string();
       }
 
-      std::ostringstream ss;
-      ss << static_cast<long int>(difftime(timeT, unixEpoch));
-      return ss.str();
+      return std::to_string(static_cast<long int>(difftime(timeT, unixEpoch)));
     }
     default: {
       return formatString;

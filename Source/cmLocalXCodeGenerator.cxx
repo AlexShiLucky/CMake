@@ -4,6 +4,7 @@
 
 #include "cmGeneratorTarget.h"
 #include "cmGlobalXCodeGenerator.h"
+#include "cmMakefile.h"
 #include "cmSourceFile.h"
 
 class cmGeneratorTarget;
@@ -19,9 +20,7 @@ cmLocalXCodeGenerator::cmLocalXCodeGenerator(cmGlobalGenerator* gg,
   this->EmitUniversalBinaryFlags = false;
 }
 
-cmLocalXCodeGenerator::~cmLocalXCodeGenerator()
-{
-}
+cmLocalXCodeGenerator::~cmLocalXCodeGenerator() = default;
 
 std::string cmLocalXCodeGenerator::GetTargetDirectory(
   cmGeneratorTarget const*) const
@@ -31,10 +30,10 @@ std::string cmLocalXCodeGenerator::GetTargetDirectory(
 }
 
 void cmLocalXCodeGenerator::AppendFlagEscape(std::string& flags,
-                                             const std::string& rawFlag)
+                                             const std::string& rawFlag) const
 {
-  cmGlobalXCodeGenerator* gg =
-    static_cast<cmGlobalXCodeGenerator*>(this->GlobalGenerator);
+  const cmGlobalXCodeGenerator* gg =
+    static_cast<const cmGlobalXCodeGenerator*>(this->GlobalGenerator);
   gg->AppendFlag(flags, rawFlag);
 }
 
@@ -42,21 +41,70 @@ void cmLocalXCodeGenerator::Generate()
 {
   cmLocalGenerator::Generate();
 
-  const std::vector<cmGeneratorTarget*>& targets = this->GetGeneratorTargets();
-  for (std::vector<cmGeneratorTarget*>::const_iterator iter = targets.begin();
-       iter != targets.end(); ++iter) {
-    (*iter)->HasMacOSXRpathInstallNameDir("");
+  for (const auto& target : this->GetGeneratorTargets()) {
+    target->HasMacOSXRpathInstallNameDir("");
   }
 }
 
-void cmLocalXCodeGenerator::GenerateInstallRules()
+void cmLocalXCodeGenerator::AddGeneratorSpecificInstallSetup(std::ostream& os)
 {
-  cmLocalGenerator::GenerateInstallRules();
+  // First check if we need to warn about incompatible settings
+  for (const auto& target : this->GetGeneratorTargets()) {
+    target->HasMacOSXRpathInstallNameDir("");
+  }
 
-  const std::vector<cmGeneratorTarget*>& targets = this->GetGeneratorTargets();
-  for (std::vector<cmGeneratorTarget*>::const_iterator iter = targets.begin();
-       iter != targets.end(); ++iter) {
-    (*iter)->HasMacOSXRpathInstallNameDir("");
+  // CMakeIOSInstallCombined.cmake needs to know the location of the top of
+  // the build directory
+  os << "set(CMAKE_BINARY_DIR \"" << this->GetBinaryDirectory() << "\")\n\n";
+
+  if (this->Makefile->PlatformIsAppleEmbedded()) {
+    std::string platformName;
+    switch (this->Makefile->GetAppleSDKType()) {
+      case cmMakefile::AppleSDK::IPhoneOS:
+        platformName = "iphoneos";
+        break;
+      case cmMakefile::AppleSDK::IPhoneSimulator:
+        platformName = "iphonesimulator";
+        break;
+      case cmMakefile::AppleSDK::AppleTVOS:
+        platformName = "appletvos";
+        break;
+      case cmMakefile::AppleSDK::AppleTVSimulator:
+        platformName = "appletvsimulator";
+        break;
+      case cmMakefile::AppleSDK::WatchOS:
+        platformName = "watchos";
+        break;
+      case cmMakefile::AppleSDK::WatchSimulator:
+        platformName = "watchsimulator";
+        break;
+      case cmMakefile::AppleSDK::MacOS:
+        break;
+    }
+    if (!platformName.empty()) {
+      // The effective platform name is just the platform name with a hyphen
+      // prepended. We can get the SUPPORTED_PLATFORMS from the project file
+      // at runtime, so we don't need to compute that here.
+      /* clang-format off */
+      os <<
+        "if(NOT PLATFORM_NAME)\n"
+        "  if(NOT \"$ENV{PLATFORM_NAME}\" STREQUAL \"\")\n"
+        "    set(PLATFORM_NAME \"$ENV{PLATFORM_NAME}\")\n"
+        "  endif()\n"
+        "  if(NOT PLATFORM_NAME)\n"
+        "    set(PLATFORM_NAME " << platformName << ")\n"
+        "  endif()\n"
+        "endif()\n\n"
+        "if(NOT EFFECTIVE_PLATFORM_NAME)\n"
+        "  if(NOT \"$ENV{EFFECTIVE_PLATFORM_NAME}\" STREQUAL \"\")\n"
+        "    set(EFFECTIVE_PLATFORM_NAME \"$ENV{EFFECTIVE_PLATFORM_NAME}\")\n"
+        "  endif()\n"
+        "  if(NOT EFFECTIVE_PLATFORM_NAME)\n"
+        "    set(EFFECTIVE_PLATFORM_NAME -" << platformName << ")\n"
+        "  endif()\n"
+        "endif()\n\n";
+      /* clang-format off */
+    }
   }
 }
 
@@ -69,19 +117,16 @@ void cmLocalXCodeGenerator::ComputeObjectFilenames(
   // to avoid exact duplicate file names. Note that Mac file names are not
   // typically case sensitive, hence the LowerCase.
   std::map<std::string, int> counts;
-  for (std::map<cmSourceFile const*, std::string>::iterator si =
-         mapping.begin();
-       si != mapping.end(); ++si) {
-    cmSourceFile const* sf = si->first;
-    std::string objectName =
-      cmSystemTools::GetFilenameWithoutLastExtension(sf->GetFullPath());
-    objectName += ".o";
+  for (auto& si : mapping) {
+    cmSourceFile const* sf = si.first;
+    std::string objectName = cmStrCat(
+      cmSystemTools::GetFilenameWithoutLastExtension(sf->GetFullPath()), ".o");
 
     std::string objectNameLower = cmSystemTools::LowerCase(objectName);
     counts[objectNameLower] += 1;
     if (2 == counts[objectNameLower]) {
       // TODO: emit warning about duplicate name?
     }
-    si->second = objectName;
+    si.second = objectName;
   }
 }

@@ -1581,7 +1581,7 @@ bool OurReader::decodeNumber(Token& token, Value& decoded) {
     ++current;
   // TODO: Help the compiler do the div and mod at compile time or get rid of them.
   Value::LargestUInt maxIntegerValue =
-      isNegative ? Value::LargestUInt(-Value::minLargestInt)
+      isNegative ? Value::LargestUInt(Value::minLargestInt)
                  : Value::maxLargestUInt;
   Value::LargestUInt threshold = maxIntegerValue / 10;
   Value::LargestUInt value = 0;
@@ -1728,7 +1728,7 @@ bool OurReader::decodeUnicodeCodePoint(Token& token,
                                     Location end,
                                     unsigned int& unicode) {
 
-  unicode = 0; // Convince scanbuild this is always initialized before use.
+  unicode = 0; // Convince clang-analyzer that this is initialized before use.
   if (!decodeUnicodeEscapeSequence(token, current, end, unicode))
     return false;
   if (unicode >= 0xD800 && unicode <= 0xDBFF) {

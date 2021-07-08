@@ -20,7 +20,7 @@ if(CPACK_GENERATOR MATCHES "RPM")
   set(CPACK_RPM_HEADERS_PACKAGE_ARCHITECTURE "noarch")
 
   # test cross-built rpm
-  set(CPACK_RPM_APPLICATIONS_PACKAGE_ARCHITECTURE "armv7hf")
+  set(CPACK_RPM_APPLICATIONS_PACKAGE_ARCHITECTURE "armv7hl")
 
   # test package summary override - headers rpm is generated in the middle
   set(CPACK_RPM_PACKAGE_SUMMARY "default summary")
@@ -50,6 +50,10 @@ endif()
 
 if(CPACK_GENERATOR MATCHES "DEB")
    set(CPACK_DEB_COMPONENT_INSTALL "ON")
+endif()
+
+if(CPACK_GENERATOR MATCHES "NuGet")
+   set(CPACK_NUGET_COMPONENT_INSTALL "ON")
 endif()
 
 #

@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmLocalVisualStudio10Generator_h
-#define cmLocalVisualStudio10Generator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -21,22 +20,18 @@ class cmMakefile;
 class cmLocalVisualStudio10Generator : public cmLocalVisualStudio7Generator
 {
 public:
-  ///! Set cache only and recurse to false by default.
+  //! Set cache only and recurse to false by default.
   cmLocalVisualStudio10Generator(cmGlobalGenerator* gg, cmMakefile* mf);
 
   virtual ~cmLocalVisualStudio10Generator();
 
-  /**
-   * Generate the makefile for this directory.
-   */
-  virtual void Generate();
-  virtual void ReadAndStoreExternalGUID(const std::string& name,
-                                        const char* path);
+  void ReadAndStoreExternalGUID(const std::string& name,
+                                const char* path) override;
 
 protected:
-  virtual const char* ReportErrorLabel() const;
-  virtual bool CustomCommandUseLocal() const { return true; }
+  const char* ReportErrorLabel() const override;
+  bool CustomCommandUseLocal() const override { return true; }
 
 private:
+  void GenerateTarget(cmGeneratorTarget* target) override;
 };
-#endif

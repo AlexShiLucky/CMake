@@ -1,10 +1,12 @@
 CMAKE_FIND_FRAMEWORK
 --------------------
 
-This variable affects how ``find_*`` commands choose between
-OS X Frameworks and unix-style package components.
+.. versionadded:: 3.4
 
-On Darwin or systems supporting OS X Frameworks, the
+This variable affects how ``find_*`` commands choose between
+macOS Frameworks and unix-style package components.
+
+On Darwin or systems supporting macOS Frameworks, the
 ``CMAKE_FIND_FRAMEWORK`` variable can be set to empty or
 one of the following:
 

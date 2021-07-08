@@ -4,11 +4,12 @@
 
 #include <ostream>
 #include <string>
+#include <utility>
 
 #include "cmSystemTools.h"
 
-cmXCode21Object::cmXCode21Object(PBXType ptype, Type type)
-  : cmXCodeObject(ptype, type)
+cmXCode21Object::cmXCode21Object(PBXType ptype, Type type, std::string id)
+  : cmXCodeObject(ptype, type, std::move(id))
 {
   this->Version = 21;
 }
@@ -16,7 +17,7 @@ cmXCode21Object::cmXCode21Object(PBXType ptype, Type type)
 void cmXCode21Object::PrintComment(std::ostream& out)
 {
   if (this->Comment.empty()) {
-    cmXCodeObject* n = this->GetObject("name");
+    cmXCodeObject* n = this->GetAttribute("name");
     if (n) {
       this->Comment = n->GetString();
       cmSystemTools::ReplaceString(this->Comment, "\"", "");
@@ -30,13 +31,12 @@ void cmXCode21Object::PrintComment(std::ostream& out)
   out << " */";
 }
 
-void cmXCode21Object::PrintList(std::vector<cmXCodeObject*> const& v,
-                                std::ostream& out, PBXType t)
+void cmXCode21Object::PrintList(
+  std::vector<std::unique_ptr<cmXCodeObject>> const& v, std::ostream& out,
+  PBXType t)
 {
   bool hasOne = false;
-  for (std::vector<cmXCodeObject*>::const_iterator i = v.begin(); i != v.end();
-       ++i) {
-    cmXCodeObject* obj = *i;
+  for (const auto& obj : v) {
     if (obj->GetType() == OBJECT && obj->GetIsA() == t) {
       hasOne = true;
       break;
@@ -46,9 +46,7 @@ void cmXCode21Object::PrintList(std::vector<cmXCodeObject*> const& v,
     return;
   }
   out << "\n/* Begin " << PBXTypeNames[t] << " section */\n";
-  for (std::vector<cmXCodeObject*>::const_iterator i = v.begin(); i != v.end();
-       ++i) {
-    cmXCodeObject* obj = *i;
+  for (const auto& obj : v) {
     if (obj->GetType() == OBJECT && obj->GetIsA() == t) {
       obj->Print(out);
     }
@@ -56,8 +54,8 @@ void cmXCode21Object::PrintList(std::vector<cmXCodeObject*> const& v,
   out << "/* End " << PBXTypeNames[t] << " section */\n";
 }
 
-void cmXCode21Object::PrintList(std::vector<cmXCodeObject*> const& v,
-                                std::ostream& out)
+void cmXCode21Object::PrintList(
+  std::vector<std::unique_ptr<cmXCodeObject>> const& v, std::ostream& out)
 {
   cmXCodeObject::Indent(1, out);
   out << "objects = {\n";

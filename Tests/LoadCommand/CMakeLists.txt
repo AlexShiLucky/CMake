@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 2.8.12)
 project(LoadCommand)
 
 # set a definition
@@ -17,13 +17,6 @@ include_directories(${LoadCommand_BINARY_DIR})
 # make sure it is not already loaded
 if(COMMAND CMAKE_TEST_COMMAND)
 else()
-  try_compile(COMPILE_OK
-    ${LoadCommand_BINARY_DIR}/CMakeCommands
-    ${LoadCommand_SOURCE_DIR}/CMakeCommands
-    CMAKE_LOADED_COMMANDS CMAKE_FLAGS -DMUDSLIDE_TYPE:STRING=MUCHO
-    OUTPUT_VARIABLE OUTPUT )
-# do another TRY_COMPILE to get around make
-# problem on hp
   try_compile(COMPILE_OK
     ${LoadCommand_BINARY_DIR}/CMakeCommands
     ${LoadCommand_SOURCE_DIR}/CMakeCommands

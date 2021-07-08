@@ -2,27 +2,22 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmRulePlaceholderExpander.h"
 
-#include <ctype.h>
-#include <string.h>
+#include <cctype>
 #include <utility>
 
 #include "cmOutputConverter.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
 cmRulePlaceholderExpander::cmRulePlaceholderExpander(
-  std::map<std::string, std::string> const& compilers,
-  std::map<std::string, std::string> const& variableMappings,
-  std::string const& compilerSysroot, std::string const& linkerSysroot)
-  : Compilers(compilers)
-  , VariableMappings(variableMappings)
-  , CompilerSysroot(compilerSysroot)
-  , LinkerSysroot(linkerSysroot)
+  std::map<std::string, std::string> compilers,
+  std::map<std::string, std::string> variableMappings,
+  std::string compilerSysroot, std::string linkerSysroot)
+  : Compilers(std::move(compilers))
+  , VariableMappings(std::move(variableMappings))
+  , CompilerSysroot(std::move(compilerSysroot))
+  , LinkerSysroot(std::move(linkerSysroot))
 {
-}
-
-cmRulePlaceholderExpander::RuleVariables::RuleVariables()
-{
-  memset(this, 0, sizeof(*this));
 }
 
 std::string cmRulePlaceholderExpander::ExpandRuleVariable(
@@ -48,6 +43,11 @@ std::string cmRulePlaceholderExpander::ExpandRuleVariable(
   if (replaceValues.Source) {
     if (variable == "SOURCE") {
       return replaceValues.Source;
+    }
+  }
+  if (replaceValues.DynDepFile) {
+    if (variable == "DYNDEP_FILE") {
+      return replaceValues.DynDepFile;
     }
   }
   if (replaceValues.PreprocessedSource) {
@@ -85,11 +85,46 @@ std::string cmRulePlaceholderExpander::ExpandRuleVariable(
       return replaceValues.ObjectsQuoted;
     }
   }
+  if (replaceValues.AIXExports) {
+    if (variable == "AIX_EXPORTS") {
+      return replaceValues.AIXExports;
+    }
+  }
+  if (replaceValues.ISPCHeader) {
+    if (variable == "ISPC_HEADER") {
+      return replaceValues.ISPCHeader;
+    }
+  }
   if (replaceValues.Defines && variable == "DEFINES") {
     return replaceValues.Defines;
   }
   if (replaceValues.Includes && variable == "INCLUDES") {
     return replaceValues.Includes;
+  }
+  if (replaceValues.SwiftLibraryName) {
+    if (variable == "SWIFT_LIBRARY_NAME") {
+      return replaceValues.SwiftLibraryName;
+    }
+  }
+  if (replaceValues.SwiftModule) {
+    if (variable == "SWIFT_MODULE") {
+      return replaceValues.SwiftModule;
+    }
+  }
+  if (replaceValues.SwiftModuleName) {
+    if (variable == "SWIFT_MODULE_NAME") {
+      return replaceValues.SwiftModuleName;
+    }
+  }
+  if (replaceValues.SwiftOutputFileMap) {
+    if (variable == "SWIFT_OUTPUT_FILE_MAP") {
+      return replaceValues.SwiftOutputFileMap;
+    }
+  }
+  if (replaceValues.SwiftSources) {
+    if (variable == "SWIFT_SOURCES") {
+      return replaceValues.SwiftSources;
+    }
   }
   if (replaceValues.TargetPDB) {
     if (variable == "TARGET_PDB") {
@@ -106,11 +141,26 @@ std::string cmRulePlaceholderExpander::ExpandRuleVariable(
       return replaceValues.DependencyFile;
     }
   }
+  if (replaceValues.DependencyTarget) {
+    if (variable == "DEP_TARGET") {
+      return replaceValues.DependencyTarget;
+    }
+  }
+  if (replaceValues.Fatbinary) {
+    if (variable == "FATBINARY") {
+      return replaceValues.Fatbinary;
+    }
+  }
+  if (replaceValues.RegisterFile) {
+    if (variable == "REGISTER_FILE") {
+      return replaceValues.RegisterFile;
+    }
+  }
 
   if (replaceValues.Target) {
     if (variable == "TARGET_QUOTED") {
       std::string targetQuoted = replaceValues.Target;
-      if (!targetQuoted.empty() && targetQuoted[0] != '\"') {
+      if (!targetQuoted.empty() && targetQuoted.front() != '\"') {
         targetQuoted = '\"';
         targetQuoted += replaceValues.Target;
         targetQuoted += '\"';
@@ -120,7 +170,7 @@ std::string cmRulePlaceholderExpander::ExpandRuleVariable(
     if (variable == "TARGET_UNQUOTED") {
       std::string unquoted = replaceValues.Target;
       std::string::size_type sz = unquoted.size();
-      if (sz > 2 && unquoted[0] == '\"' && unquoted[sz - 1] == '\"') {
+      if (sz > 2 && unquoted.front() == '\"' && unquoted.back() == '\"') {
         unquoted = unquoted.substr(1, sz - 2);
       }
       return unquoted;
@@ -206,12 +256,10 @@ std::string cmRulePlaceholderExpander::ExpandRuleVariable(
   }
   if (variable == "CMAKE_COMMAND") {
     return outputConverter->ConvertToOutputFormat(
-      cmSystemTools::CollapseFullPath(cmSystemTools::GetCMakeCommand()),
-      cmOutputConverter::SHELL);
+      cmSystemTools::GetCMakeCommand(), cmOutputConverter::SHELL);
   }
 
-  std::map<std::string, std::string>::iterator compIt =
-    this->Compilers.find(variable);
+  auto compIt = this->Compilers.find(variable);
 
   if (compIt != this->Compilers.end()) {
     std::string ret = outputConverter->ConvertToOutputForExisting(
@@ -233,7 +281,14 @@ std::string cmRulePlaceholderExpander::ExpandRuleVariable(
       this->VariableMappings["CMAKE_" + compIt->second +
                              "_COMPILE_OPTIONS_SYSROOT"];
 
-    // if there is a required first argument to the compiler add it
+    if (compIt->second == replaceValues.Language && replaceValues.Launcher) {
+      // Add launcher as part of expansion so that it always appears
+      // immediately before the command itself, regardless of whether the
+      // overall rule template contains other content at the front.
+      ret = cmStrCat(replaceValues.Launcher, " ", ret);
+    }
+
+    // if there are required arguments to the compiler add it
     // to the compiler string
     if (!compilerArg1.empty()) {
       ret += " ";
@@ -267,11 +322,20 @@ std::string cmRulePlaceholderExpander::ExpandRuleVariable(
     return ret;
   }
 
-  std::map<std::string, std::string>::iterator mapIt =
-    this->VariableMappings.find(variable);
+  auto mapIt = this->VariableMappings.find(variable);
   if (mapIt != this->VariableMappings.end()) {
     if (variable.find("_FLAG") == std::string::npos) {
-      return outputConverter->ConvertToOutputForExisting(mapIt->second);
+      std::string ret =
+        outputConverter->ConvertToOutputForExisting(mapIt->second);
+
+      if (replaceValues.Launcher && variable == "CMAKE_LINKER") {
+        // Add launcher as part of expansion so that it always appears
+        // immediately before the command itself, regardless of whether the
+        // overall rule template contains other content at the front.
+        ret = cmStrCat(replaceValues.Launcher, " ", ret);
+      }
+
+      return ret;
     }
     return mapIt->second;
   }
@@ -306,7 +370,17 @@ void cmRulePlaceholderExpander::ExpandRuleVariables(
       std::string replace =
         this->ExpandRuleVariable(outputConverter, var, replaceValues);
       expandedInput += s.substr(pos, start - pos);
+
+      // Prevent consecutive whitespace in the output if the rule variable
+      // expands to an empty string.
+      bool consecutive = replace.empty() && start > 0 && s[start - 1] == ' ' &&
+        end + 1 < s.size() && s[end + 1] == ' ';
+      if (consecutive) {
+        expandedInput.pop_back();
+      }
+
       expandedInput += replace;
+
       // move to next one
       start = s.find('<', start + var.size() + 2);
       pos = end + 1;

@@ -1,15 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmVSSetupHelper_h
-#define cmVSSetupHelper_h
+#pragma once
 
 #ifndef NOMINMAX
-#define NOMINMAX // Undefine min and max defined by windows.h
+#  define NOMINMAX // Undefine min and max defined by windows.h
 #endif
 
 // Published by Visual Studio Setup team
-#include "cmvssetup/Setup.Configuration.h"
-
+#include <cm3p/Setup.Configuration.h>
 #include <string>
 #include <vector>
 
@@ -74,29 +72,12 @@ class SmartBSTR
 {
 public:
   SmartBSTR() { str = NULL; }
-  SmartBSTR(const SmartBSTR& src)
-  {
-    if (src.str != NULL) {
-      str = ::SysAllocStringByteLen((char*)str, ::SysStringByteLen(str));
-    } else {
-      str = ::SysAllocStringByteLen(NULL, 0);
-    }
-  }
-  SmartBSTR& operator=(const SmartBSTR& src)
-  {
-    if (str != src.str) {
-      ::SysFreeString(str);
-      if (src.str != NULL) {
-        str = ::SysAllocStringByteLen((char*)str, ::SysStringByteLen(str));
-      } else {
-        str = ::SysAllocStringByteLen(NULL, 0);
-      }
-    }
-    return *this;
-  }
+  SmartBSTR(const SmartBSTR& src) = delete;
+  SmartBSTR& operator=(const SmartBSTR& src) = delete;
   operator BSTR() const { return str; }
   BSTR* operator&() throw() { return &str; }
   ~SmartBSTR() throw() { ::SysFreeString(str); }
+
 private:
   BSTR str;
 };
@@ -106,26 +87,26 @@ struct VSInstanceInfo
   std::wstring InstanceId;
   std::wstring VSInstallLocation;
   std::wstring Version;
-  ULONGLONG ullVersion;
-  bool IsWin10SDKInstalled;
-  bool IsWin81SDKInstalled;
+  std::string VCToolsetVersion;
+  ULONGLONG ullVersion = 0; // A.B.C.D = (A<<48)|(B<<32)|(C<<16)|D
+  bool IsWin10SDKInstalled = false;
+  bool IsWin81SDKInstalled = false;
 
-  VSInstanceInfo()
-  {
-    InstanceId = VSInstallLocation = Version = L"";
-    ullVersion = 0;
-    IsWin10SDKInstalled = IsWin81SDKInstalled = false;
-  }
+  std::string GetInstallLocation() const;
 };
 
 class cmVSSetupAPIHelper
 {
 public:
-  cmVSSetupAPIHelper();
+  cmVSSetupAPIHelper(unsigned int version);
   ~cmVSSetupAPIHelper();
 
-  bool IsVS2017Installed();
+  bool SetVSInstance(std::string const& vsInstallLocation);
+
+  bool IsVSInstalled();
   bool GetVSInstanceInfo(std::string& vsInstallLocation);
+  bool GetVSInstanceVersion(std::string& vsInstanceVersion);
+  bool GetVCToolsetVersion(std::string& vsToolsetVersion);
   bool IsWin10SDKInstalled();
   bool IsWin81SDKInstalled();
 
@@ -134,10 +115,11 @@ private:
   bool GetVSInstanceInfo(SmartCOMPtr<ISetupInstance2> instance2,
                          VSInstanceInfo& vsInstanceInfo);
   bool CheckInstalledComponent(SmartCOMPtr<ISetupPackageReference> package,
-                               bool& bVCToolset, bool& bWin10SDK,
-                               bool& bWin81SDK);
+                               bool& bWin10SDK, bool& bWin81SDK);
   int ChooseVSInstance(const std::vector<VSInstanceInfo>& vecVSInstances);
   bool EnumerateAndChooseVSInstance();
+
+  unsigned int Version;
 
   // COM ptrs to query about VS instances
   SmartCOMPtr<ISetupConfiguration> setupConfig;
@@ -149,6 +131,7 @@ private:
   HRESULT comInitialized;
   // current best instance of VS selected
   VSInstanceInfo chosenInstanceInfo;
-};
+  bool IsEWDKEnabled();
 
-#endif
+  std::string SpecifiedVSInstallLocation;
+};

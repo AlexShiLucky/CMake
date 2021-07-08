@@ -1,16 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackNSISGenerator_h
-#define cmCPackNSISGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmCPackGenerator.h"
 
 #include <iosfwd>
 #include <set>
 #include <string>
 #include <vector>
+
+#include <cm/string_view>
+
+#include "cmCPackGenerator.h"
 
 class cmCPackComponent;
 class cmCPackComponentGroup;
@@ -34,22 +35,22 @@ public:
    * Construct generator
    */
   cmCPackNSISGenerator(bool nsis64 = false);
-  ~cmCPackNSISGenerator() CM_OVERRIDE;
+  ~cmCPackNSISGenerator() override;
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
+  int InitializeInternal() override;
   void CreateMenuLinks(std::ostream& str, std::ostream& deleteStr);
-  int PackageFiles() CM_OVERRIDE;
-  const char* GetOutputExtension() CM_OVERRIDE { return ".exe"; }
-  const char* GetOutputPostfix() CM_OVERRIDE { return "win32"; }
+  int PackageFiles() override;
+  const char* GetOutputExtension() override { return ".exe"; }
+  const char* GetOutputPostfix() override { return "win32"; }
 
   bool GetListOfSubdirectories(const char* dir,
                                std::vector<std::string>& dirs);
 
-  enum cmCPackGenerator::CPackSetDestdirSupport SupportsSetDestdir() const
-    CM_OVERRIDE;
-  bool SupportsAbsoluteDestination() const CM_OVERRIDE;
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  enum cmCPackGenerator::CPackSetDestdirSupport SupportsSetDestdir()
+    const override;
+  bool SupportsAbsoluteDestination() const override;
+  bool SupportsComponentInstallation() const override;
 
   /// Produce a string that contains the NSIS code to describe a
   /// particular component. Any added macros will be emitted via
@@ -75,8 +76,7 @@ protected:
 
   /// Returns the custom install directory if available for the specified
   /// component, otherwise $INSTDIR is returned.
-  std::string CustomComponentInstallDirectory(
-    const std::string& componentName);
+  std::string CustomComponentInstallDirectory(cm::string_view componentName);
 
   /// Translations any newlines found in the string into \\r\\n, so that the
   /// resulting string can be used within NSIS.
@@ -84,5 +84,3 @@ protected:
 
   bool Nsis64;
 };
-
-#endif

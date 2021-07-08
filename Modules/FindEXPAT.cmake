@@ -1,32 +1,36 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
 # file Copyright.txt or https://cmake.org/licensing for details.
 
-#.rst:
-# FindEXPAT
-# ---------
-#
-# Find the native Expat headers and library.
-#
-# Imported Targets
-# ^^^^^^^^^^^^^^^^
-#
-# This module defines the following :prop_tgt:`IMPORTED` targets:
-#
-# ``EXPAT::EXPAT``
-#   The Expat ``expat`` library, if found.
-#
-# Result Variables
-# ^^^^^^^^^^^^^^^^
-#
-# This module will set the following variables in your project:
-#
-# ``EXPAT_INCLUDE_DIRS``
-#   where to find expat.h, etc.
-# ``EXPAT_LIBRARIES``
-#   the libraries to link against to use Expat.
-# ``EXPAT_FOUND``
-#   true if the Expat headers and libraries were found.
-#
+#[=======================================================================[.rst:
+FindEXPAT
+---------
+
+Find the native Expat headers and library.
+Expat is a stream-oriented XML parser library written in C.
+
+Imported Targets
+^^^^^^^^^^^^^^^^
+
+.. versionadded:: 3.10
+
+This module defines the following :prop_tgt:`IMPORTED` targets:
+
+``EXPAT::EXPAT``
+  The Expat ``expat`` library, if found.
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module will set the following variables in your project:
+
+``EXPAT_INCLUDE_DIRS``
+  where to find expat.h, etc.
+``EXPAT_LIBRARIES``
+  the libraries to link against to use Expat.
+``EXPAT_FOUND``
+  true if the Expat headers and libraries were found.
+
+#]=======================================================================]
 
 find_package(PkgConfig QUIET)
 
@@ -36,7 +40,7 @@ pkg_check_modules(PC_EXPAT QUIET expat)
 find_path(EXPAT_INCLUDE_DIR NAMES expat.h HINTS ${PC_EXPAT_INCLUDE_DIRS})
 
 # Look for the library.
-find_library(EXPAT_LIBRARY NAMES expat libexpat HINTS ${PC_EXPAT_LIBRARY_DIRS})
+find_library(EXPAT_LIBRARY NAMES expat libexpat NAMES_PER_DIR HINTS ${PC_EXPAT_LIBRARY_DIRS})
 
 if (EXPAT_INCLUDE_DIR AND EXISTS "${EXPAT_INCLUDE_DIR}/expat.h")
     file(STRINGS "${EXPAT_INCLUDE_DIR}/expat.h" expat_version_str

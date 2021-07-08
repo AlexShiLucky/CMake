@@ -1,16 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmArchiveWrite_h
-#define cmArchiveWrite_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <cstddef>
 #include <iosfwd>
-#include <stddef.h>
 #include <string>
 
-#if !defined(CMAKE_BUILD_WITH_CMAKE)
-#error "cmArchiveWrite not allowed during bootstrap build!"
+#if defined(CMAKE_BOOTSTRAP)
+#  error "cmArchiveWrite not allowed during bootstrap build!"
 #endif
 
 template <typename T>
@@ -27,7 +26,8 @@ public:
   }
   void Clear() { this->IsValueSet = false; }
   bool IsSet() const { return this->IsValueSet; }
-  T Get() const { return Value; }
+  T Get() const { return this->Value; }
+
 private:
   T Value;
   bool IsValueSet;
@@ -39,8 +39,6 @@ private:
  */
 class cmArchiveWrite
 {
-  typedef void (cmArchiveWrite::*safe_bool)();
-  void safe_bool_true() {}
 public:
   /** Compression type.  */
   enum Compress
@@ -50,14 +48,21 @@ public:
     CompressGZip,
     CompressBZip2,
     CompressLZMA,
-    CompressXZ
+    CompressXZ,
+    CompressZstd
   };
 
   /** Construct with output stream to which to write archive.  */
   cmArchiveWrite(std::ostream& os, Compress c = CompressNone,
-                 std::string const& format = "paxr");
+                 std::string const& format = "paxr", int compressionLevel = 0,
+                 int numThreads = 1);
 
   ~cmArchiveWrite();
+
+  cmArchiveWrite(const cmArchiveWrite&) = delete;
+  cmArchiveWrite& operator=(const cmArchiveWrite&) = delete;
+
+  bool Open();
 
   /**
    * Add a path (file or directory) to the archive.  Directories are
@@ -71,10 +76,7 @@ public:
            bool recursive = true);
 
   /** Returns true if there has been no error.  */
-  operator safe_bool() const
-  {
-    return this->Okay() ? &cmArchiveWrite::safe_bool_true : nullptr;
-  }
+  explicit operator bool() const { return this->Okay(); }
 
   /** Returns true if there has been an error.  */
   bool operator!() const { return !this->Okay(); }
@@ -175,5 +177,3 @@ private:
   cmArchiveWriteOptional<int> Permissions;
   cmArchiveWriteOptional<int> PermissionsMask;
 };
-
-#endif

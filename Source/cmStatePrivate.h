@@ -1,8 +1,7 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
 
-#ifndef cmStatePrivate_h
-#define cmStatePrivate_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -42,14 +41,15 @@ struct cmStateDetail::SnapshotDataType
   std::vector<std::string>::size_type IncludeDirectoryPosition;
   std::vector<std::string>::size_type CompileDefinitionsPosition;
   std::vector<std::string>::size_type CompileOptionsPosition;
+  std::vector<std::string>::size_type LinkOptionsPosition;
+  std::vector<std::string>::size_type LinkDirectoriesPosition;
 };
 
 struct cmStateDetail::PolicyStackEntry : public cmPolicies::PolicyMap
 {
-  typedef cmPolicies::PolicyMap derived;
+  using derived = cmPolicies::PolicyMap;
   PolicyStackEntry(bool w = false)
-    : derived()
-    , Weak(w)
+    : Weak(w)
   {
   }
   PolicyStackEntry(derived const& d, bool w)
@@ -67,14 +67,6 @@ struct cmStateDetail::BuildsystemDirectoryStateType
   std::string Location;
   std::string OutputLocation;
 
-  // The top-most directories for relative path conversion.  Both the
-  // source and destination location of a relative path conversion
-  // must be underneath one of these directories (both under source or
-  // both under binary) in order for the relative path to be evaluated
-  // safely by the build tools.
-  std::string RelativePathTopSource;
-  std::string RelativePathTopBinary;
-
   std::vector<std::string> IncludeDirectories;
   std::vector<cmListFileBacktrace> IncludeDirectoryBacktraces;
 
@@ -84,7 +76,14 @@ struct cmStateDetail::BuildsystemDirectoryStateType
   std::vector<std::string> CompileOptions;
   std::vector<cmListFileBacktrace> CompileOptionsBacktraces;
 
+  std::vector<std::string> LinkOptions;
+  std::vector<cmListFileBacktrace> LinkOptionsBacktraces;
+
+  std::vector<std::string> LinkDirectories;
+  std::vector<cmListFileBacktrace> LinkDirectoriesBacktraces;
+
   std::vector<std::string> NormalTargetNames;
+  std::vector<std::string> ImportedTargetNames;
 
   std::string ProjectName;
 
@@ -92,5 +91,3 @@ struct cmStateDetail::BuildsystemDirectoryStateType
 
   std::vector<cmStateSnapshot> Children;
 };
-
-#endif

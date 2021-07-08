@@ -1,9 +1,10 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackFreeBSDGenerator_h
-#define cmCPackFreeBSDGenerator_h
+#pragma once
 
-#include <cmConfigure.h>
+#include "cmConfigure.h" // IWYU pragma: keep
+
+#include <string>
 
 #include "cmCPackArchiveGenerator.h"
 #include "cmCPackGenerator.h"
@@ -22,16 +23,12 @@ public:
    * Construct generator
    */
   cmCPackFreeBSDGenerator();
-  ~cmCPackFreeBSDGenerator() CM_OVERRIDE;
+  ~cmCPackFreeBSDGenerator() override;
 
-  int InitializeInternal() CM_OVERRIDE;
-  int PackageFiles() CM_OVERRIDE;
+  int InitializeInternal() override;
+  int PackageFiles() override;
 
 protected:
-  const char* GetOutputExtension() CM_OVERRIDE { return ".txz"; }
-
   std::string var_lookup(const char* var_name);
   void write_manifest_fields(cmGeneratedFileStream&);
 };
-
-#endif

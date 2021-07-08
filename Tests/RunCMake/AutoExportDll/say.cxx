@@ -1,9 +1,10 @@
-#include "hello.h"
 #include <stdio.h>
+
+#include "hello.h"
 #ifdef _MSC_VER
-#include "windows.h"
+#  include "windows.h"
 #else
-#define WINAPI
+#  define WINAPI
 #endif
 
 extern "C" {
@@ -16,9 +17,11 @@ void justnop();
 }
 
 // test c++ functions
-// forward declare hello and world
+// forward declare hello, world, cliFunction and nonCliFunction
 void hello();
 void world();
+void cliFunction();
+void nonCliFunction();
 
 // test exports for executable target
 extern "C" {
@@ -42,6 +45,10 @@ int main()
   printf("\n");
   bar();
   objlib();
+  printf("\n");
+  cliFunction();
+  printf("\n");
+  nonCliFunction();
   printf("\n");
 #ifdef HAS_JUSTNOP
   justnop();

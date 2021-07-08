@@ -1,5 +1,10 @@
-cmake_minimum_required (VERSION 3.1)
+cmake_minimum_required (VERSION 3.9)
 project(FortranModules Fortran)
+
+if("${CMAKE_Fortran_COMPILER_ID};${CMAKE_Fortran_SIMULATE_ID}" MATCHES "^Intel(LLVM)?;MSVC$")
+  string(APPEND CMAKE_Fortran_FLAGS_DEBUG " -Z7")
+  string(APPEND CMAKE_Fortran_FLAGS_RELWITHDEBINFO " -Z7")
+endif()
 
 if(NOT DEFINED CMake_TEST_NESTED_MAKE_PROGRAM AND NOT CMAKE_GENERATOR MATCHES "Visual Studio")
   set(CMake_TEST_NESTED_MAKE_PROGRAM "${CMAKE_MAKE_PROGRAM}")
@@ -21,7 +26,7 @@ end module parent
 submodule ( parent ) child
 contains
   module procedure id
-    f = x
+    id = x
   end procedure id
 end submodule child
 program main
@@ -56,7 +61,8 @@ add_executable(test_non_pp_include test_non_pp_include_main.f90)
 
 # Build the external project separately using a custom target.
 # Make sure it uses the same build configuration as this test.
-if(CMAKE_CONFIGURATION_TYPES)
+get_property(_isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_isMultiConfig)
   set(External_CONFIG_TYPE -C "${CMAKE_CFG_INTDIR}")
   set(External_BUILD_TYPE)
 else()

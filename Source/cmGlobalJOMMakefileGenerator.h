@@ -1,7 +1,9 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGlobalJOMMakefileGenerator_h
-#define cmGlobalJOMMakefileGenerator_h
+#pragma once
+
+#include <iosfwd>
+#include <memory>
 
 #include "cmGlobalUnixMakefileGenerator3.h"
 
@@ -14,12 +16,13 @@ class cmGlobalJOMMakefileGenerator : public cmGlobalUnixMakefileGenerator3
 {
 public:
   cmGlobalJOMMakefileGenerator(cmake* cm);
-  static cmGlobalGeneratorFactory* NewFactory()
+  static std::unique_ptr<cmGlobalGeneratorFactory> NewFactory()
   {
-    return new cmGlobalGeneratorSimpleFactory<cmGlobalJOMMakefileGenerator>();
+    return std::unique_ptr<cmGlobalGeneratorFactory>(
+      new cmGlobalGeneratorSimpleFactory<cmGlobalJOMMakefileGenerator>());
   }
-  ///! Get the name for the generator.
-  virtual std::string GetName() const
+  //! Get the name for the generator.
+  std::string GetName() const override
   {
     return cmGlobalJOMMakefileGenerator::GetActualName();
   }
@@ -34,12 +37,18 @@ public:
    * Try to determine system information such as shared library
    * extension, pthreads, byte order etc.
    */
-  virtual void EnableLanguage(std::vector<std::string> const& languages,
-                              cmMakefile*, bool optional);
+  void EnableLanguage(std::vector<std::string> const& languages, cmMakefile*,
+                      bool optional) override;
+
+protected:
+  std::vector<GeneratedMakeCommand> GenerateBuildCommand(
+    const std::string& makeProgram, const std::string& projectName,
+    const std::string& projectDir, std::vector<std::string> const& targetNames,
+    const std::string& config, bool fast, int jobs, bool verbose,
+    std::vector<std::string> const& makeOptions =
+      std::vector<std::string>()) override;
 
 private:
   void PrintCompilerAdvice(std::ostream& os, std::string const& lang,
-                           const char* envVar) const;
+                           const char* envVar) const override;
 };
-
-#endif

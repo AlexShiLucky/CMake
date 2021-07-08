@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackOSXX11Generator_h
-#define cmCPackOSXX11Generator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -23,13 +22,13 @@ public:
    * Construct generator
    */
   cmCPackOSXX11Generator();
-  ~cmCPackOSXX11Generator() CM_OVERRIDE;
+  ~cmCPackOSXX11Generator() override;
 
 protected:
-  virtual int InitializeInternal() CM_OVERRIDE;
-  int PackageFiles() CM_OVERRIDE;
-  const char* GetPackagingInstallPrefix() CM_OVERRIDE;
-  const char* GetOutputExtension() CM_OVERRIDE { return ".dmg"; }
+  virtual int InitializeInternal() override;
+  int PackageFiles() override;
+  const char* GetPackagingInstallPrefix() override;
+  const char* GetOutputExtension() override { return ".dmg"; }
 
   // bool CopyCreateResourceFile(const std::string& name,
   //                            const std::string& dir);
@@ -38,5 +37,3 @@ protected:
                              bool copyOnly = false);
   std::string InstallPrefix;
 };
-
-#endif

@@ -1,13 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCursesStandardIncludes_h
-#define cmCursesStandardIncludes_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+// Record whether __attribute__ is currently defined.  See purpose below.
+#ifndef __attribute__
+#  define cm_no__attribute__
+#endif
+
 #if defined(__hpux)
-#define _BOOL_DEFINED
-#include <sys/time.h>
+#  define _BOOL_DEFINED
+#  include <sys/time.h>
 #endif
 
 #include <form.h>
@@ -29,4 +33,10 @@ inline void curses_clear()
 #undef erase
 #undef clear
 
-#endif // cmCursesStandardIncludes_h
+// The curses headers on some platforms (e.g. Solaris) may
+// define __attribute__ as a macro.  This breaks C++ headers
+// in some cases, so undefine it now.
+#if defined(cm_no__attribute__) && defined(__attribute__)
+#  undef __attribute__
+#endif
+#undef cm_no__attribute__

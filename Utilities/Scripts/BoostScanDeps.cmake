@@ -20,7 +20,7 @@
 # "component".  For each component, all the headers will be scanned to
 # determine the components it depends upon by following all the
 # possible includes from this component.  This is to match the
-# behaviour of autolinking.
+# behavior of autolinking.
 
 # Written by Roger Leigh <rleigh@codelibre.net>
 
@@ -51,12 +51,12 @@ function(_Boost_FIND_COMPONENT_DEPENDENCIES component includedir _ret_libs)
 
   # Special-case since it is part of mpi; look only in boost/mpi/python*
   if(component STREQUAL "mpi_python")
-    set(_boost_DEPS "python")
+    set(_boost_DEPS "python\${component_python_version}")
     set(library_component TRUE)
     set(_boost_unprocessed_headers ${_boost_mpi_python_headers})
   # Special-case since it is part of python; look only in boost/python/numpy*
   elseif(component STREQUAL "numpy")
-    set(_boost_DEPS "python")
+    set(_boost_DEPS "python\${component_python_version}")
     set(library_component TRUE)
     set(_boost_unprocessed_headers ${_boost_python_numpy_headers})
   # Special-case since it is a serialization variant; look in boost/serialization
@@ -86,7 +86,7 @@ function(_Boost_FIND_COMPONENT_DEPENDENCIES component includedir _ret_libs)
     set(library_component TRUE)
     set(_boost_unprocessed_headers "${BOOST_DIR}/test/test_exec_monitor.hpp")
   else()
-    # Default behaviour where header directory is the same as the library name.
+    # Default behavior where header directory is the same as the library name.
     file(GLOB_RECURSE _boost_unprocessed_headers
          RELATIVE "${includedir}"
          "${includedir}/boost/${component}/*")
@@ -134,9 +134,15 @@ function(_Boost_FIND_COMPONENT_DEPENDENCIES component includedir _ret_libs)
             continue()
           endif()
           if(component STREQUAL "python" AND
-             boost_component_match STREQUAL "numpy")
+             _boost_component_match STREQUAL "numpy")
             # Optional python dependency; skip to avoid making it a
             # hard dependency (handle as special-case for numpy).
+            continue()
+          endif()
+          if(component STREQUAL "nowide" AND
+             _boost_component_match STREQUAL "filesystem")
+            # Optional filesystem dependency; skip to avoid making it a
+            # hard dependency.
             continue()
           endif()
           if (_boost_dep_found EQUAL -1 AND

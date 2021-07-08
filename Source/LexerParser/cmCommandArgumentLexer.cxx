@@ -653,7 +653,7 @@ This file must be translated to C++ and modified to build everywhere.
 
 Run flex >= 2.6 like this:
 
-  flex --nounistd -DFLEXINT_H --noline --header-file=cmCommandArgumentLexer.h -ocmCommandArgumentLexer.cxx cmCommandArgumentLexer.in.l
+  flex --nounistd --never-interactive --batch -DFLEXINT_H --noline --header-file=cmCommandArgumentLexer.h -ocmCommandArgumentLexer.cxx cmCommandArgumentLexer.in.l
 
 Modify cmCommandArgumentLexer.cxx:
   - remove trailing whitespace:              sed -i 's/\s*$//' cmCommandArgumentLexer.h cmCommandArgumentLexer.cxx
@@ -664,15 +664,21 @@ Modify cmCommandArgumentLexer.cxx:
 
 /* IWYU pragma: no_forward_declare yyguts_t */
 
+#ifndef __clang_analyzer__ /* Suppress clang-analyzer warnings */
+
 #include "cmCommandArgumentParserHelper.h"
 
-/* Replace the lexer input function.  */
-#undef YY_INPUT
-#define YY_INPUT(buf, result, max_size) \
-  { result = yyextra->LexInput(buf, max_size); }
+#define YY_USER_ACTION  yyextra->UpdateInputPosition(yyleng);
 
 /* Include the set of tokens from the parser.  */
 #include "cmCommandArgumentParserTokens.h"
+
+static const char *DCURLYVariable = "${";
+static const char *RCURLYVariable = "}";
+static const char *ATVariable = "@";
+static const char *DOLLARVariable = "$";
+static const char *LCURLYVariable = "{";
+static const char *BSLASHVariable = "\\";
 
 /*--------------------------------------------------------------------------*/
 
@@ -958,16 +964,12 @@ yy_match:
 			yy_current_state = yy_nxt[yy_base[yy_current_state] + yy_c];
 			++yy_cp;
 			}
-		while ( yy_base[yy_current_state] != 41 );
+		while ( yy_current_state != 29 );
+		yy_cp = yyg->yy_last_accepting_cpos;
+		yy_current_state = yyg->yy_last_accepting_state;
 
 yy_find_action:
 		yy_act = yy_accept[yy_current_state];
-		if ( yy_act == 0 )
-			{ /* have to back up */
-			yy_cp = yyg->yy_last_accepting_cpos;
-			yy_current_state = yyg->yy_last_accepting_state;
-			yy_act = yy_accept[yy_current_state];
-			}
 
 		YY_DO_BEFORE_ACTION;
 
@@ -1011,7 +1013,7 @@ YY_RULE_SETUP
 {
   //std::cerr << __LINE__ << " here: [" << yytext << "]" << std::endl;
   //yyextra->AllocateParserType(yylvalp, yytext, strlen(yytext));
-  yylvalp->str = yyextra->DCURLYVariable;
+  yylvalp->str = DCURLYVariable;
   return cal_DCURLY;
 }
 	YY_BREAK
@@ -1020,7 +1022,7 @@ YY_RULE_SETUP
 {
   //std::cerr << __LINE__ << " here: [" << yytext << "]" << std::endl;
   //yyextra->AllocateParserType(yylvalp, yytext, strlen(yytext));
-  yylvalp->str = yyextra->RCURLYVariable;
+  yylvalp->str = RCURLYVariable;
   return cal_RCURLY;
 }
 	YY_BREAK
@@ -1029,7 +1031,7 @@ YY_RULE_SETUP
 {
   //std::cerr << __LINE__ << " here: [" << yytext << "]" << std::endl;
   //yyextra->AllocateParserType(yylvalp, yytext, strlen(yytext));
-  yylvalp->str = yyextra->ATVariable;
+  yylvalp->str = ATVariable;
   return cal_AT;
 }
 	YY_BREAK
@@ -1064,7 +1066,7 @@ case 10:
 YY_RULE_SETUP
 {
   //yyextra->AllocateParserType(yylvalp, yytext, strlen(yytext));
-  yylvalp->str = yyextra->DOLLARVariable;
+  yylvalp->str = DOLLARVariable;
   return cal_DOLLAR;
 }
 	YY_BREAK
@@ -1072,7 +1074,7 @@ case 11:
 YY_RULE_SETUP
 {
   //yyextra->AllocateParserType(yylvalp, yytext, strlen(yytext));
-  yylvalp->str = yyextra->LCURLYVariable;
+  yylvalp->str = LCURLYVariable;
   return cal_LCURLY;
 }
 	YY_BREAK
@@ -1080,7 +1082,7 @@ case 12:
 YY_RULE_SETUP
 {
   //yyextra->AllocateParserType(yylvalp, yytext, strlen(yytext));
-  yylvalp->str = yyextra->BSLASHVariable;
+  yylvalp->str = BSLASHVariable;
   return cal_BSLASH;
 }
 	YY_BREAK
@@ -1088,7 +1090,7 @@ case 13:
 YY_RULE_SETUP
 {
   //yyextra->AllocateParserType(yylvalp, yytext, strlen(yytext));
-  yylvalp->str = yyextra->BSLASHVariable;
+  yylvalp->str = BSLASHVariable;
   return cal_SYMBOL;
 }
 	YY_BREAK
@@ -1164,7 +1166,8 @@ case YY_STATE_EOF(NOESCAPES):
 
 			else
 				{
-				yy_cp = yyg->yy_c_buf_p;
+				yy_cp = yyg->yy_last_accepting_cpos;
+				yy_current_state = yyg->yy_last_accepting_state;
 				goto yy_find_action;
 				}
 			}
@@ -1652,7 +1655,7 @@ static void yy_load_buffer_state  (yyscan_t yyscanner)
         b->yy_bs_column = 0;
     }
 
-        b->yy_is_interactive = file ? (isatty( fileno(file) ) > 0) : 0;
+        b->yy_is_interactive = 0;
 
 	errno = oerrno;
 }
@@ -2239,3 +2242,5 @@ void cmCommandArgument_SetupEscapes(yyscan_t yyscanner, bool noEscapes)
     BEGIN(ESCAPES);
   }
 }
+
+#endif /* __clang_analyzer__ */

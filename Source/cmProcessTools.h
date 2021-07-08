@@ -1,14 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmProcessTools_h
-#define cmProcessTools_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-#include "cmProcessOutput.h"
 
+#include <cstring>
 #include <iosfwd>
-#include <string.h>
 #include <string>
+
+#include "cmProcessOutput.h"
 
 /** \class cmProcessTools
  * \brief Helper classes for process output parsing
@@ -17,7 +17,7 @@
 class cmProcessTools
 {
 public:
-  typedef cmProcessOutput::Encoding Encoding;
+  using Encoding = cmProcessOutput::Encoding;
   /** Abstract interface for process output parsers.  */
   class OutputParser
   {
@@ -34,7 +34,8 @@ public:
       return this->Process(data, static_cast<int>(strlen(data)));
     }
 
-    virtual ~OutputParser() {}
+    virtual ~OutputParser() = default;
+
   protected:
     /** Implement in a subclass to process a chunk of data.  It should
         return true only if it is interested in more data.  */
@@ -53,13 +54,13 @@ public:
     void SetLog(std::ostream* log, const char* prefix);
 
   protected:
-    std::ostream* Log;
-    const char* Prefix;
+    std::ostream* Log = nullptr;
+    const char* Prefix = nullptr;
     std::string Line;
     char Separator;
-    char LineEnd;
+    char LineEnd = '\0';
     bool IgnoreCR;
-    bool ProcessChunk(const char* data, int length) CM_OVERRIDE;
+    bool ProcessChunk(const char* data, int length) override;
 
     /** Implement in a subclass to process one line of input.  It
         should return true only if it is interested in more data.  */
@@ -76,7 +77,7 @@ public:
     }
 
   private:
-    bool ProcessLine() CM_OVERRIDE { return true; }
+    bool ProcessLine() override { return true; }
   };
 
   /** Run a process and send output to given parsers.  */
@@ -84,5 +85,3 @@ public:
                          OutputParser* err = nullptr,
                          Encoding encoding = cmProcessOutput::Auto);
 };
-
-#endif

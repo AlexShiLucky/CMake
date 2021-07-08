@@ -1,26 +1,27 @@
 #include "cmParseDelphiCoverage.h"
 
+#include <cstdio>
+#include <cstdlib>
+
+#include "cmsys/FStream.hxx"
+#include "cmsys/Glob.hxx"
+
 #include "cmCTest.h"
 #include "cmCTestCoverageHandler.h"
 #include "cmSystemTools.h"
 
-#include "cmsys/FStream.hxx"
-#include "cmsys/Glob.hxx"
-#include <stdio.h>
-#include <stdlib.h>
-
 class cmParseDelphiCoverage::HTMLParser
 {
 public:
-  typedef cmCTestCoverageHandlerContainer::SingleFileCoverageVector
-    FileLinesType;
+  using FileLinesType =
+    cmCTestCoverageHandlerContainer::SingleFileCoverageVector;
   HTMLParser(cmCTest* ctest, cmCTestCoverageHandlerContainer& cont)
     : CTest(ctest)
     , Coverage(cont)
   {
   }
 
-  virtual ~HTMLParser() {}
+  virtual ~HTMLParser() = default;
 
   bool initializeDelphiFile(
     std::string const& filename,
@@ -44,7 +45,7 @@ public:
       // Check that the begin is the first non-space string on the line
       if ((beginPos == line.find_first_not_of(' ')) &&
           beginPos != std::string::npos) {
-        beginSet.push_back("begin");
+        beginSet.emplace_back("begin");
         coverageVector.push_back(-1);
         continue;
       }
@@ -71,7 +72,8 @@ public:
         }
       }
       // Based up what was found, add a line to the coverageVector
-      if (!beginSet.empty() && line != "" && !blockComFlag && !lineComFlag) {
+      if (!beginSet.empty() && !line.empty() && !blockComFlag &&
+          !lineComFlag) {
         coverageVector.push_back(0);
       } else {
         coverageVector.push_back(-1);
@@ -107,8 +109,9 @@ public:
     while (true) {
       lastoffset = line.find('(', pos);
       if (lastoffset == std::string::npos) {
-        cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT, endnamepos
-                             << "File not found  " << lastoffset << std::endl,
+        cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
+                           endnamepos << "File not found  " << lastoffset
+                                      << std::endl,
                            this->Coverage.Quiet);
         return false;
       }
@@ -130,7 +133,7 @@ public:
     cmsys::Glob gl;
     gl.RecurseOn();
     gl.RecurseThroughSymlinksOff();
-    std::string glob = Coverage.SourceDir + "*/" + filename;
+    std::string glob = this->Coverage.SourceDir + "*/" + filename;
     gl.FindFiles(glob);
     std::vector<std::string> const& files = gl.GetFiles();
     if (files.empty()) {

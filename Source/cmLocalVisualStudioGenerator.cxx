@@ -2,13 +2,15 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmLocalVisualStudioGenerator.h"
 
+#include "windows.h"
+
+#include "cmCustomCommand.h"
 #include "cmCustomCommandGenerator.h"
 #include "cmGeneratorTarget.h"
 #include "cmGlobalGenerator.h"
 #include "cmMakefile.h"
 #include "cmSourceFile.h"
 #include "cmSystemTools.h"
-#include "windows.h"
 
 cmLocalVisualStudioGenerator::cmLocalVisualStudioGenerator(
   cmGlobalGenerator* gg, cmMakefile* mf)
@@ -39,10 +41,8 @@ void cmLocalVisualStudioGenerator::ComputeObjectFilenames(
   // windows file names are not case sensitive.
   std::map<std::string, int> counts;
 
-  for (std::map<cmSourceFile const*, std::string>::iterator si =
-         mapping.begin();
-       si != mapping.end(); ++si) {
-    cmSourceFile const* sf = si->first;
+  for (auto const& si : mapping) {
+    cmSourceFile const* sf = si.first;
     std::string objectNameLower = cmSystemTools::LowerCase(
       cmSystemTools::GetFilenameWithoutLastExtension(sf->GetFullPath()));
     if (custom_ext) {
@@ -57,10 +57,8 @@ void cmLocalVisualStudioGenerator::ComputeObjectFilenames(
   // For all source files producing duplicate names we need unique
   // object name computation.
 
-  for (std::map<cmSourceFile const*, std::string>::iterator si =
-         mapping.begin();
-       si != mapping.end(); ++si) {
-    cmSourceFile const* sf = si->first;
+  for (auto& si : mapping) {
+    cmSourceFile const* sf = si.first;
     std::string objectName =
       cmSystemTools::GetFilenameWithoutLastExtension(sf->GetFullPath());
     if (custom_ext) {
@@ -74,16 +72,16 @@ void cmLocalVisualStudioGenerator::ComputeObjectFilenames(
       objectName = this->GetObjectFileNameWithoutTarget(
         *sf, dir_max, &keptSourceExtension, custom_ext);
     }
-    si->second = objectName;
+    si.second = objectName;
   }
 }
 
-CM_AUTO_PTR<cmCustomCommand>
+std::unique_ptr<cmCustomCommand>
 cmLocalVisualStudioGenerator::MaybeCreateImplibDir(cmGeneratorTarget* target,
                                                    const std::string& config,
                                                    bool isFortran)
 {
-  CM_AUTO_PTR<cmCustomCommand> pcc;
+  std::unique_ptr<cmCustomCommand> pcc;
 
   // If an executable exports symbols then VS wants to create an
   // import library but forgets to create the output directory.
@@ -101,18 +99,15 @@ cmLocalVisualStudioGenerator::MaybeCreateImplibDir(cmGeneratorTarget* target,
   }
 
   // Add a pre-build event to create the directory.
-  cmCustomCommandLine command;
-  command.push_back(cmSystemTools::GetCMakeCommand());
-  command.push_back("-E");
-  command.push_back("make_directory");
-  command.push_back(impDir);
   std::vector<std::string> no_output;
   std::vector<std::string> no_byproducts;
   std::vector<std::string> no_depends;
-  cmCustomCommandLines commands;
-  commands.push_back(command);
-  pcc.reset(new cmCustomCommand(0, no_output, no_byproducts, no_depends,
-                                commands, 0, 0));
+  bool stdPipesUTF8 = true;
+  cmCustomCommandLines commands = cmMakeSingleCommandLine(
+    { cmSystemTools::GetCMakeCommand(), "-E", "make_directory", impDir });
+  pcc.reset(new cmCustomCommand(no_output, no_byproducts, no_depends, commands,
+                                cmListFileBacktrace(), nullptr, nullptr,
+                                stdPipesUTF8));
   pcc->SetEscapeOldStyle(false);
   pcc->SetEscapeAllowMakeVars(true);
   return pcc;
@@ -135,7 +130,7 @@ std::string cmLocalVisualStudioGenerator::ConstructScript(
   std::string workingDirectory = ccg.GetWorkingDirectory();
 
   // Avoid leading or trailing newlines.
-  std::string newline = "";
+  std::string newline;
 
   // Line to check for error between commands.
   std::string check_error = newline_text;
@@ -161,8 +156,7 @@ std::string cmLocalVisualStudioGenerator::ConstructScript(
     script += newline;
     newline = newline_text;
     script += "cd ";
-    script += this->ConvertToOutputFormat(
-      cmSystemTools::CollapseFullPath(workingDirectory), SHELL);
+    script += this->ConvertToOutputFormat(workingDirectory, SHELL);
     script += check_error;
 
     // Change the working drive.
@@ -178,25 +172,28 @@ std::string cmLocalVisualStudioGenerator::ConstructScript(
   // for visual studio IDE add extra stuff to the PATH
   // if CMAKE_MSVCIDE_RUN_PATH is set.
   if (this->Makefile->GetDefinition("MSVC_IDE")) {
-    const char* extraPath =
-      this->Makefile->GetDefinition("CMAKE_MSVCIDE_RUN_PATH");
+    cmProp extraPath = this->Makefile->GetDefinition("CMAKE_MSVCIDE_RUN_PATH");
     if (extraPath) {
       script += newline;
       newline = newline_text;
       script += "set PATH=";
-      script += extraPath;
+      script += *extraPath;
       script += ";%PATH%";
     }
   }
 
   // Write each command on a single line.
   for (unsigned int c = 0; c < ccg.GetNumberOfCommands(); ++c) {
+    // Add this command line.
+    std::string cmd = ccg.GetCommand(c);
+
+    if (cmd.empty()) {
+      continue;
+    }
+
     // Start a new line.
     script += newline;
     newline = newline_text;
-
-    // Add this command line.
-    std::string cmd = ccg.GetCommand(c);
 
     // Use "call " before any invocations of .bat or .cmd files
     // invoked as custom commands.
@@ -211,8 +208,7 @@ std::string cmLocalVisualStudioGenerator::ConstructScript(
 
     if (workingDirectory.empty()) {
       script += this->ConvertToOutputFormat(
-        this->ConvertToRelativePath(this->GetCurrentBinaryDirectory(), cmd),
-        cmOutputConverter::SHELL);
+        this->MaybeRelativeToCurBinDir(cmd), cmOutputConverter::SHELL);
     } else {
       script += this->ConvertToOutputFormat(cmd.c_str(), SHELL);
     }

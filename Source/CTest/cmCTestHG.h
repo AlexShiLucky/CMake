@@ -1,14 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestHG_h
-#define cmCTestHG_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCTestGlobalVC.h"
-
 #include <iosfwd>
 #include <string>
+
+#include "cmCTestGlobalVC.h"
 
 class cmCTest;
 
@@ -22,16 +21,16 @@ public:
   /** Construct with a CTest instance and update log stream.  */
   cmCTestHG(cmCTest* ctest, std::ostream& log);
 
-  ~cmCTestHG() CM_OVERRIDE;
+  ~cmCTestHG() override;
 
 private:
   std::string GetWorkingRevision();
-  bool NoteOldRevision() CM_OVERRIDE;
-  bool NoteNewRevision() CM_OVERRIDE;
-  bool UpdateImpl() CM_OVERRIDE;
+  bool NoteOldRevision() override;
+  bool NoteNewRevision() override;
+  bool UpdateImpl() override;
 
-  bool LoadRevisions() CM_OVERRIDE;
-  bool LoadModifications() CM_OVERRIDE;
+  bool LoadRevisions() override;
+  bool LoadModifications() override;
 
   // Parsing helper classes.
   class IdentifyParser;
@@ -42,5 +41,3 @@ private:
   friend class LogParser;
   friend class StatusParser;
 };
-
-#endif

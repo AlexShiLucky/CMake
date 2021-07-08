@@ -1,10 +1,12 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmProcessTools.h"
-#include "cmProcessOutput.h"
+
+#include <ostream>
 
 #include "cmsys/Process.h"
-#include <ostream>
+
+#include "cmProcessOutput.h"
 
 void cmProcessTools::RunProcess(struct cmsysProcess_s* cp, OutputParser* out,
                                 OutputParser* err, Encoding encoding)
@@ -16,7 +18,7 @@ void cmProcessTools::RunProcess(struct cmsysProcess_s* cp, OutputParser* out,
   cmProcessOutput processOutput(encoding);
   std::string strdata;
   while ((out || err) &&
-         (p = cmsysProcess_WaitForData(cp, &data, &length, nullptr), p)) {
+         (p = cmsysProcess_WaitForData(cp, &data, &length, nullptr))) {
     if (out && p == cmsysProcess_Pipe_STDOUT) {
       processOutput.DecodeText(data, length, strdata, 1);
       if (!out->Process(strdata.c_str(), int(strdata.size()))) {
@@ -38,17 +40,14 @@ void cmProcessTools::RunProcess(struct cmsysProcess_s* cp, OutputParser* out,
   if (err) {
     processOutput.DecodeText(std::string(), strdata, 2);
     if (!strdata.empty()) {
-      out->Process(strdata.c_str(), int(strdata.size()));
+      err->Process(strdata.c_str(), int(strdata.size()));
     }
   }
   cmsysProcess_WaitForExit(cp, nullptr);
 }
 
 cmProcessTools::LineParser::LineParser(char sep, bool ignoreCR)
-  : Log(nullptr)
-  , Prefix(nullptr)
-  , Separator(sep)
-  , LineEnd('\0')
+  : Separator(sep)
   , IgnoreCR(ignoreCR)
 {
 }
@@ -73,11 +72,11 @@ bool cmProcessTools::LineParser::ProcessChunk(const char* first, int length)
 
       // Hand this line to the subclass implementation.
       if (!this->ProcessLine()) {
-        this->Line = "";
+        this->Line.clear();
         return false;
       }
 
-      this->Line = "";
+      this->Line.clear();
     } else if (*c != '\r' || !this->IgnoreCR) {
       // Append this character to the line under construction.
       this->Line.append(1, *c);

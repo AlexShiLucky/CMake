@@ -1,10 +1,10 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmSearchPath_h
-#define cmSearchPath_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <cstddef>
 #include <set>
 #include <string>
 #include <vector>
@@ -27,6 +27,7 @@ public:
   ~cmSearchPath();
 
   const std::vector<std::string>& GetPaths() const { return this->Paths; }
+  std::size_t size() const { return this->Paths.size(); }
 
   void ExtractWithout(const std::set<std::string>& ignore,
                       std::vector<std::string>& outPaths,
@@ -39,14 +40,12 @@ public:
   void AddCMakePrefixPath(const std::string& variable);
   void AddEnvPrefixPath(const std::string& variable, bool stripBin = false);
   void AddSuffixes(const std::vector<std::string>& suffixes);
-
-protected:
   void AddPrefixPaths(const std::vector<std::string>& paths,
                       const char* base = nullptr);
+
+protected:
   void AddPathInternal(const std::string& path, const char* base = nullptr);
 
   cmFindCommon* FC;
   std::vector<std::string> Paths;
 };
-
-#endif

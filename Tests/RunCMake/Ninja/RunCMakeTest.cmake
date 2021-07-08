@@ -1,5 +1,8 @@
 include(RunCMake)
 
+set(RunCMake_GENERATOR "Ninja")
+set(RunCMake_GENERATOR_IS_MULTI_CONFIG 0)
+
 # Detect ninja version so we know what tests can be supported.
 execute_process(
   COMMAND "${RunCMake_MAKE_PROGRAM}" --version
@@ -15,11 +18,40 @@ else()
   message(FATAL_ERROR "'ninja --version' reported:\n${ninja_out}")
 endif()
 
+# Sanitize NINJA_STATUS since we expect default behavior.
+unset(ENV{NINJA_STATUS})
+
+if(CMAKE_HOST_WIN32)
+  run_cmake(SelectCompilerWindows)
+else()
+  run_cmake(SelectCompilerUNIX)
+endif()
+
 function(run_NinjaToolMissing)
   set(RunCMake_MAKE_PROGRAM ninja-tool-missing)
   run_cmake(NinjaToolMissing)
 endfunction()
 run_NinjaToolMissing()
+
+function(run_NoWorkToDo)
+  run_cmake(NoWorkToDo)
+  set(RunCMake_TEST_NO_CLEAN 1)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/NoWorkToDo-build)
+  set(RunCMake_TEST_OUTPUT_MERGE 1)
+  run_cmake_command(NoWorkToDo-build ${CMAKE_COMMAND} --build .)
+  run_cmake_command(NoWorkToDo-nowork ${CMAKE_COMMAND} --build . -- -d explain)
+endfunction()
+run_NoWorkToDo()
+
+function(run_VerboseBuild)
+  run_cmake(VerboseBuild)
+  set(RunCMake_TEST_NO_CLEAN 1)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/VerboseBuild-build)
+  set(RunCMake_TEST_OUTPUT_MERGE 1)
+  run_cmake_command(VerboseBuild-build ${CMAKE_COMMAND} --build . -v --clean-first)
+  run_cmake_command(VerboseBuild-nowork ${CMAKE_COMMAND} --build . --verbose)
+endfunction()
+run_VerboseBuild()
 
 function(run_CMP0058 case)
   # Use a single build tree for a few tests without cleaning.
@@ -38,7 +70,15 @@ run_CMP0058(WARN-by)
 run_CMP0058(NEW-no)
 run_CMP0058(NEW-by)
 
-run_cmake(CustomCommandDepfile)
+run_cmake_with_options(CustomCommandDepfile -DCMAKE_BUILD_TYPE=Debug)
+run_cmake(CustomCommandJobPool)
+run_cmake(JobPoolUsesTerminal)
+
+run_cmake(RspFileC)
+run_cmake(RspFileCXX)
+if(TEST_Fortran)
+  run_cmake(RspFileFortran)
+endif()
 
 function(run_CommandConcat)
   set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/CommandConcat-build)
@@ -103,6 +143,7 @@ ${ninja_stderr}
     message(FATAL_ERROR
       "top ninja build failed exited with status ${ninja_result}")
   endif()
+  set(ninja_stdout "${ninja_stdout}" PARENT_SCOPE)
 endfunction(run_ninja)
 
 function (run_LooseObjectDepends)
@@ -125,12 +166,12 @@ run_LooseObjectDepends()
 function (run_AssumedSources)
   set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/AssumedSources-build)
   run_cmake(AssumedSources)
-  run_ninja("${RunCMake_TEST_BINARY_DIR}" "target.c")
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" "${RunCMake_TEST_BINARY_DIR}/target.c")
   if (NOT EXISTS "${RunCMake_TEST_BINARY_DIR}/target.c")
     message(FATAL_ERROR
       "Dependencies for an assumed source did not hook up properly for 'target.c'.")
   endif ()
-  run_ninja("${RunCMake_TEST_BINARY_DIR}" "target-no-depends.c")
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" "${RunCMake_TEST_BINARY_DIR}/target-no-depends.c")
   if (EXISTS "${RunCMake_TEST_BINARY_DIR}/target-no-depends.c")
     message(FATAL_ERROR
       "Dependencies for an assumed source were magically hooked up for 'target-no-depends.c'.")
@@ -147,16 +188,6 @@ function(sleep delay)
     message(FATAL_ERROR "failed to sleep for ${delay} second.")
   endif()
 endfunction(sleep)
-
-function(touch path)
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} -E touch ${path}
-    RESULT_VARIABLE result
-    )
-  if(NOT result EQUAL 0)
-    message(FATAL_ERROR "failed to touch main ${path} file.")
-  endif()
-endfunction(touch)
 
 macro(ninja_escape_path path out)
   string(REPLACE "\$ " "\$\$" "${out}" "${path}")
@@ -190,15 +221,16 @@ function(run_sub_cmake test ninja_output_path_prefix)
     set(cmd_prefix "")
     set(cmd_suffix "")
   endif()
+  set(fs_delay 3) # We assume the system as 1 sec timestamp resolution.
   file(WRITE "${top_build_ninja}" "\
 subninja ${escaped_ninja_output_path_prefix}/build.ninja
 default ${escaped_ninja_output_path_prefix}/all
 
-# Sleep for 1 second before to regenerate to make sure the timestamp of
+# Sleep for long enough before regenerating to make sure the timestamp of
 # the top build.ninja will be strictly greater than the timestamp of the
-# sub/build.ninja file. We assume the system as 1 sec timestamp resolution.
+# sub/build.ninja file.
 rule RERUN
-  command = ${cmd_prefix}\"${escaped_CMAKE_COMMAND}\" -E sleep 1 && \"${escaped_CMAKE_COMMAND}\" -E touch \"${escaped_top_build_ninja}\"${cmd_suffix}
+  command = ${cmd_prefix}\"${escaped_CMAKE_COMMAND}\" -E sleep ${fs_delay} && \"${escaped_CMAKE_COMMAND}\" -E touch \"${escaped_top_build_ninja}\"${cmd_suffix}
   description = Testing regeneration
   generator = 1
 
@@ -224,9 +256,9 @@ build build.ninja: RERUN ${escaped_build_ninja_dep} || ${escaped_ninja_output_pa
 
   # Test regeneration rules run in order.
   set(main_cmakelists "${RunCMake_SOURCE_DIR}/CMakeLists.txt")
-  sleep(1) # Assume the system as 1 sec timestamp resolution.
-  touch("${main_cmakelists}")
-  touch("${build_ninja_dep}")
+  sleep(${fs_delay})
+  file(TOUCH "${main_cmakelists}")
+  file(TOUCH "${build_ninja_dep}")
   run_ninja("${top_build_dir}")
   file(TIMESTAMP "${main_cmakelists}" mtime_main_cmakelists UTC)
   file(TIMESTAMP "${sub_build_ninja}" mtime_sub_build_ninja UTC)
@@ -263,3 +295,61 @@ foreach(ninja_output_path_prefix "sub space" "sub")
   run_sub_cmake(SubDirPrefix "${ninja_output_path_prefix}")
   run_sub_cmake(CustomCommandWorkingDirectory "${ninja_output_path_prefix}")
 endforeach(ninja_output_path_prefix)
+
+function (run_PreventTargetAliasesDupBuildRule)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/PreventTargetAliasesDupBuildRule-build)
+  run_cmake(PreventTargetAliasesDupBuildRule)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" -w dupbuild=err)
+endfunction ()
+run_PreventTargetAliasesDupBuildRule()
+
+function (run_PreventConfigureFileDupBuildRule)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/PreventConfigureFileDupBuildRule-build)
+  run_cmake(PreventConfigureFileDupBuildRule)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" -w dupbuild=err)
+endfunction()
+run_PreventConfigureFileDupBuildRule()
+
+function (run_ChangeBuildType)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/ChangeBuildType-build)
+  set(RunCMake_TEST_OPTIONS "-DCMAKE_BUILD_TYPE:STRING=Debug")
+  run_cmake(ChangeBuildType)
+  unset(RunCMake_TEST_OPTIONS)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" -w dupbuild=err)
+endfunction()
+run_ChangeBuildType()
+
+function(run_Qt5AutoMocDeps)
+  if(CMake_TEST_Qt5 AND CMAKE_TEST_Qt5Core_Version VERSION_GREATER_EQUAL 5.15.0)
+    set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/Qt5AutoMocDeps-build)
+    set(RunCMake_TEST_OPTIONS "-DQt5Core_DIR=${Qt5Core_DIR}" "-DQt5Widgets_DIR=${Qt5Widgets_DIR}")
+    run_cmake(Qt5AutoMocDeps)
+    unset(RunCMake_TEST_OPTIONS)
+    # Build the project.
+    run_ninja("${RunCMake_TEST_BINARY_DIR}")
+    # Touch just the library source file, which shouldn't cause a rerun of AUTOMOC
+    # for app_with_qt target.
+    file(TOUCH "${RunCMake_SOURCE_DIR}/simple_lib.cpp")
+    # Build and assert that AUTOMOC was not run for app_with_qt.
+    run_ninja("${RunCMake_TEST_BINARY_DIR}")
+    if(ninja_stdout MATCHES "Automatic MOC for target app_with_qt")
+      message(FATAL_ERROR
+        "AUTOMOC should not have executed for 'app_with_qt' target:\nstdout:\n${ninja_stdout}")
+    endif()
+    # Assert that the subdir executables were not rebuilt.
+    if(ninja_stdout MATCHES "Automatic MOC for target sub_exe_1")
+      message(FATAL_ERROR
+        "AUTOMOC should not have executed for 'sub_exe_1' target:\nstdout:\n${ninja_stdout}")
+    endif()
+    if(ninja_stdout MATCHES "Automatic MOC for target sub_exe_2")
+      message(FATAL_ERROR
+        "AUTOMOC should not have executed for 'sub_exe_2' target:\nstdout:\n${ninja_stdout}")
+    endif()
+    # Touch a header file to make sure an automoc dependency cycle is not introduced.
+    file(TOUCH "${RunCMake_SOURCE_DIR}/MyWindow.h")
+    run_ninja("${RunCMake_TEST_BINARY_DIR}")
+    # Need to run a second time to hit the dependency cycle.
+    run_ninja("${RunCMake_TEST_BINARY_DIR}")
+  endif()
+endfunction()
+run_Qt5AutoMocDeps()

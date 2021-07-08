@@ -1,14 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackDebGenerator_h
-#define cmCPackDebGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCPackGenerator.h"
-
 #include <string>
 #include <vector>
+
+#include "cmCPackGenerator.h"
 
 /** \class cmCPackDebGenerator
  * \brief A generator for Debian packages
@@ -23,7 +22,7 @@ public:
    * Construct generator
    */
   cmCPackDebGenerator();
-  ~cmCPackDebGenerator() CM_OVERRIDE;
+  ~cmCPackDebGenerator() override;
 
   static bool CanGenerate()
   {
@@ -40,7 +39,7 @@ public:
   }
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
+  int InitializeInternal() override;
   /**
    * This method factors out the work done in component packaging case.
    */
@@ -57,15 +56,15 @@ protected:
    * components will be put in a single installer.
    */
   int PackageComponentsAllInOne(const std::string& compInstDirName);
-  int PackageFiles() CM_OVERRIDE;
-  const char* GetOutputExtension() CM_OVERRIDE { return ".deb"; }
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  int PackageFiles() override;
+  const char* GetOutputExtension() override { return ".deb"; }
+  bool SupportsComponentInstallation() const override;
   std::string GetComponentInstallDirNameSuffix(
-    const std::string& componentName) CM_OVERRIDE;
+    const std::string& componentName) override;
 
 private:
   int createDeb();
+  int createDbgsymDDeb();
+
   std::vector<std::string> packageFiles;
 };
-
-#endif

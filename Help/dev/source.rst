@@ -9,7 +9,7 @@ See documentation on `CMake Development`_ for more information.
 C++ Code Style
 ==============
 
-We use `clang-format`_ version **3.8** to define our style for C++ code in
+We use `clang-format`_ version **6.0** to define our style for C++ code in
 the CMake source tree.  See the `.clang-format`_ configuration file for our
 style settings.  Use the `Utilities/Scripts/clang-format.bash`_ script to
 format source code.  It automatically runs ``clang-format`` on the set of
@@ -23,39 +23,166 @@ format only a subset of files, such as those that are locally modified.
 C++ Subset Permitted
 ====================
 
-CMake requires compiling as C++11 or above.  However, in order to support
-building on older toolchains some constructs need to be handled with care:
+CMake requires compiling as C++11 in order to support building on older
+toolchains.  However, to facilitate development, some standard library
+features from more recent C++ standards are supported through a compatibility
+layer.  These features are defined under the namespace ``cm`` and headers
+are accessible under the ``cm/`` directory.  The headers under ``cm/`` can
+be used in place of the standard ones when extended features are needed.
+For example ``<cm/memory>`` can be used in place of ``<memory>``.
 
-* Do not use ``CM_AUTO_PTR`` or ``std::auto_ptr``.
+Available features are:
 
-  The ``std::auto_ptr`` template is deprecated in C++11.  The ``CM_AUTO_PTR``
-  macro remains leftover from C++98 support until its uses can be ported to
-  ``std::unique_ptr``.  Do not add new uses of the macro.
+* From ``C++14``:
 
-* Use ``CM_EQ_DELETE;`` instead of ``= delete;``.
+  * ``<cm/iomanip>``:
+    ``cm::quoted``
 
-  Older C++11 compilers do not support deleting functions.  Using
-  ``CM_EQ_DELETE`` will delete the functions if the compiler supports it and
-  give them no implementation otherwise.  Calling such a function will lead
-  to compiler errors if the compiler supports *deleted* functions and linker
-  errors otherwise.
+  * ``<cm/iterator>``:
+    ``cm::make_reverse_iterator``, ``cm::cbegin``, ``cm::cend``,
+    ``cm::rbegin``, ``cm::rend``, ``cm::crbegin``, ``cm::crend``
 
-* Use ``CM_DISABLE_COPY(Class)`` to mark classes as non-copyable.
+  * ``<cm/memory>``:
+    ``cm::make_unique``
 
-  The ``CM_DISABLE_COPY`` macro should be used in the private section of a
-  class to make sure that attempts to copy or assign an instance of the class
-  lead to compiler errors even if the compiler does not support *deleted*
-  functions.  As a guideline, all polymorphic classes should be made
-  non-copyable in order to avoid slicing.  Classes that are composed of or
-  derived from non-copyable classes must also be made non-copyable explicitly
-  with ``CM_DISABLE_COPY``.
+  * ``<cm/shared_mutex>``:
+    ``cm::shared_lock``
 
-* Use ``size_t`` instead of ``std::size_t``.
+  * ``<cm/type_traits>``:
+    ``cm::enable_if_t``
 
-  Various implementations have differing implementation of ``size_t``.
-  When assigning the result of ``.size()`` on a container for example,
-  the result should be assigned to ``size_t`` not to ``std::size_t``,
-  ``unsigned int`` or similar types.
+* From ``C++17``:
+
+  * ``<cm/algorithm>``:
+    ``cm::clamp``
+
+  * ``cm/filesystem>``:
+    ``cm::filesystem::path``
+
+  * ``<cm/iterator>``:
+    ``cm::size``, ``cm::empty``, ``cm::data``
+
+  * ``<cm/optional>``:
+    ``cm::nullopt_t``, ``cm::nullopt``, ``cm::optional``,
+    ``cm::make_optional``, ``cm::bad_optional_access``
+
+  * ``<cm/shared_mutex>``:
+    ``cm::shared_mutex``
+
+  * ``<cm/string_view>``:
+    ``cm::string_view``
+
+  * ``<cm/type_traits>``:
+    ``cm::bool_constant``, ``cm::invoke_result_t``, ``cm::invoke_result``,
+    ``cm::void_t``
+
+  * ``<cm/utility>``:
+    ``cm::in_place_t``, ``cm::in_place``
+
+* From ``C++20``:
+
+  * ``<cm/deque>``:
+    ``cm::erase``, ``cm::erase_if``
+
+  * ``<cm/list>``:
+    ``cm::erase``, ``cm::erase_if``
+
+  * ``<cm/map>`` :
+    ``cm::erase_if``
+
+  * ``<cm/set>`` :
+    ``cm::erase_if``
+
+  * ``<cm/string>``:
+    ``cm::erase``, ``cm::erase_if``
+
+  * ``<cm/unordered_map>``:
+    ``cm::erase_if``
+
+  * ``<cm/unordered_set>``:
+    ``cm::erase_if``
+
+  * ``<cm/vector>``:
+    ``cm::erase``, ``cm::erase_if``
+
+Additionally, some useful non-standard extensions to the C++ standard library
+are available in headers under the directory ``cmext/`` in namespace ``cm``.
+These are:
+
+* ``<cmext/algorithm>``:
+
+  * ``cm::append``:
+    Append elements to a sequential container.
+
+  * ``cm::contains``:
+    Checks if element or key is contained in container.
+
+* ``<cmext/iterator>``:
+
+  * ``cm::is_terator``:
+    Checks if a type is an iterator type.
+
+  * ``cm::is_input_iterator``:
+    Checks if a type is an input iterator type.
+
+  * ``cm::is_range``:
+    Checks if a type is a range type: functions ``std::begin()`` and
+    ``std::end()`` apply.
+
+  * ``cm::is_input_range``:
+    Checks if a type is an input range type: functions ``std::begin()`` and
+    ``std::end()`` apply and return an input iterator.
+
+* ``<cmext/memory>``:
+
+  * ``cm::static_reference_cast``:
+    Apply a ``static_cast`` to a smart pointer.
+
+  * ``cm::dynamic_reference_cast``:
+    Apply a ``dynamic_cast`` to a smart pointer.
+
+* ``<cmext/type_traits>``:
+
+  * ``cm::is_container``:
+    Checks if a type is a container type.
+
+  * ``cm::is_associative_container``:
+    Checks if a type is an associative container type.
+
+  * ``cm::is_unordered_associative_container``:
+    Checks if a type is an unordered associative container type.
+
+  * ``cm::is_sequence_container``:
+    Checks if a type is a sequence container type.
+
+  * ``cm::is_unique_ptr``:
+    Checks if a type is a ``std::unique_ptr`` type.
+
+CMake assumes the compiler supports ``#pragma once``. Use this for all
+hand-written header files.
+
+Dynamic Memory Management
+=========================
+
+To ensure efficient memory management, i.e. no memory leaks, it is required
+to use smart pointers.  Any dynamic memory allocation must be handled by a
+smart pointer such as ``std::unique_ptr`` or ``std::shared_ptr``.
+
+It is allowed to pass raw pointers between objects to enable objects sharing.
+A raw pointer **must** not be deleted. Only the object(s) owning the smart
+pointer are allowed to delete dynamically allocated memory.
+
+Third Parties
+=============
+
+To build CMake, some third parties are needed. Under ``Utilities``
+directory, are versions of these third parties which can be used as an
+alternate to the ones provided by the system.
+
+To enable the selection of the third parties between the system and CMake ones,
+in CMake sources, third parties headers must be prefixed by ``cm3p/``
+(for example: ``<cm3p/json/reader.h>``). These wrappers are located under
+``Utilities/cm3p`` directory.
 
 Source Tree Layout
 ==================
@@ -66,7 +193,7 @@ The CMake source tree is organized as follows.
   Shell and editor integration files.
 
 * ``Help/``:
-  Documentation.
+  Documentation.  See the `CMake Documentation Guide`_.
 
   * ``Help/dev/``:
     Developer documentation.
@@ -96,10 +223,22 @@ The CMake source tree is organized as follows.
 * ``Utilities/``:
   Scripts, third-party source code.
 
+  * ``Utilities/std/cm``:
+    Support files for various C++ standards.
+
+  * ``Utilities/std/cmext``:
+    Extensions to the C++ STL.
+
+  * ``Utilities/cm3p``:
+    Public headers for third parties needed to build CMake.
+
   * ``Utilities/Sphinx/``:
     Sphinx configuration to build CMake user documentation.
 
   * ``Utilities/Release/``:
     Scripts used to package CMake itself for distribution on ``cmake.org``.
+    See `Utilities/Release/README.rst`_.
 
+.. _`CMake Documentation Guide`: documentation.rst
 .. _`Tests/README.rst`: ../../Tests/README.rst
+.. _`Utilities/Release/README.rst`: ../../Utilities/Release/README.rst

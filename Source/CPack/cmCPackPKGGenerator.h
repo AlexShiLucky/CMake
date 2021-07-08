@@ -1,13 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackPKGGenerator_h
-#define cmCPackPKGGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <set>
 #include <sstream>
 #include <string>
+
+#include <cm/string_view>
 
 #include "cmCPackComponentGroup.h"
 #include "cmCPackGenerator.h"
@@ -27,13 +28,13 @@ public:
    * Construct generator
    */
   cmCPackPKGGenerator();
-  ~cmCPackPKGGenerator() CM_OVERRIDE;
+  ~cmCPackPKGGenerator() override;
 
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  bool SupportsComponentInstallation() const override;
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
-  const char* GetOutputPostfix() CM_OVERRIDE { return "darwin"; }
+  int InitializeInternal() override;
+  const char* GetOutputPostfix() override { return "darwin"; }
 
   // Copies or creates the resource file with the given name to the
   // package or package staging directory dirName. The variable
@@ -57,7 +58,7 @@ protected:
   // inter-component dependencies. metapackageFile is the name of the
   // metapackage for the distribution. Only valid for a
   // component-based install.
-  void WriteDistributionFile(const char* metapackageFile);
+  void WriteDistributionFile(const char* metapackageFile, const char* genName);
 
   // Subroutine of WriteDistributionFile that writes out the
   // dependency attributes for inter-component dependencies.
@@ -85,8 +86,10 @@ protected:
   /// installer GUI.
   void CreateChoice(const cmCPackComponent& component, cmXMLWriter& xout);
 
+  /// Creates a background in the distribution XML.
+  void CreateBackground(const char* themeName, const char* metapackageFile,
+                        cm::string_view genName, cmXMLWriter& xout);
+
   // The PostFlight component when creating a metapackage
   cmCPackComponent PostFlightComponent;
 };
-
-#endif

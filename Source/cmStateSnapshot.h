@@ -1,13 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
 
-#ifndef cmStateSnapshot_h
-#define cmStateSnapshot_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
+
+#include <cm/string_view>
 
 #include "cmLinkedTree.h"
 #include "cmPolicies.h"
@@ -22,28 +23,29 @@ public:
   cmStateSnapshot(cmState* state = nullptr);
   cmStateSnapshot(cmState* state, cmStateDetail::PositionType position);
 
-  const char* GetDefinition(std::string const& name) const;
+  std::string const* GetDefinition(std::string const& name) const;
   bool IsInitialized(std::string const& name) const;
-  void SetDefinition(std::string const& name, std::string const& value);
+  void SetDefinition(std::string const& name, cm::string_view value);
   void RemoveDefinition(std::string const& name);
-  std::vector<std::string> UnusedKeys() const;
   std::vector<std::string> ClosureKeys() const;
   bool RaiseScope(std::string const& var, const char* varDef);
 
   void SetListFile(std::string const& listfile);
 
-  std::string GetExecutionListFile() const;
+  std::string const& GetExecutionListFile() const;
 
   std::vector<cmStateSnapshot> GetChildren();
 
   bool IsValid() const;
+  cmStateSnapshot GetBuildsystemDirectory() const;
   cmStateSnapshot GetBuildsystemDirectoryParent() const;
   cmStateSnapshot GetCallStackParent() const;
   cmStateSnapshot GetCallStackBottom() const;
   cmStateEnums::SnapshotType GetType() const;
 
   void SetPolicy(cmPolicies::PolicyID id, cmPolicies::PolicyStatus status);
-  cmPolicies::PolicyStatus GetPolicy(cmPolicies::PolicyID id) const;
+  cmPolicies::PolicyStatus GetPolicy(cmPolicies::PolicyID id,
+                                     bool parent_scope = false) const;
   bool HasDefinedPolicyCMP0011();
   void PushPolicy(cmPolicies::PolicyMap const& entry, bool weak);
   bool PopPolicy();
@@ -84,5 +86,3 @@ private:
 
 bool operator==(const cmStateSnapshot& lhs, const cmStateSnapshot& rhs);
 bool operator!=(const cmStateSnapshot& lhs, const cmStateSnapshot& rhs);
-
-#endif

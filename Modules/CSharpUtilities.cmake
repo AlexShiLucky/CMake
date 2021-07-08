@@ -5,6 +5,8 @@
 CSharpUtilities
 ---------------
 
+.. versionadded:: 3.8
+
 Functions to make configuration of CSharp/.NET targets easier.
 
 A collection of CMake utility functions useful for dealing with CSharp
@@ -184,6 +186,9 @@ Helper functions which are used by the above ones
 
 #]=======================================================================]
 
+cmake_policy(PUSH)
+cmake_policy(SET CMP0057 NEW) # if IN_LIST
+
 function(csharp_get_filename_keys OUT)
   set(${OUT} "")
   foreach(f ${ARGN})
@@ -304,3 +309,5 @@ function(csharp_set_xaml_cs_properties)
     endif()
   endforeach()
 endfunction()
+
+cmake_policy(POP)

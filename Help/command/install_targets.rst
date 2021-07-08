@@ -1,9 +1,11 @@
 install_targets
 ---------------
 
-Deprecated. Use the :command:`install(TARGETS)` command instead.
+.. deprecated:: 3.0
 
-This command has been superceded by the :command:`install` command.  It is
+  Use the :command:`install(TARGETS)` command instead.
+
+This command has been superseded by the :command:`install` command.  It is
 provided for compatibility with older CMake code.
 
 ::

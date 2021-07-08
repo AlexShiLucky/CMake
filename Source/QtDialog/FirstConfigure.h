@@ -1,6 +1,5 @@
 
-#ifndef FirstConfigure_h
-#define FirstConfigure_h
+#pragma once
 
 #include <QWizard>
 #include <QWizardPage>
@@ -23,18 +22,31 @@ enum FirstConfigurePages
   Done
 };
 
+enum class CompilerOption
+{
+  DefaultNative,
+  SpecifyNative,
+  ToolchainFile,
+  Options,
+};
+
 //! the first page that gives basic options for what compilers setup to choose
 //! from
 class StartCompilerSetup : public QWizardPage
 {
   Q_OBJECT
 public:
-  StartCompilerSetup(QWidget* p);
+  StartCompilerSetup(QString defaultGeneratorPlatform,
+                     QString defaultGeneratorToolset, QWidget* p);
   ~StartCompilerSetup();
   void setGenerators(std::vector<cmake::GeneratorInfo> const& gens);
   void setCurrentGenerator(const QString& gen);
+  void setToolset(const QString& toolset);
+  void setPlatform(const QString& platform);
+  void setCompilerOption(CompilerOption option);
   QString getGenerator() const;
   QString getToolset() const;
+  QString getPlatform() const;
 
   bool defaultSetup() const;
   bool compilerSetup() const;
@@ -48,7 +60,7 @@ signals:
 
 protected slots:
   void onSelectionChanged(bool);
-  void onGeneratorChanged(QString const& name);
+  void onGeneratorChanged(int index);
 
 protected:
   QComboBox* GeneratorOptions;
@@ -56,14 +68,24 @@ protected:
   QFrame* ToolsetFrame;
   QLineEdit* Toolset;
   QLabel* ToolsetLabel;
+  QFrame* PlatformFrame;
+  QComboBox* PlatformOptions;
+  QLabel* PlatformLabel;
   QStringList GeneratorsSupportingToolset;
+  QStringList GeneratorsSupportingPlatform;
+  QMultiMap<QString, QString> GeneratorSupportedPlatforms;
+  QMap<QString, QString> GeneratorDefaultPlatform;
+  QString DefaultGeneratorPlatform, DefaultGeneratorToolset;
 
 private:
   QFrame* CreateToolsetWidgets();
+  QFrame* CreatePlatformWidgets();
 };
 
 //! the page that gives basic options for native compilers
-class NativeCompilerSetup : public QWizardPage, protected Ui::Compilers
+class NativeCompilerSetup
+  : public QWizardPage
+  , protected Ui::Compilers
 {
   Q_OBJECT
 public:
@@ -83,7 +105,9 @@ public:
 };
 
 //! the page that gives options for cross compilers
-class CrossCompilerSetup : public QWizardPage, protected Ui::CrossCompiler
+class CrossCompilerSetup
+  : public QWizardPage
+  , protected Ui::CrossCompiler
 {
   Q_OBJECT
 public:
@@ -154,7 +178,12 @@ public:
   ~FirstConfigure();
 
   void setGenerators(std::vector<cmake::GeneratorInfo> const& gens);
+  void setCurrentGenerator(const QString& gen);
+  void setToolset(const QString& toolset);
+  void setPlatform(const QString& platform);
+  void setCompilerOption(CompilerOption option);
   QString getGenerator() const;
+  QString getPlatform() const;
   QString getToolset() const;
 
   bool defaultSetup() const;
@@ -184,6 +213,5 @@ protected:
   NativeCompilerSetup* mNativeCompilerSetupPage;
   CrossCompilerSetup* mCrossCompilerSetupPage;
   ToolchainCompilerSetup* mToolchainCompilerSetupPage;
+  QString mDefaultGenerator;
 };
-
-#endif // FirstConfigure_h

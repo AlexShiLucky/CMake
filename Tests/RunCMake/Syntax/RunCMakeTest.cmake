@@ -55,6 +55,7 @@ run_cmake(BracketNoSpace5)
 run_cmake(Escape1)
 run_cmake(Escape2)
 run_cmake(EscapeCharsAllowed)
+run_cmake(NullAfterBackslash)
 run_cmake(NullTerminatedArgument)
 include("${RunCMake_SOURCE_DIR}/EscapeCharsDisallowed.cmake")
 run_cmake(ParenNoSpace0)
@@ -71,6 +72,7 @@ run_cmake(UnterminatedBrace2)
 run_cmake(UnterminatedBracket0)
 run_cmake(UnterminatedBracket1)
 run_cmake(UnterminatedBracketComment)
+run_cmake(ImproperNesting)
 
 # Variable expansion tests
 run_cmake(ExpandInAt)
@@ -110,9 +112,42 @@ run_cmake(CMP0053-NameWithNewlineQuoted)
 run_cmake(CMP0053-NameWithCarriageReturnQuoted)
 run_cmake(CMP0053-NameWithEscapedSpacesQuoted)
 run_cmake(CMP0053-NameWithEscapedTabsQuoted)
+run_cmake(CMP0053-Dollar-OLD)
+run_cmake(CMP0053-Dollar-NEW)
+
+# Variable special types
+run_cmake(QueryCache)
 
 # Function and macro tests.
 run_cmake(FunctionUnmatched)
 run_cmake(FunctionUnmatchedForeach)
 run_cmake(MacroUnmatched)
 run_cmake(MacroUnmatchedForeach)
+
+function(run_override name)
+  string(TOLOWER "${name}" lname)
+  set(RunCMake_DEFAULT_stderr "^CMake Error at [^
+]*/Tests/RunCMake/Syntax/Override\\.cmake:[0-9]+ \\(function\\):
+  Built-in flow control command \"${lname}\" cannot be overridden\\.
+Call Stack \\(most recent call first\\):
+  [^
+]*/Tests/RunCMake/Syntax/Override\\.cmake:[0-9]+ \\(override\\)$")
+  run_cmake_command(Override${name} "${CMAKE_COMMAND}" -DFUNCTION_NAME=${name} -P "${RunCMake_SOURCE_DIR}/Override.cmake")
+endfunction()
+
+run_override(Break)
+run_override(Continue)
+run_override(Else)
+run_override(ElseIf)
+run_override(EndForeach)
+run_override(EndFunction)
+run_override(EndIf)
+run_override(EndMacro)
+run_override(EndWhile)
+run_override(Foreach)
+run_override(Function)
+run_override(If)
+run_override(Macro)
+run_override(Return)
+run_override(While)
+run_override(Project)

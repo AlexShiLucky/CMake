@@ -2,20 +2,23 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCPackIFWPackage.h"
 
+#include <cstddef>
+#include <map>
+#include <sstream>
+#include <utility>
+
+#include <cm/string_view>
+
 #include "cmCPackComponentGroup.h"
 #include "cmCPackIFWCommon.h"
 #include "cmCPackIFWGenerator.h"
 #include "cmCPackIFWInstaller.h"
 #include "cmCPackLog.h" // IWYU pragma: keep
 #include "cmGeneratedFileStream.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 #include "cmTimestamp.h"
 #include "cmXMLWriter.h"
-
-#include <map>
-#include <sstream>
-#include <stddef.h>
-#include <utility>
 
 //---------------------------------------------------------- CompareStruct ---
 cmCPackIFWPackage::CompareStruct::CompareStruct()
@@ -24,52 +27,72 @@ cmCPackIFWPackage::CompareStruct::CompareStruct()
 }
 
 //------------------------------------------------------- DependenceStruct ---
-cmCPackIFWPackage::DependenceStruct::DependenceStruct()
-{
-}
+cmCPackIFWPackage::DependenceStruct::DependenceStruct() = default;
 
 cmCPackIFWPackage::DependenceStruct::DependenceStruct(
   const std::string& dependence)
 {
-  // Search compare section
-  size_t pos = std::string::npos;
-  if ((pos = dependence.find("<=")) != std::string::npos) {
-    this->Compare.Type = cmCPackIFWPackage::CompareLessOrEqual;
-    this->Compare.Value = dependence.substr(pos + 2);
-  } else if ((pos = dependence.find(">=")) != std::string::npos) {
-    this->Compare.Type = cmCPackIFWPackage::CompareGreaterOrEqual;
-    this->Compare.Value = dependence.substr(pos + 2);
-  } else if ((pos = dependence.find('<')) != std::string::npos) {
-    this->Compare.Type = cmCPackIFWPackage::CompareLess;
-    this->Compare.Value = dependence.substr(pos + 1);
-  } else if ((pos = dependence.find('=')) != std::string::npos) {
-    this->Compare.Type = cmCPackIFWPackage::CompareEqual;
-    this->Compare.Value = dependence.substr(pos + 1);
-  } else if ((pos = dependence.find('>')) != std::string::npos) {
-    this->Compare.Type = cmCPackIFWPackage::CompareGreater;
-    this->Compare.Value = dependence.substr(pos + 1);
-  } else if ((pos = dependence.find('-')) != std::string::npos) {
-    this->Compare.Type = cmCPackIFWPackage::CompareNone;
-    this->Compare.Value = dependence.substr(pos + 1);
+  // Preferred format is name and version are separated by a colon (:), but
+  // note that this is only supported with QtIFW 3.1 or later. Backward
+  // compatibility allows a hyphen (-) as a separator instead, but names then
+  // cannot contain a hyphen.
+  size_t pos;
+  if ((pos = dependence.find(':')) == std::string::npos) {
+    pos = dependence.find('-');
   }
-  size_t dashPos = dependence.find('-');
-  if (dashPos != std::string::npos) {
-    pos = dashPos;
+
+  if (pos != std::string::npos) {
+    this->Name = dependence.substr(0, pos);
+    ++pos;
+    if (pos == dependence.size()) {
+      // Nothing after the separator. Treat this as no version constraint.
+      return;
+    }
+
+    const auto versionPart =
+      cm::string_view(dependence.data() + pos, dependence.size() - pos);
+
+    if (cmHasLiteralPrefix(versionPart, "<=")) {
+      this->Compare.Type = cmCPackIFWPackage::CompareLessOrEqual;
+      this->Compare.Value = std::string(versionPart.substr(2));
+    } else if (cmHasLiteralPrefix(versionPart, ">=")) {
+      this->Compare.Type = cmCPackIFWPackage::CompareGreaterOrEqual;
+      this->Compare.Value = std::string(versionPart.substr(2));
+    } else if (cmHasPrefix(versionPart, '<')) {
+      this->Compare.Type = cmCPackIFWPackage::CompareLess;
+      this->Compare.Value = std::string(versionPart.substr(1));
+    } else if (cmHasPrefix(versionPart, '=')) {
+      this->Compare.Type = cmCPackIFWPackage::CompareEqual;
+      this->Compare.Value = std::string(versionPart.substr(1));
+    } else if (cmHasPrefix(versionPart, '>')) {
+      this->Compare.Type = cmCPackIFWPackage::CompareGreater;
+      this->Compare.Value = std::string(versionPart.substr(1));
+    } else {
+      // We found no operator but a version specification is still expected to
+      // follow. The default behavior is to treat this the same as =. We
+      // explicitly record that as our type (it simplifies our logic a little
+      // and is also clearer).
+      this->Compare.Type = cmCPackIFWPackage::CompareEqual;
+      this->Compare.Value = std::string(versionPart);
+    }
+  } else {
+    this->Name = dependence;
   }
-  this->Name =
-    pos == std::string::npos ? dependence : dependence.substr(0, pos);
 }
 
 std::string cmCPackIFWPackage::DependenceStruct::NameWithCompare() const
 {
-  if (this->Compare.Type == cmCPackIFWPackage::CompareNone) {
-    return this->Name;
-  }
-
   std::string result = this->Name;
-
-  if (this->Compare.Type != cmCPackIFWPackage::CompareNone ||
-      !this->Compare.Value.empty()) {
+  if (this->Name.find('-') != std::string::npos) {
+    // When a name contains a hyphen, we must use a colon after the name to
+    // prevent the hyphen from being parsed by QtIFW as the separator between
+    // the name and the version. Note that a colon is only supported with
+    // QtIFW 3.1 or later.
+    result += ":";
+  } else if (this->Compare.Type != cmCPackIFWPackage::CompareNone ||
+             !this->Compare.Value.empty()) {
+    // No hyphen in the name and we know a version part will follow. Use a
+    // hyphen as a separator since this works for all QtIFW versions.
     result += "-";
   }
 
@@ -111,25 +134,25 @@ void cmCPackIFWPackage::DefaultConfiguration()
 {
   this->DisplayName.clear();
   this->Description.clear();
-  this->Version = "";
-  this->ReleaseDate = "";
-  this->Script = "";
+  this->Version.clear();
+  this->ReleaseDate.clear();
+  this->Script.clear();
   this->Licenses.clear();
   this->UserInterfaces.clear();
   this->Translations.clear();
-  this->SortingPriority = "";
-  this->UpdateText = "";
-  this->Default = "";
-  this->Essential = "";
-  this->Virtual = "";
-  this->ForcedInstallation = "";
-  this->RequiresAdminRights = "";
+  this->SortingPriority.clear();
+  this->UpdateText.clear();
+  this->Default.clear();
+  this->Essential.clear();
+  this->Virtual.clear();
+  this->ForcedInstallation.clear();
+  this->RequiresAdminRights.clear();
 }
 
-// Defaul configuration (all in one package)
+// Default configuration (all in one package)
 int cmCPackIFWPackage::ConfigureFromOptions()
 {
-  // Restore defaul configuration
+  // Restore default configuration
   this->DefaultConfiguration();
 
   // Name
@@ -168,7 +191,7 @@ int cmCPackIFWPackage::ConfigureFromComponent(cmCPackComponent* component)
     return 0;
   }
 
-  // Restore defaul configuration
+  // Restore default configuration
   this->DefaultConfiguration();
 
   std::string prefix = "CPACK_IFW_COMPONENT_" +
@@ -198,22 +221,20 @@ int cmCPackIFWPackage::ConfigureFromComponent(cmCPackComponent* component)
   // User interfaces
   if (const char* option = this->GetOption(prefix + "USER_INTERFACES")) {
     this->UserInterfaces.clear();
-    cmSystemTools::ExpandListArgument(option, this->UserInterfaces);
+    cmExpandList(option, this->UserInterfaces);
   }
 
   // CMake dependencies
   if (!component->Dependencies.empty()) {
-    std::vector<cmCPackComponent*>::iterator dit;
-    for (dit = component->Dependencies.begin();
-         dit != component->Dependencies.end(); ++dit) {
-      this->Dependencies.insert(this->Generator->ComponentPackages[*dit]);
+    for (cmCPackComponent* dep : component->Dependencies) {
+      this->Dependencies.insert(this->Generator->ComponentPackages[dep]);
     }
   }
 
   // Licenses
   if (const char* option = this->GetOption(prefix + "LICENSES")) {
     this->Licenses.clear();
-    cmSystemTools::ExpandListArgument(option, this->Licenses);
+    cmExpandList(option, this->Licenses);
     if (this->Licenses.size() % 2 != 0) {
       cmCPackIFWLogger(
         WARNING,
@@ -228,7 +249,8 @@ int cmCPackIFWPackage::ConfigureFromComponent(cmCPackComponent* component)
   if (const char* option = this->GetOption(prefix + "PRIORITY")) {
     this->SortingPriority = option;
     cmCPackIFWLogger(
-      WARNING, "The \"PRIORITY\" option is set "
+      WARNING,
+      "The \"PRIORITY\" option is set "
         << "for component \"" << component->Name << "\", but there option is "
         << "deprecated. Please use \"SORTING_PRIORITY\" option instead."
         << std::endl);
@@ -257,7 +279,7 @@ int cmCPackIFWPackage::ConfigureFromGroup(cmCPackComponentGroup* group)
     return 0;
   }
 
-  // Restore defaul configuration
+  // Restore default configuration
   this->DefaultConfiguration();
 
   std::string prefix = "CPACK_IFW_COMPONENT_GROUP_" +
@@ -284,13 +306,13 @@ int cmCPackIFWPackage::ConfigureFromGroup(cmCPackComponentGroup* group)
   // User interfaces
   if (const char* option = this->GetOption(prefix + "USER_INTERFACES")) {
     this->UserInterfaces.clear();
-    cmSystemTools::ExpandListArgument(option, this->UserInterfaces);
+    cmExpandList(option, this->UserInterfaces);
   }
 
   // Licenses
   if (const char* option = this->GetOption(prefix + "LICENSES")) {
     this->Licenses.clear();
-    cmSystemTools::ExpandListArgument(option, this->Licenses);
+    cmExpandList(option, this->Licenses);
     if (this->Licenses.size() % 2 != 0) {
       cmCPackIFWLogger(
         WARNING,
@@ -305,7 +327,8 @@ int cmCPackIFWPackage::ConfigureFromGroup(cmCPackComponentGroup* group)
   if (const char* option = this->GetOption(prefix + "PRIORITY")) {
     this->SortingPriority = option;
     cmCPackIFWLogger(
-      WARNING, "The \"PRIORITY\" option is set "
+      WARNING,
+      "The \"PRIORITY\" option is set "
         << "for component group \"" << group->Name
         << "\", but there option is "
         << "deprecated. Please use \"SORTING_PRIORITY\" option instead."
@@ -339,7 +362,7 @@ int cmCPackIFWPackage::ConfigureFromGroup(const std::string& groupName)
 
   group.Name = groupName;
 
-  if (Generator) {
+  if (this->Generator) {
     this->Name = this->Generator->GetGroupPackageName(&group);
   } else {
     this->Name = group.Name;
@@ -359,7 +382,7 @@ int cmCPackIFWPackage::ConfigureFromPrefix(const std::string& prefix)
   if (this->IsSetToEmpty(option)) {
     this->DisplayName.clear();
   } else if (const char* value = this->GetOption(option)) {
-    this->ExpandListArgument(value, this->DisplayName);
+    cmCPackIFWPackage::ExpandListArgument(value, this->DisplayName);
   }
 
   // Description
@@ -367,7 +390,7 @@ int cmCPackIFWPackage::ConfigureFromPrefix(const std::string& prefix)
   if (this->IsSetToEmpty(option)) {
     this->Description.clear();
   } else if (const char* value = this->GetOption(option)) {
-    this->ExpandListArgument(value, this->Description);
+    cmCPackIFWPackage::ExpandListArgument(value, this->Description);
   }
 
   // Release date
@@ -400,22 +423,21 @@ int cmCPackIFWPackage::ConfigureFromPrefix(const std::string& prefix)
     this->Translations.clear();
   } else if (const char* value = this->GetOption(option)) {
     this->Translations.clear();
-    cmSystemTools::ExpandListArgument(value, this->Translations);
+    cmExpandList(value, this->Translations);
   }
 
   // QtIFW dependencies
   std::vector<std::string> deps;
   option = prefix + "DEPENDS";
   if (const char* value = this->GetOption(option)) {
-    cmSystemTools::ExpandListArgument(value, deps);
+    cmExpandList(value, deps);
   }
   option = prefix + "DEPENDENCIES";
   if (const char* value = this->GetOption(option)) {
-    cmSystemTools::ExpandListArgument(value, deps);
+    cmExpandList(value, deps);
   }
-  for (std::vector<std::string>::iterator dit = deps.begin();
-       dit != deps.end(); ++dit) {
-    DependenceStruct dep(*dit);
+  for (std::string const& d : deps) {
+    DependenceStruct dep(d);
     if (this->Generator->Packages.count(dep.Name)) {
       cmCPackIFWPackage& depPkg = this->Generator->Packages[dep.Name];
       dep.Name = depPkg.Name;
@@ -433,11 +455,9 @@ int cmCPackIFWPackage::ConfigureFromPrefix(const std::string& prefix)
   if (this->IsSetToEmpty(option)) {
     this->AlienAutoDependOn.clear();
   } else if (const char* value = this->GetOption(option)) {
-    std::vector<std::string> depsOn;
-    cmSystemTools::ExpandListArgument(value, depsOn);
-    for (std::vector<std::string>::iterator dit = depsOn.begin();
-         dit != depsOn.end(); ++dit) {
-      DependenceStruct dep(*dit);
+    std::vector<std::string> depsOn = cmExpandedList(value);
+    for (std::string const& d : depsOn) {
+      DependenceStruct dep(d);
       if (this->Generator->Packages.count(dep.Name)) {
         cmCPackIFWPackage& depPkg = this->Generator->Packages[dep.Name];
         dep.Name = depPkg.Name;
@@ -486,6 +506,15 @@ int cmCPackIFWPackage::ConfigureFromPrefix(const std::string& prefix)
     this->ForcedInstallation = "false";
   }
 
+  // Replaces
+  option = prefix + "REPLACES";
+  if (this->IsSetToEmpty(option)) {
+    this->Replaces.clear();
+  } else if (const char* value = this->GetOption(option)) {
+    this->Replaces.clear();
+    cmExpandList(value, this->Replaces);
+  }
+
   // Requires admin rights
   option = prefix + "REQUIRES_ADMIN_RIGHTS";
   if (this->IsSetToEmpty(option)) {
@@ -494,6 +523,16 @@ int cmCPackIFWPackage::ConfigureFromPrefix(const std::string& prefix)
     this->RequiresAdminRights = "true";
   } else if (this->IsSetToOff(option)) {
     this->RequiresAdminRights = "false";
+  }
+
+  // Checkable
+  option = prefix + "CHECKABLE";
+  if (this->IsSetToEmpty(option)) {
+    this->Checkable.clear();
+  } else if (this->IsOn(option)) {
+    this->Checkable = "true";
+  } else if (this->IsSetToOff(option)) {
+    this->Checkable = "false";
   }
 
   return 1;
@@ -511,36 +550,32 @@ void cmCPackIFWPackage::GeneratePackageFile()
   }
 
   // Output stream
-  cmGeneratedFileStream fout((this->Directory + "/meta/package.xml").data());
+  cmGeneratedFileStream fout(this->Directory + "/meta/package.xml");
   cmXMLWriter xout(fout);
 
   xout.StartDocument();
 
-  WriteGeneratedByToStrim(xout);
+  this->WriteGeneratedByToStrim(xout);
 
   xout.StartElement("Package");
 
   // DisplayName (with translations)
-  for (std::map<std::string, std::string>::iterator it =
-         this->DisplayName.begin();
-       it != this->DisplayName.end(); ++it) {
+  for (auto const& dn : this->DisplayName) {
     xout.StartElement("DisplayName");
-    if (!it->first.empty()) {
-      xout.Attribute("xml:lang", it->first);
+    if (!dn.first.empty()) {
+      xout.Attribute("xml:lang", dn.first);
     }
-    xout.Content(it->second);
+    xout.Content(dn.second);
     xout.EndElement();
   }
 
   // Description (with translations)
-  for (std::map<std::string, std::string>::iterator it =
-         this->Description.begin();
-       it != this->Description.end(); ++it) {
+  for (auto const& d : this->Description) {
     xout.StartElement("Description");
-    if (!it->first.empty()) {
-      xout.Attribute("xml:lang", it->first);
+    if (!d.first.empty()) {
+      xout.Attribute("xml:lang", d.first);
     }
-    xout.Content(it->second);
+    xout.Content(d.second);
     xout.EndElement();
   }
 
@@ -567,55 +602,59 @@ void cmCPackIFWPackage::GeneratePackageFile()
   }
 
   // User Interfaces (copy to meta dir)
-  std::vector<std::string> userInterfaces = UserInterfaces;
-  for (size_t i = 0; i < userInterfaces.size(); i++) {
-    std::string name = cmSystemTools::GetFilenameName(userInterfaces[i]);
+  std::vector<std::string> userInterfaces = this->UserInterfaces;
+  for (std::string& userInterface : userInterfaces) {
+    std::string name = cmSystemTools::GetFilenameName(userInterface);
     std::string path = this->Directory + "/meta/" + name;
-    cmsys::SystemTools::CopyFileIfDifferent(userInterfaces[i], path);
-    userInterfaces[i] = name;
+    cmsys::SystemTools::CopyFileIfDifferent(userInterface, path);
+    userInterface = name;
   }
   if (!userInterfaces.empty()) {
     xout.StartElement("UserInterfaces");
-    for (size_t i = 0; i < userInterfaces.size(); i++) {
-      xout.Element("UserInterface", userInterfaces[i]);
+    for (std::string const& userInterface : userInterfaces) {
+      xout.Element("UserInterface", userInterface);
     }
     xout.EndElement();
   }
 
   // Translations (copy to meta dir)
-  std::vector<std::string> translations = Translations;
-  for (size_t i = 0; i < translations.size(); i++) {
-    std::string name = cmSystemTools::GetFilenameName(translations[i]);
+  std::vector<std::string> translations = this->Translations;
+  for (std::string& translation : translations) {
+    std::string name = cmSystemTools::GetFilenameName(translation);
     std::string path = this->Directory + "/meta/" + name;
-    cmsys::SystemTools::CopyFileIfDifferent(translations[i], path);
-    translations[i] = name;
+    cmsys::SystemTools::CopyFileIfDifferent(translation, path);
+    translation = name;
   }
   if (!translations.empty()) {
     xout.StartElement("Translations");
-    for (size_t i = 0; i < translations.size(); i++) {
-      xout.Element("Translation", translations[i]);
+    for (std::string const& translation : translations) {
+      xout.Element("Translation", translation);
     }
     xout.EndElement();
   }
 
   // Dependencies
+  const bool hyphensInNamesUnsupported = this->Generator &&
+    !this->Generator->FrameworkVersion.empty() && this->IsVersionLess("3.1");
+  bool warnUnsupportedNames = false;
   std::set<DependenceStruct> compDepSet;
-  for (std::set<DependenceStruct*>::iterator ait =
-         this->AlienDependencies.begin();
-       ait != this->AlienDependencies.end(); ++ait) {
-    compDepSet.insert(*(*ait));
+  for (DependenceStruct* ad : this->AlienDependencies) {
+    compDepSet.insert(*ad);
   }
-  for (std::set<cmCPackIFWPackage*>::iterator it = this->Dependencies.begin();
-       it != this->Dependencies.end(); ++it) {
-    compDepSet.insert(DependenceStruct((*it)->Name));
+  for (cmCPackIFWPackage* d : this->Dependencies) {
+    compDepSet.insert(DependenceStruct(d->Name));
   }
   // Write dependencies
   if (!compDepSet.empty()) {
     std::ostringstream dependencies;
-    std::set<DependenceStruct>::iterator it = compDepSet.begin();
+    auto it = compDepSet.begin();
+    warnUnsupportedNames |=
+      hyphensInNamesUnsupported && it->Name.find('-') != std::string::npos;
     dependencies << it->NameWithCompare();
     ++it;
     while (it != compDepSet.end()) {
+      warnUnsupportedNames |=
+        hyphensInNamesUnsupported && it->Name.find('-') != std::string::npos;
       dependencies << "," << it->NameWithCompare();
       ++it;
     }
@@ -624,22 +663,33 @@ void cmCPackIFWPackage::GeneratePackageFile()
 
   // Automatic dependency on
   std::set<DependenceStruct> compAutoDepSet;
-  for (std::set<DependenceStruct*>::iterator ait =
-         this->AlienAutoDependOn.begin();
-       ait != this->AlienAutoDependOn.end(); ++ait) {
-    compAutoDepSet.insert(*(*ait));
+  for (DependenceStruct* aad : this->AlienAutoDependOn) {
+    compAutoDepSet.insert(*aad);
   }
   // Write automatic dependency on
   if (!compAutoDepSet.empty()) {
     std::ostringstream dependencies;
-    std::set<DependenceStruct>::iterator it = compAutoDepSet.begin();
+    auto it = compAutoDepSet.begin();
+    warnUnsupportedNames |=
+      hyphensInNamesUnsupported && it->Name.find('-') != std::string::npos;
     dependencies << it->NameWithCompare();
     ++it;
     while (it != compAutoDepSet.end()) {
+      warnUnsupportedNames |=
+        hyphensInNamesUnsupported && it->Name.find('-') != std::string::npos;
       dependencies << "," << it->NameWithCompare();
       ++it;
     }
     xout.Element("AutoDependOn", dependencies.str());
+  }
+
+  if (warnUnsupportedNames) {
+    cmCPackIFWLogger(
+      WARNING,
+      "The dependencies for component \""
+        << this->Name << "\" specify names that contain hyphens. "
+        << "This requires QtIFW 3.1 or later, but you are using version "
+        << this->Generator->FrameworkVersion << std::endl);
   }
 
   // Licenses (copy to meta dir)
@@ -665,6 +715,19 @@ void cmCPackIFWPackage::GeneratePackageFile()
     xout.Element("ForcedInstallation", this->ForcedInstallation);
   }
 
+  // Replaces
+  if (!this->Replaces.empty()) {
+    std::ostringstream replaces;
+    auto it = this->Replaces.begin();
+    replaces << *it;
+    ++it;
+    while (it != this->Replaces.end()) {
+      replaces << "," << *it;
+      ++it;
+    }
+    xout.Element("Replaces", replaces.str());
+  }
+
   if (!this->RequiresAdminRights.empty()) {
     xout.Element("RequiresAdminRights", this->RequiresAdminRights);
   }
@@ -683,6 +746,11 @@ void cmCPackIFWPackage::GeneratePackageFile()
   // Priority
   if (!this->SortingPriority.empty()) {
     xout.Element("SortingPriority", this->SortingPriority);
+  }
+
+  // Checkable
+  if (!this->Checkable.empty()) {
+    xout.Element("Checkable", this->Checkable);
   }
 
   xout.EndElement();

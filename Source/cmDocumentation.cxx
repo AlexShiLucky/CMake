@@ -2,19 +2,19 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmDocumentation.h"
 
-#include "cmAlgorithms.h"
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <utility>
+
+#include "cmsys/FStream.hxx"
+#include "cmsys/Glob.hxx"
+
 #include "cmDocumentationEntry.h"
 #include "cmDocumentationSection.h"
 #include "cmRST.h"
 #include "cmSystemTools.h"
 #include "cmVersion.h"
-
-#include "cmsys/FStream.hxx"
-#include "cmsys/Glob.hxx"
-#include <algorithm>
-#include <ctype.h>
-#include <string.h>
-#include <utility>
 
 static const char* cmDocumentationStandardOptions[][2] = {
   { "--help,-help,-usage,-h,-H,/?", "Print usage information and exit." },
@@ -44,8 +44,15 @@ static const char* cmDocumentationStandardOptions[][2] = {
   { nullptr, nullptr }
 };
 
-static const char* cmDocumentationGeneratorsHeader[][2] = {
+static const char* cmDocumentationCPackGeneratorsHeader[][2] = {
   { nullptr, "The following generators are available on this platform:" },
+  { nullptr, nullptr }
+};
+
+static const char* cmDocumentationCMakeGeneratorsHeader[][2] = {
+  { nullptr,
+    "The following generators are available on this platform (* marks "
+    "default):" },
   { nullptr, nullptr }
 };
 
@@ -53,11 +60,6 @@ cmDocumentation::cmDocumentation()
 {
   this->addCommonStandardDocSections();
   this->ShowGenerators = true;
-}
-
-cmDocumentation::~cmDocumentation()
-{
-  cmDeleteAll(this->AllSections);
 }
 
 bool cmDocumentation::PrintVersion(std::ostream& os)
@@ -123,23 +125,21 @@ bool cmDocumentation::PrintRequestedDocumentation(std::ostream& os)
   bool result = true;
 
   // Loop over requested documentation types.
-  for (std::vector<RequestedHelpItem>::const_iterator i =
-         this->RequestedHelpItems.begin();
-       i != this->RequestedHelpItems.end(); ++i) {
-    this->CurrentArgument = i->Argument;
+  for (RequestedHelpItem const& rhi : this->RequestedHelpItems) {
+    this->CurrentArgument = rhi.Argument;
     // If a file name was given, use it.  Otherwise, default to the
     // given stream.
     cmsys::ofstream fout;
     std::ostream* s = &os;
-    if (!i->Filename.empty()) {
-      fout.open(i->Filename.c_str());
+    if (!rhi.Filename.empty()) {
+      fout.open(rhi.Filename.c_str());
       s = &fout;
     } else if (++count > 1) {
       os << "\n\n";
     }
 
     // Print this documentation type to the stream.
-    if (!this->PrintDocumentation(i->HelpType, *s) || s->fail()) {
+    if (!this->PrintDocumentation(rhi.HelpType, *s) || s->fail()) {
       result = false;
     }
   }
@@ -147,10 +147,12 @@ bool cmDocumentation::PrintRequestedDocumentation(std::ostream& os)
 }
 
 #define GET_OPT_ARGUMENT(target)                                              \
-  if ((i + 1 < argc) && !this->IsOption(argv[i + 1])) {                       \
-    (target) = argv[i + 1];                                                   \
-    i = i + 1;                                                                \
-  };
+  do {                                                                        \
+    if ((i + 1 < argc) && !this->IsOption(argv[i + 1])) {                     \
+      (target) = argv[i + 1];                                                 \
+      i = i + 1;                                                              \
+    };                                                                        \
+  } while (false)
 
 void cmDocumentation::WarnFormFromFilename(
   cmDocumentation::RequestedHelpItem& request, bool& result)
@@ -176,36 +178,30 @@ void cmDocumentation::WarnFormFromFilename(
 
 void cmDocumentation::addCommonStandardDocSections()
 {
-  cmDocumentationSection* sec;
-
-  sec = new cmDocumentationSection("Options", "OPTIONS");
-  sec->Append(cmDocumentationStandardOptions);
-  this->AllSections["Options"] = sec;
+  cmDocumentationSection sec{ "Options" };
+  sec.Append(cmDocumentationStandardOptions);
+  this->AllSections.emplace("Options", std::move(sec));
 }
 
 void cmDocumentation::addCMakeStandardDocSections()
 {
-  cmDocumentationSection* sec;
-
-  sec = new cmDocumentationSection("Generators", "GENERATORS");
-  sec->Append(cmDocumentationGeneratorsHeader);
-  this->AllSections["Generators"] = sec;
+  cmDocumentationSection sec{ "Generators" };
+  sec.Append(cmDocumentationCMakeGeneratorsHeader);
+  this->AllSections.emplace("Generators", std::move(sec));
 }
 
 void cmDocumentation::addCTestStandardDocSections()
 {
   // This is currently done for backward compatibility reason
   // We may suppress some of these.
-  addCMakeStandardDocSections();
+  this->addCMakeStandardDocSections();
 }
 
 void cmDocumentation::addCPackStandardDocSections()
 {
-  cmDocumentationSection* sec;
-
-  sec = new cmDocumentationSection("Generators", "GENERATORS");
-  sec->Append(cmDocumentationGeneratorsHeader);
-  this->AllSections["Generators"] = sec;
+  cmDocumentationSection sec{ "Generators" };
+  sec.Append(cmDocumentationCPackGeneratorsHeader);
+  this->AllSections.emplace("Generators", std::move(sec));
 }
 
 bool cmDocumentation::CheckOptions(int argc, const char* const* argv,
@@ -215,7 +211,7 @@ bool cmDocumentation::CheckOptions(int argc, const char* const* argv,
   if (argc == 1) {
     RequestedHelpItem help;
     help.HelpType = cmDocumentation::Usage;
-    this->RequestedHelpItems.push_back(help);
+    this->RequestedHelpItems.push_back(std::move(help));
     return true;
   }
 
@@ -354,7 +350,7 @@ bool cmDocumentation::CheckOptions(int argc, const char* const* argv,
     if (help.HelpType != None) {
       // This is a help option.  See if there is a file name given.
       result = true;
-      this->RequestedHelpItems.push_back(help);
+      this->RequestedHelpItems.push_back(std::move(help));
     }
   }
   return result;
@@ -366,93 +362,59 @@ void cmDocumentation::SetName(const std::string& name)
 }
 
 void cmDocumentation::SetSection(const char* name,
-                                 cmDocumentationSection* section)
+                                 cmDocumentationSection section)
 {
-  if (this->AllSections.find(name) != this->AllSections.end()) {
-    delete this->AllSections[name];
-  }
-  this->AllSections[name] = section;
+  this->SectionAtName(name) = std::move(section);
 }
 
 void cmDocumentation::SetSection(const char* name,
                                  std::vector<cmDocumentationEntry>& docs)
 {
-  cmDocumentationSection* sec =
-    new cmDocumentationSection(name, cmSystemTools::UpperCase(name).c_str());
-  sec->Append(docs);
-  this->SetSection(name, sec);
+  cmDocumentationSection sec{ name };
+  sec.Append(docs);
+  this->SetSection(name, std::move(sec));
 }
 
 void cmDocumentation::SetSection(const char* name, const char* docs[][2])
 {
-  cmDocumentationSection* sec =
-    new cmDocumentationSection(name, cmSystemTools::UpperCase(name).c_str());
-  sec->Append(docs);
-  this->SetSection(name, sec);
+  cmDocumentationSection sec{ name };
+  sec.Append(docs);
+  this->SetSection(name, std::move(sec));
 }
 
 void cmDocumentation::SetSections(
-  std::map<std::string, cmDocumentationSection*>& sections)
+  std::map<std::string, cmDocumentationSection> sections)
 {
-  for (std::map<std::string, cmDocumentationSection*>::const_iterator it =
-         sections.begin();
-       it != sections.end(); ++it) {
-    this->SetSection(it->first.c_str(), it->second);
+  for (auto& s : sections) {
+    this->SetSection(s.first.c_str(), std::move(s.second));
   }
+}
+cmDocumentationSection& cmDocumentation::SectionAtName(const char* name)
+{
+  return this->AllSections.emplace(name, cmDocumentationSection{ name })
+    .first->second;
 }
 
 void cmDocumentation::PrependSection(const char* name, const char* docs[][2])
 {
-  cmDocumentationSection* sec = nullptr;
-  if (this->AllSections.find(name) == this->AllSections.end()) {
-    sec =
-      new cmDocumentationSection(name, cmSystemTools::UpperCase(name).c_str());
-    this->SetSection(name, sec);
-  } else {
-    sec = this->AllSections[name];
-  }
-  sec->Prepend(docs);
+  this->SectionAtName(name).Prepend(docs);
 }
 
 void cmDocumentation::PrependSection(const char* name,
                                      std::vector<cmDocumentationEntry>& docs)
 {
-  cmDocumentationSection* sec = nullptr;
-  if (this->AllSections.find(name) == this->AllSections.end()) {
-    sec =
-      new cmDocumentationSection(name, cmSystemTools::UpperCase(name).c_str());
-    this->SetSection(name, sec);
-  } else {
-    sec = this->AllSections[name];
-  }
-  sec->Prepend(docs);
+  this->SectionAtName(name).Prepend(docs);
 }
 
 void cmDocumentation::AppendSection(const char* name, const char* docs[][2])
 {
-  cmDocumentationSection* sec = nullptr;
-  if (this->AllSections.find(name) == this->AllSections.end()) {
-    sec =
-      new cmDocumentationSection(name, cmSystemTools::UpperCase(name).c_str());
-    this->SetSection(name, sec);
-  } else {
-    sec = this->AllSections[name];
-  }
-  sec->Append(docs);
+  this->SectionAtName(name).Append(docs);
 }
 
 void cmDocumentation::AppendSection(const char* name,
                                     std::vector<cmDocumentationEntry>& docs)
 {
-  cmDocumentationSection* sec = nullptr;
-  if (this->AllSections.find(name) == this->AllSections.end()) {
-    sec =
-      new cmDocumentationSection(name, cmSystemTools::UpperCase(name).c_str());
-    this->SetSection(name, sec);
-  } else {
-    sec = this->AllSections[name];
-  }
-  sec->Append(docs);
+  this->SectionAtName(name).Append(docs);
 }
 
 void cmDocumentation::AppendSection(const char* name,
@@ -489,10 +451,9 @@ void cmDocumentation::PrintNames(std::ostream& os, std::string const& pattern)
   std::vector<std::string> files;
   this->GlobHelp(files, pattern);
   std::vector<std::string> names;
-  for (std::vector<std::string>::const_iterator i = files.begin();
-       i != files.end(); ++i) {
+  for (std::string const& f : files) {
     std::string line;
-    cmsys::ifstream fin(i->c_str());
+    cmsys::ifstream fin(f.c_str());
     while (fin && cmSystemTools::GetLineFromStream(fin, line)) {
       if (!line.empty() && (isalnum(line[0]) || line[0] == '<')) {
         names.push_back(line);
@@ -501,9 +462,8 @@ void cmDocumentation::PrintNames(std::ostream& os, std::string const& pattern)
     }
   }
   std::sort(names.begin(), names.end());
-  for (std::vector<std::string>::iterator i = names.begin(); i != names.end();
-       ++i) {
-    os << *i << "\n";
+  for (std::string const& n : names) {
+    os << n << "\n";
   }
 }
 
@@ -514,9 +474,8 @@ bool cmDocumentation::PrintFiles(std::ostream& os, std::string const& pattern)
   this->GlobHelp(files, pattern);
   std::sort(files.begin(), files.end());
   cmRST r(os, cmSystemTools::GetCMakeRoot() + "/Help");
-  for (std::vector<std::string>::const_iterator i = files.begin();
-       i != files.end(); ++i) {
-    found = r.ProcessFile(*i) || found;
+  for (std::string const& f : files) {
+    found = r.ProcessFile(f) || found;
   }
   return found;
 }
@@ -586,15 +545,13 @@ bool cmDocumentation::PrintHelpListModules(std::ostream& os)
   std::vector<std::string> files;
   this->GlobHelp(files, "module/*");
   std::vector<std::string> modules;
-  for (std::vector<std::string>::iterator fi = files.begin();
-       fi != files.end(); ++fi) {
-    std::string module = cmSystemTools::GetFilenameName(*fi);
+  for (std::string const& f : files) {
+    std::string module = cmSystemTools::GetFilenameName(f);
     modules.push_back(module.substr(0, module.size() - 4));
   }
   std::sort(modules.begin(), modules.end());
-  for (std::vector<std::string>::iterator i = modules.begin();
-       i != modules.end(); ++i) {
-    os << *i << "\n";
+  for (std::string const& m : modules) {
+    os << m << "\n";
   }
   return true;
 }
@@ -640,11 +597,10 @@ bool cmDocumentation::PrintHelpListPolicies(std::ostream& os)
 
 bool cmDocumentation::PrintHelpListGenerators(std::ostream& os)
 {
-  std::map<std::string, cmDocumentationSection*>::iterator si;
-  si = this->AllSections.find("Generators");
+  const auto si = this->AllSections.find("Generators");
   if (si != this->AllSections.end()) {
     this->Formatter.SetIndent("  ");
-    this->Formatter.PrintSection(os, *si->second);
+    this->Formatter.PrintSection(os, si->second);
   }
   return true;
 }
@@ -670,29 +626,27 @@ bool cmDocumentation::PrintHelpListVariables(std::ostream& os)
 
 bool cmDocumentation::PrintUsage(std::ostream& os)
 {
-  std::map<std::string, cmDocumentationSection*>::iterator si;
-  si = this->AllSections.find("Usage");
+  const auto si = this->AllSections.find("Usage");
   if (si != this->AllSections.end()) {
-    this->Formatter.PrintSection(os, *si->second);
+    this->Formatter.PrintSection(os, si->second);
   }
   return true;
 }
 
 bool cmDocumentation::PrintHelp(std::ostream& os)
 {
-  std::map<std::string, cmDocumentationSection*>::iterator si;
-  si = this->AllSections.find("Usage");
+  auto si = this->AllSections.find("Usage");
   if (si != this->AllSections.end()) {
-    this->Formatter.PrintSection(os, *si->second);
+    this->Formatter.PrintSection(os, si->second);
   }
   si = this->AllSections.find("Options");
   if (si != this->AllSections.end()) {
-    this->Formatter.PrintSection(os, *si->second);
+    this->Formatter.PrintSection(os, si->second);
   }
   if (this->ShowGenerators) {
     si = this->AllSections.find("Generators");
     if (si != this->AllSections.end()) {
-      this->Formatter.PrintSection(os, *si->second);
+      this->Formatter.PrintSection(os, si->second);
     }
   }
   return true;

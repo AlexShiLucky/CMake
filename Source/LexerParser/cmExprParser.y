@@ -7,17 +7,16 @@ This file must be translated to C and modified to build everywhere.
 
 Run bison like this:
 
-  bison --yacc --name-prefix=cmExpr_yy --defines=cmExprParserTokens.h -ocmExprParser.cxx cmExprParser.y
-
-Modify cmExprParser.cxx:
-  - "#if 0" out yyerrorlab block in range ["goto yyerrlab1", "yyerrlab1:"]
+  bison --name-prefix=cmExpr_yy --defines=cmExprParserTokens.h -ocmExprParser.cxx cmExprParser.y
 
 */
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdexcept>
 
 /*-------------------------------------------------------------------------*/
 #define YYDEBUG 1
@@ -35,6 +34,19 @@ static void cmExpr_yyerror(yyscan_t yyscanner, const char* message);
 #ifdef _MSC_VER
 # pragma warning (disable: 4102) /* Unused goto label.  */
 # pragma warning (disable: 4065) /* Switch statement contains default but no case. */
+#endif
+#if defined(__GNUC__) && __GNUC__ >= 8
+# pragma GCC diagnostic ignored "-Wconversion"
+# pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif
+#if defined(__clang__) && defined(__has_warning)
+# if __has_warning("-Wused-but-marked-unused")
+#  pragma clang diagnostic ignored "-Wused-but-marked-unused"
+# endif
+#endif
+
+#if defined(__NVCOMPILER)
+#  pragma diag_suppress 550 /* variable set but never used */
 #endif
 %}
 
@@ -128,6 +140,9 @@ term:
     $<Number>$ = $<Number>1 * $<Number>3;
   }
 | term exp_DIVIDE unary {
+    if (yyvsp[0].Number == 0) {
+      throw std::overflow_error("divide by zero");
+    }
     $<Number>$ = $<Number>1 / $<Number>3;
   }
 | term exp_MOD unary {
@@ -143,6 +158,9 @@ unary:
   }
 | exp_MINUS unary {
     $<Number>$ = - $<Number>2;
+  }
+| exp_NOT unary {
+    $<Number>$ = ~ $<Number>2;
   }
 
 factor:

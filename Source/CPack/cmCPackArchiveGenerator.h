@@ -1,15 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackArchiveGenerator_h
-#define cmCPackArchiveGenerator_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmArchiveWrite.h"
-#include "cmCPackGenerator.h"
-
 #include <iosfwd>
 #include <string>
+
+#include "cmArchiveWrite.h"
+#include "cmCPackGenerator.h"
 
 class cmCPackComponent;
 
@@ -22,17 +21,26 @@ class cmCPackComponent;
 class cmCPackArchiveGenerator : public cmCPackGenerator
 {
 public:
-  typedef cmCPackGenerator Superclass;
+  using Superclass = cmCPackGenerator;
+
+  static cmCPackGenerator* Create7ZGenerator();
+  static cmCPackGenerator* CreateTBZ2Generator();
+  static cmCPackGenerator* CreateTGZGenerator();
+  static cmCPackGenerator* CreateTXZGenerator();
+  static cmCPackGenerator* CreateTZGenerator();
+  static cmCPackGenerator* CreateTZSTGenerator();
+  static cmCPackGenerator* CreateZIPGenerator();
 
   /**
    * Construct generator
    */
-  cmCPackArchiveGenerator(cmArchiveWrite::Compress, std::string const& format);
-  ~cmCPackArchiveGenerator() CM_OVERRIDE;
+  cmCPackArchiveGenerator(cmArchiveWrite::Compress t, std::string format,
+                          std::string extension);
+  ~cmCPackArchiveGenerator() override;
   // Used to add a header to the archive
   virtual int GenerateHeader(std::ostream* os);
   // component support
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  bool SupportsComponentInstallation() const override;
 
 private:
   // get archive component filename
@@ -40,7 +48,7 @@ private:
                                           bool isGroupName);
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
+  int InitializeInternal() override;
   /**
    * Add the files belonging to the specified component
    * to the provided (already opened) archive.
@@ -56,7 +64,7 @@ protected:
    * method will call either PackageComponents or
    * PackageComponentsAllInOne.
    */
-  int PackageFiles() CM_OVERRIDE;
+  int PackageFiles() override;
   /**
    * The method used to package files when component
    * install is used. This will create one
@@ -68,9 +76,19 @@ protected:
    * components will be put in a single installer.
    */
   int PackageComponentsAllInOne();
-  const char* GetOutputExtension() CM_OVERRIDE = 0;
+
+private:
+  const char* GetNameOfClass() override { return "cmCPackArchiveGenerator"; }
+
+  const char* GetOutputExtension() override
+  {
+    return this->OutputExtension.c_str();
+  }
+
+  int GetThreadCount() const;
+
+private:
   cmArchiveWrite::Compress Compress;
   std::string ArchiveFormat;
+  std::string OutputExtension;
 };
-
-#endif

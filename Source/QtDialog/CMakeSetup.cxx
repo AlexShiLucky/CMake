@@ -1,39 +1,47 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
+#include <iostream>
+
 #include "QCMake.h" // include to disable MS warnings
+#include <QApplication>
+#include <QDir>
+#include <QLocale>
+#include <QString>
+#include <QTranslator>
+#include <QtPlugin>
+
+#include "cmsys/CommandLineArguments.hxx"
+#include "cmsys/Encoding.hxx"
+#include "cmsys/SystemTools.hxx"
 
 #include "CMakeSetupDialog.h"
 #include "cmAlgorithms.h"
 #include "cmDocumentation.h"
 #include "cmDocumentationEntry.h"
-#include "cmVersion.h"
-#include "cmake.h"
-#include "cmsys/CommandLineArguments.hxx"
-#include "cmsys/Encoding.hxx"
-#include "cmsys/SystemTools.hxx"
-#include <QApplication>
-#include <QDir>
-#include <QLocale>
-#include <QString>
-#include <QTextCodec>
-#include <QTranslator>
-#include <QtPlugin>
-#include <iostream>
-
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h" // IWYU pragma: keep
+#include "cmake.h"
 
 static const char* cmDocumentationName[][2] = { { nullptr,
                                                   "  cmake-gui - CMake GUI." },
                                                 { nullptr, nullptr } };
 
 static const char* cmDocumentationUsage[][2] = {
-  { nullptr, "  cmake-gui [options]\n"
-             "  cmake-gui [options] <path-to-source>\n"
-             "  cmake-gui [options] <path-to-existing-build>" },
+  { nullptr,
+    "  cmake-gui [options]\n"
+    "  cmake-gui [options] <path-to-source>\n"
+    "  cmake-gui [options] <path-to-existing-build>\n"
+    "  cmake-gui [options] -S <path-to-source> -B <path-to-build>\n"
+    "  cmake-gui [options] --browse-manual\n" },
   { nullptr, nullptr }
 };
 
-static const char* cmDocumentationOptions[][2] = { { nullptr, nullptr } };
+static const char* cmDocumentationOptions[][2] = {
+  { "-S <path-to-source>", "Explicitly specify a source directory." },
+  { "-B <path-to-build>", "Explicitly specify a build directory." },
+  { "--preset=<preset>", "Specify a configure preset." },
+  { nullptr, nullptr }
+};
 
 #if defined(Q_OS_MAC)
 static int cmOSXInstall(std::string dir);
@@ -44,13 +52,26 @@ static void cmAddPluginPath();
 Q_IMPORT_PLUGIN(QXcbIntegrationPlugin);
 #endif
 
+#if defined(USE_QWindowsIntegrationPlugin)
+Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin);
+#  if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
+Q_IMPORT_PLUGIN(QWindowsVistaStylePlugin);
+#  endif
+#endif
+
+int CMakeGUIExec(CMakeSetupDialog* window);
+void SetupDefaultQSettings();
+void OpenReferenceManual();
+
 int main(int argc, char** argv)
 {
+  cmSystemTools::EnsureStdPipes();
   cmsys::Encoding::CommandLineArguments encoding_args =
     cmsys::Encoding::CommandLineArguments::Main(argc, argv);
   int argc2 = encoding_args.argc();
   char const* const* argv2 = encoding_args.argv();
 
+  cmSystemTools::InitializeLibUV();
   cmSystemTools::FindCMakeResources(argv2[0]);
   // check docs first so that X is not need to get docs
   // do docs, if args were given
@@ -58,13 +79,12 @@ int main(int argc, char** argv)
   doc.addCMakeStandardDocSections();
   if (argc2 > 1 && doc.CheckOptions(argc2, argv2)) {
     // Construct and print requested documentation.
-    cmake hcm(cmake::RoleInternal);
+    cmake hcm(cmake::RoleInternal, cmState::Unknown);
     hcm.SetHomeDirectory("");
     hcm.SetHomeOutputDirectory("");
     hcm.AddCMakePaths();
 
-    std::vector<cmDocumentationEntry> generators;
-    hcm.GetGeneratorDocumentation(generators);
+    auto generators = hcm.GetGeneratorsDocumentation();
     doc.SetName("cmake");
     doc.SetSection("Name", cmDocumentationName);
     doc.SetSection("Usage", cmDocumentationUsage);
@@ -92,20 +112,17 @@ int main(int argc, char** argv)
   cmAddPluginPath();
 #endif
 
+// HighDpiScaling is always enabled starting with Qt6, but will still issue a
+// deprecation warning if you try to set the attribute for it
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0) &&                               \
+     QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+  QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+#endif
+
+  SetupDefaultQSettings();
   QApplication app(argc, argv);
 
   setlocale(LC_NUMERIC, "C");
-
-  QTextCodec* utf8_codec = QTextCodec::codecForName("UTF-8");
-  QTextCodec::setCodecForLocale(utf8_codec);
-
-#if QT_VERSION < 0x050000
-  // clean out standard Qt paths for plugins, which we don't use anyway
-  // when creating Mac bundles, it potentially causes problems
-  foreach (QString p, QApplication::libraryPaths()) {
-    QApplication::removeLibraryPath(p);
-  }
-#endif
 
   // tell the cmake library where cmake is
   QDir cmExecDir(QApplication::applicationDirPath());
@@ -118,45 +135,95 @@ int main(int argc, char** argv)
   translationsDir.cd(QString::fromLocal8Bit(".." CMAKE_DATA_DIR));
   translationsDir.cd("i18n");
   QTranslator translator;
-  QString transfile = QString("cmake_%1").arg(QLocale::system().name());
-  translator.load(transfile, translationsDir.path());
-  app.installTranslator(&translator);
+  if (translator.load(QLocale(), "cmake", "_", translationsDir.path())) {
+    QApplication::installTranslator(&translator);
+  }
 
   // app setup
-  app.setApplicationName("CMakeSetup");
-  app.setOrganizationName("Kitware");
+  QApplication::setApplicationName("CMakeSetup");
+  QApplication::setOrganizationName("Kitware");
   QIcon appIcon;
   appIcon.addFile(":/Icons/CMakeSetup32.png");
   appIcon.addFile(":/Icons/CMakeSetup128.png");
-  app.setWindowIcon(appIcon);
+  QApplication::setWindowIcon(QIcon::fromTheme("cmake-gui", appIcon));
 
   CMakeSetupDialog dialog;
   dialog.show();
 
-  cmsys::CommandLineArguments arg;
-  arg.Initialize(argc2, argv2);
+  QStringList args = QApplication::arguments();
   std::string binaryDirectory;
   std::string sourceDirectory;
-  typedef cmsys::CommandLineArguments argT;
-  arg.AddArgument("-B", argT::CONCAT_ARGUMENT, &binaryDirectory,
-                  "Binary Directory");
-  arg.AddArgument("-H", argT::CONCAT_ARGUMENT, &sourceDirectory,
-                  "Source Directory");
-  // do not complain about unknown options
-  arg.StoreUnusedArguments(true);
-  arg.Parse();
-  if (!sourceDirectory.empty() && !binaryDirectory.empty()) {
+  std::string presetName;
+  for (int i = 1; i < args.size(); ++i) {
+    const QString& arg = args[i];
+    if (arg.startsWith("-S")) {
+      QString path = arg.mid(2);
+      if (path.isEmpty()) {
+        ++i;
+        if (i >= args.size()) {
+          std::cerr << "No source directory specified for -S" << std::endl;
+          return 1;
+        }
+        path = args[i];
+        if (path[0] == '-') {
+          std::cerr << "No source directory specified for -S" << std::endl;
+          return 1;
+        }
+      }
+
+      sourceDirectory =
+        cmSystemTools::CollapseFullPath(path.toLocal8Bit().data());
+      cmSystemTools::ConvertToUnixSlashes(sourceDirectory);
+    } else if (arg.startsWith("-B")) {
+      QString path = arg.mid(2);
+      if (path.isEmpty()) {
+        ++i;
+        if (i >= args.size()) {
+          std::cerr << "No build directory specified for -B" << std::endl;
+          return 1;
+        }
+        path = args[i];
+        if (path[0] == '-') {
+          std::cerr << "No build directory specified for -B" << std::endl;
+          return 1;
+        }
+      }
+
+      binaryDirectory =
+        cmSystemTools::CollapseFullPath(path.toLocal8Bit().data());
+      cmSystemTools::ConvertToUnixSlashes(binaryDirectory);
+    } else if (arg.startsWith("--preset=")) {
+      QString preset = arg.mid(cmStrLen("--preset="));
+      if (preset.isEmpty()) {
+        std::cerr << "No preset specified for --preset" << std::endl;
+        return 1;
+      }
+      presetName = preset.toLocal8Bit().data();
+    } else if (arg == "--browse-manual") {
+      OpenReferenceManual();
+      return 0;
+    }
+  }
+  if (!sourceDirectory.empty() &&
+      (!binaryDirectory.empty() || !presetName.empty())) {
     dialog.setSourceDirectory(QString::fromLocal8Bit(sourceDirectory.c_str()));
-    dialog.setBinaryDirectory(QString::fromLocal8Bit(binaryDirectory.c_str()));
+    if (!binaryDirectory.empty()) {
+      dialog.setBinaryDirectory(
+        QString::fromLocal8Bit(binaryDirectory.c_str()));
+      if (!presetName.empty()) {
+        dialog.setStartupBinaryDirectory(true);
+      }
+    }
+    if (!presetName.empty()) {
+      dialog.setDeferredPreset(QString::fromLocal8Bit(presetName.c_str()));
+    }
   } else {
-    QStringList args = app.arguments();
     if (args.count() == 2) {
       std::string filePath =
         cmSystemTools::CollapseFullPath(args[1].toLocal8Bit().data());
 
       // check if argument is a directory containing CMakeCache.txt
-      std::string buildFilePath =
-        cmSystemTools::CollapseFullPath("CMakeCache.txt", filePath.c_str());
+      std::string buildFilePath = cmStrCat(filePath, "/CMakeCache.txt");
 
       // check if argument is a CMakeCache.txt file
       if (cmSystemTools::GetFilenameName(filePath) == "CMakeCache.txt" &&
@@ -165,8 +232,7 @@ int main(int argc, char** argv)
       }
 
       // check if argument is a directory containing CMakeLists.txt
-      std::string srcFilePath =
-        cmSystemTools::CollapseFullPath("CMakeLists.txt", filePath.c_str());
+      std::string srcFilePath = cmStrCat(filePath, "/CMakeLists.txt");
 
       if (cmSystemTools::FileExists(buildFilePath.c_str())) {
         dialog.setBinaryDirectory(QString::fromLocal8Bit(
@@ -179,14 +245,16 @@ int main(int argc, char** argv)
     }
   }
 
-  return app.exec();
+  return CMakeGUIExec(&dialog);
 }
 
 #if defined(Q_OS_MAC)
-#include "cm_sys_stat.h"
-#include <errno.h>
-#include <string.h>
-#include <unistd.h>
+#  include <cerrno>
+#  include <cstring>
+
+#  include <unistd.h>
+
+#  include "cm_sys_stat.h"
 static bool cmOSXInstall(std::string const& dir, std::string const& tool)
 {
   if (tool.empty()) {
@@ -206,12 +274,11 @@ static bool cmOSXInstall(std::string const& dir, std::string const& tool)
   if (symlink(tool.c_str(), link.c_str()) == 0) {
     std::cerr << "Linked: '" << link << "' -> '" << tool << "'\n";
     return true;
-  } else {
-    int err = errno;
-    std::cerr << "Failed: '" << link << "' -> '" << tool
-              << "': " << strerror(err) << "\n";
-    return false;
   }
+  int err = errno;
+  std::cerr << "Failed: '" << link << "' -> '" << tool
+            << "': " << strerror(err) << "\n";
+  return false;
 }
 static int cmOSXInstall(std::string dir)
 {

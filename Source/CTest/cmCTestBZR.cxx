@@ -2,19 +2,23 @@
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmCTestBZR.h"
 
+#include <cstdlib>
+#include <list>
+#include <map>
+#include <ostream>
+#include <vector>
+
+#include <cmext/algorithm>
+
+#include <cm3p/expat.h>
+
+#include "cmsys/RegularExpression.hxx"
+
 #include "cmCTest.h"
 #include "cmCTestVC.h"
 #include "cmProcessTools.h"
 #include "cmSystemTools.h"
 #include "cmXMLParser.h"
-
-#include "cm_expat.h"
-#include "cmsys/RegularExpression.hxx"
-#include <list>
-#include <map>
-#include <ostream>
-#include <stdlib.h>
-#include <vector>
 
 extern "C" int cmBZRXMLParserUnknownEncodingHandler(void* /*unused*/,
                                                     const XML_Char* name,
@@ -77,9 +81,7 @@ cmCTestBZR::cmCTestBZR(cmCTest* ct, std::ostream& log)
   cmSystemTools::PutEnv("BZR_PROGRESS_BAR=none");
 }
 
-cmCTestBZR::~cmCTestBZR()
-{
-}
+cmCTestBZR::~cmCTestBZR() = default;
 
 class cmCTestBZR::InfoParser : public cmCTestVC::LineParser
 {
@@ -98,12 +100,12 @@ private:
   bool CheckOutFound;
   cmsys::RegularExpression RegexCheckOut;
   cmsys::RegularExpression RegexParent;
-  bool ProcessLine() CM_OVERRIDE
+  bool ProcessLine() override
   {
     if (this->RegexCheckOut.find(this->Line)) {
       this->BZR->URL = this->RegexCheckOut.match(1);
-      CheckOutFound = true;
-    } else if (!CheckOutFound && this->RegexParent.find(this->Line)) {
+      this->CheckOutFound = true;
+    } else if (!this->CheckOutFound && this->RegexParent.find(this->Line)) {
       this->BZR->URL = this->RegexParent.match(1);
     }
     return true;
@@ -123,7 +125,7 @@ public:
 private:
   std::string& Rev;
   cmsys::RegularExpression RegexRevno;
-  bool ProcessLine() CM_OVERRIDE
+  bool ProcessLine() override
   {
     if (this->RegexRevno.find(this->Line)) {
       this->Rev = this->RegexRevno.match(1);
@@ -155,8 +157,9 @@ bool cmCTestBZR::NoteOldRevision()
 {
   this->OldRevision = this->LoadInfo();
   this->Log << "Revision before update: " << this->OldRevision << "\n";
-  cmCTestLog(this->CTest, HANDLER_OUTPUT, "   Old revision of repository is: "
-               << this->OldRevision << "\n");
+  cmCTestLog(this->CTest, HANDLER_OUTPUT,
+             "   Old revision of repository is: " << this->OldRevision
+                                                  << "\n");
   this->PriorRev.Rev = this->OldRevision;
   return true;
 }
@@ -165,14 +168,16 @@ bool cmCTestBZR::NoteNewRevision()
 {
   this->NewRevision = this->LoadInfo();
   this->Log << "Revision after update: " << this->NewRevision << "\n";
-  cmCTestLog(this->CTest, HANDLER_OUTPUT, "   New revision of repository is: "
-               << this->NewRevision << "\n");
+  cmCTestLog(this->CTest, HANDLER_OUTPUT,
+             "   New revision of repository is: " << this->NewRevision
+                                                  << "\n");
   this->Log << "URL = " << this->URL << "\n";
   return true;
 }
 
-class cmCTestBZR::LogParser : public cmCTestVC::OutputLogger,
-                              private cmXMLParser
+class cmCTestBZR::LogParser
+  : public cmCTestVC::OutputLogger
+  , private cmXMLParser
 {
 public:
   LogParser(cmCTestBZR* bzr, const char* prefix)
@@ -182,11 +187,11 @@ public:
   {
     this->InitializeParser();
   }
-  ~LogParser() CM_OVERRIDE { this->CleanupParser(); }
+  ~LogParser() override { this->CleanupParser(); }
 
-  int InitializeParser() CM_OVERRIDE
+  int InitializeParser() override
   {
-    int res = cmXMLParser::InitializeParser();
+    int res = this->cmXMLParser::InitializeParser();
     if (res) {
       XML_SetUnknownEncodingHandler(static_cast<XML_Parser>(this->Parser),
                                     cmBZRXMLParserUnknownEncodingHandler,
@@ -198,8 +203,8 @@ public:
 private:
   cmCTestBZR* BZR;
 
-  typedef cmCTestBZR::Revision Revision;
-  typedef cmCTestBZR::Change Change;
+  using Revision = cmCTestBZR::Revision;
+  using Change = cmCTestBZR::Change;
   Revision Rev;
   std::vector<Change> Changes;
   Change CurChange;
@@ -207,14 +212,14 @@ private:
 
   cmsys::RegularExpression EmailRegex;
 
-  bool ProcessChunk(const char* data, int length) CM_OVERRIDE
+  bool ProcessChunk(const char* data, int length) override
   {
     this->OutputLogger::ProcessChunk(data, length);
     this->ParseChunk(data, length);
     return true;
   }
 
-  void StartElement(const std::string& name, const char** /*atts*/) CM_OVERRIDE
+  void StartElement(const std::string& name, const char** /*atts*/) override
   {
     this->CData.clear();
     if (name == "log") {
@@ -239,12 +244,12 @@ private:
     }
   }
 
-  void CharacterDataHandler(const char* data, int length) CM_OVERRIDE
+  void CharacterDataHandler(const char* data, int length) override
   {
-    this->CData.insert(this->CData.end(), data, data + length);
+    cm::append(this->CData, data, data + length);
   }
 
-  void EndElement(const std::string& name) CM_OVERRIDE
+  void EndElement(const std::string& name) override
   {
     if (name == "log") {
       this->BZR->DoRevision(this->Rev, this->Changes);
@@ -274,7 +279,7 @@ private:
     this->CData.clear();
   }
 
-  void ReportError(int /*line*/, int /*column*/, const char* msg) CM_OVERRIDE
+  void ReportError(int /*line*/, int /*column*/, const char* msg) override
   {
     this->BZR->Log << "Error parsing bzr log xml: " << msg << "\n";
   }
@@ -294,7 +299,7 @@ private:
   cmCTestBZR* BZR;
   cmsys::RegularExpression RegexUpdate;
 
-  bool ProcessChunk(const char* first, int length) CM_OVERRIDE
+  bool ProcessChunk(const char* first, int length) override
   {
     bool last_is_new_line = (*first == '\r' || *first == '\n');
 
@@ -309,11 +314,11 @@ private:
 
           // Hand this line to the subclass implementation.
           if (!this->ProcessLine()) {
-            this->Line = "";
+            this->Line.clear();
             return false;
           }
 
-          this->Line = "";
+          this->Line.clear();
           last_is_new_line = true;
         }
       } else {
@@ -325,7 +330,7 @@ private:
     return true;
   }
 
-  bool ProcessLine() CM_OVERRIDE
+  bool ProcessLine() override
   {
     if (this->RegexUpdate.find(this->Line)) {
       this->DoPath(this->RegexUpdate.match(1)[0],
@@ -364,7 +369,7 @@ bool cmCTestBZR::UpdateImpl()
   if (opts.empty()) {
     opts = this->CTest->GetCTestConfiguration("BZRUpdateOptions");
   }
-  std::vector<std::string> args = cmSystemTools::ParseArguments(opts.c_str());
+  std::vector<std::string> args = cmSystemTools::ParseArguments(opts);
 
   // TODO: if(this->CTest->GetTestModel() == cmCTest::NIGHTLY)
 
@@ -373,9 +378,8 @@ bool cmCTestBZR::UpdateImpl()
   bzr_update.push_back(this->CommandLineTool.c_str());
   bzr_update.push_back("pull");
 
-  for (std::vector<std::string>::const_iterator ai = args.begin();
-       ai != args.end(); ++ai) {
-    bzr_update.push_back(ai->c_str());
+  for (std::string const& arg : args) {
+    bzr_update.push_back(arg.c_str());
   }
 
   bzr_update.push_back(this->URL.c_str());
@@ -432,7 +436,7 @@ public:
 private:
   cmCTestBZR* BZR;
   cmsys::RegularExpression RegexStatus;
-  bool ProcessLine() CM_OVERRIDE
+  bool ProcessLine() override
   {
     if (this->RegexStatus.find(this->Line)) {
       this->DoPath(this->RegexStatus.match(1)[0],

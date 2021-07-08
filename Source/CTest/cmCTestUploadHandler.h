@@ -1,11 +1,12 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestUploadHandler_h
-#define cmCTestUploadHandler_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCTest.h"
+#include <set>
+#include <string>
+
 #include "cmCTestGenericHandler.h"
 
 /** \class cmCTestUploadHandler
@@ -17,23 +18,20 @@
 class cmCTestUploadHandler : public cmCTestGenericHandler
 {
 public:
-  typedef cmCTestGenericHandler Superclass;
+  using Superclass = cmCTestGenericHandler;
 
   cmCTestUploadHandler();
-  ~cmCTestUploadHandler() CM_OVERRIDE {}
 
   /*
    * The main entry point for this class
    */
-  int ProcessHandler() CM_OVERRIDE;
+  int ProcessHandler() override;
 
-  void Initialize() CM_OVERRIDE;
+  void Initialize() override;
 
   /** Specify a set of files to submit.  */
-  void SetFiles(cmCTest::SetOfStrings const& files);
+  void SetFiles(std::set<std::string> const& files);
 
 private:
-  cmCTest::SetOfStrings Files;
+  std::set<std::string> Files;
 };
-
-#endif

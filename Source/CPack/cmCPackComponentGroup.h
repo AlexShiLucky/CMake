@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackComponentGroup_h
-#define cmCPackComponentGroup_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -143,4 +142,27 @@ public:
   std::vector<cmCPackComponentGroup*> Subgroups;
 };
 
-#endif
+/** \class cmCPackInstallCMakeProject
+ * \brief A single quadruplet from the CPACK_INSTALL_CMAKE_PROJECTS variable.
+ */
+class cmCPackInstallCMakeProject
+{
+public:
+  /// The directory of the CMake project.
+  std::string Directory;
+
+  /// The name of the CMake project.
+  std::string ProjectName;
+
+  /// The name of the component (or component set) to install.
+  std::string Component;
+
+  /// The subdirectory to install into.
+  std::string SubDirectory;
+
+  /// The list of installation types.
+  std::vector<cmCPackInstallationType*> InstallationTypes;
+
+  /// The list of components.
+  std::vector<cmCPackComponent*> Components;
+};
