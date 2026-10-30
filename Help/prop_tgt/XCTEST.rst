@@ -1,13 +1,16 @@
 XCTEST
 ------
 
-This target is a XCTest CFBundle on the Mac.
+.. versionadded:: 3.3
 
-This property will usually get set via the :command:`xctest_add_bundle`
-macro in :module:`FindXCTest` module.
+Boolean target property that indicates whether a target is an XCTest CFBundle
+(Core Foundation Bundle) on Apple systems.
 
-If a module library target has this property set to true it will be
-built as a CFBundle when built on the Mac.  It will have the directory
-structure required for a CFBundle.
+This property is usually set automatically by the :command:`xctest_add_bundle`
+command provided by the :module:`FindXCTest` module.
 
-This property depends on :prop_tgt:`BUNDLE` to be effective.
+If a module library target has this property set to boolean true, it will be
+built as a CFBundle when built on Apple system, with the required CFBundle
+directory structure.
+
+This property depends on :prop_tgt:`BUNDLE` target property to be effective.

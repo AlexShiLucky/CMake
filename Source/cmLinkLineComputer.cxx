@@ -1,34 +1,38 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
 #include "cmLinkLineComputer.h"
 
 #include <sstream>
+#include <utility>
 #include <vector>
 
 #include "cmComputeLinkInformation.h"
 #include "cmGeneratorTarget.h"
+#include "cmList.h"
+#include "cmListFileCache.h"
 #include "cmOutputConverter.h"
-#include "cmStateDirectory.h"
 #include "cmStateTypes.h"
+#include "cmStringAlgorithms.h"
+#include "cmTargetTypes.h"
 
 cmLinkLineComputer::cmLinkLineComputer(cmOutputConverter* outputConverter,
                                        cmStateDirectory const& stateDir)
   : StateDir(stateDir)
   , OutputConverter(outputConverter)
-  , ForResponse(false)
-  , UseWatcomQuote(false)
-  , Relink(false)
 {
 }
 
-cmLinkLineComputer::~cmLinkLineComputer()
-{
-}
+cmLinkLineComputer::~cmLinkLineComputer() = default;
 
 void cmLinkLineComputer::SetUseWatcomQuote(bool useWatcomQuote)
 {
   this->UseWatcomQuote = useWatcomQuote;
+}
+
+void cmLinkLineComputer::SetUseNinjaMulti(bool useNinjaMulti)
+{
+  this->UseNinjaMulti = useNinjaMulti;
 }
 
 void cmLinkLineComputer::SetForResponse(bool forResponse)
@@ -44,74 +48,128 @@ void cmLinkLineComputer::SetRelink(bool relink)
 std::string cmLinkLineComputer::ConvertToLinkReference(
   std::string const& lib) const
 {
-  std::string relLib = lib;
-
-  if (cmOutputConverter::ContainedInDirectory(
-        this->StateDir.GetCurrentBinary(), lib, this->StateDir)) {
-    relLib = cmOutputConverter::ForceToRelativePath(
-      this->StateDir.GetCurrentBinary(), lib);
-  }
-  return relLib;
+  return this->OutputConverter->MaybeRelativeToCurBinDir(lib);
 }
 
 std::string cmLinkLineComputer::ComputeLinkLibs(cmComputeLinkInformation& cli)
 {
   std::string linkLibs;
-  typedef cmComputeLinkInformation::ItemVector ItemVector;
+  std::vector<BT<std::string>> linkLibsList;
+  this->ComputeLinkLibs(cli, linkLibsList);
+  cli.AppendValues(linkLibs, linkLibsList);
+  return linkLibs;
+}
+
+void cmLinkLineComputer::ComputeLinkLibs(
+  cmComputeLinkInformation& cli, std::vector<BT<std::string>>& linkLibraries)
+{
+  using ItemVector = cmComputeLinkInformation::ItemVector;
   ItemVector const& items = cli.GetItems();
-  for (ItemVector::const_iterator li = items.begin(); li != items.end();
-       ++li) {
-    if (li->Target &&
-        li->Target->GetType() == cmStateEnums::INTERFACE_LIBRARY) {
+  for (auto const& item : items) {
+    if (item.Target &&
+        (item.Target->GetType() == cm::TargetType::INTERFACE_LIBRARY ||
+         item.Target->GetType() == cm::TargetType::OBJECT_LIBRARY)) {
       continue;
     }
-    if (li->IsPath) {
-      linkLibs +=
-        this->ConvertToOutputFormat(this->ConvertToLinkReference(li->Value));
+
+    BT<std::string> linkLib;
+    if (item.IsPath == cmComputeLinkInformation::ItemIsPath::Yes) {
+      linkLib = item.GetFormattedItem(this->ConvertToOutputFormat(
+        this->ConvertToLinkReference(item.Value.Value)));
     } else {
-      linkLibs += li->Value;
+      linkLib = item.Value;
     }
-    linkLibs += " ";
+    linkLib.Value += " ";
+
+    linkLibraries.emplace_back(linkLib);
   }
-  return linkLibs;
 }
 
 std::string cmLinkLineComputer::ConvertToOutputFormat(std::string const& input)
 {
-  cmOutputConverter::OutputFormat shellFormat = (this->ForResponse)
-    ? cmOutputConverter::RESPONSE
-    : ((this->UseWatcomQuote) ? cmOutputConverter::WATCOMQUOTE
-                              : cmOutputConverter::SHELL);
+  cmOutputConverter::OutputFormat shellFormat = cmOutputConverter::SHELL;
+  if (this->ForResponse) {
+    shellFormat = cmOutputConverter::RESPONSE;
+  } else if (this->UseNinjaMulti) {
+    shellFormat = cmOutputConverter::NINJAMULTI;
+  }
 
-  return this->OutputConverter->ConvertToOutputFormat(input, shellFormat);
+  return this->OutputConverter->ConvertToOutputFormat(input, shellFormat,
+                                                      this->UseWatcomQuote);
 }
 
 std::string cmLinkLineComputer::ConvertToOutputForExisting(
   std::string const& input)
 {
-  cmOutputConverter::OutputFormat shellFormat = (this->ForResponse)
-    ? cmOutputConverter::RESPONSE
-    : ((this->UseWatcomQuote) ? cmOutputConverter::WATCOMQUOTE
-                              : cmOutputConverter::SHELL);
+  cmOutputConverter::OutputFormat shellFormat = cmOutputConverter::SHELL;
+  if (this->ForResponse) {
+    shellFormat = cmOutputConverter::RESPONSE;
+  } else if (this->UseNinjaMulti) {
+    shellFormat = cmOutputConverter::NINJAMULTI;
+  }
 
-  return this->OutputConverter->ConvertToOutputForExisting(input, shellFormat);
+  return this->OutputConverter->ConvertToOutputForExisting(
+    input, shellFormat, this->UseWatcomQuote);
 }
 
 std::string cmLinkLineComputer::ComputeLinkPath(
   cmComputeLinkInformation& cli, std::string const& libPathFlag,
-  std::string const& libPathTerminator)
+  std::string const& libPathTerminator, std::string const& stdLinkDirString)
 {
   std::string linkPath;
-  std::vector<std::string> const& libDirs = cli.GetDirectories();
-  for (std::vector<std::string>::const_iterator libDir = libDirs.begin();
-       libDir != libDirs.end(); ++libDir) {
-    std::string libpath = this->ConvertToOutputForExisting(*libDir);
-    linkPath += " " + libPathFlag;
-    linkPath += libpath;
-    linkPath += libPathTerminator;
-    linkPath += " ";
-  }
+  std::vector<BT<std::string>> linkPathList;
+  this->ComputeLinkPath(cli, libPathFlag, libPathTerminator, stdLinkDirString,
+                        linkPathList);
+  cli.AppendValues(linkPath, linkPathList);
   return linkPath;
+}
+
+void cmLinkLineComputer::ComputeLinkPath(
+  cmComputeLinkInformation& cli, std::string const& libPathFlag,
+  std::string const& libPathTerminator, std::string const& stdLinkDirString,
+  std::vector<BT<std::string>>& linkPath)
+{
+  if (cli.GetLinkLanguage() == "Swift") {
+    std::string linkPathNoBT;
+
+    for (cmComputeLinkInformation::Item const& item : cli.GetItems()) {
+      cmGeneratorTarget const* target = item.Target;
+      if (!target) {
+        continue;
+      }
+
+      if (target->GetType() == cm::TargetType::STATIC_LIBRARY ||
+          target->GetType() == cm::TargetType::SHARED_LIBRARY) {
+        cmStateEnums::ArtifactType type = cmStateEnums::RuntimeBinaryArtifact;
+        if (target->HasImportLibrary(cli.GetConfig())) {
+          type = cmStateEnums::ImportLibraryArtifact;
+        }
+
+        linkPathNoBT =
+          cmStrCat(std::move(linkPathNoBT), ' ', libPathFlag,
+                   this->ConvertToOutputForExisting(
+                     item.Target->GetDirectory(cli.GetConfig(), type)),
+                   libPathTerminator, ' ');
+      }
+    }
+
+    if (!linkPathNoBT.empty()) {
+      linkPath.emplace_back(std::move(linkPathNoBT));
+    }
+  }
+
+  for (BT<std::string> libDir : cli.GetDirectoriesWithBacktraces()) {
+    libDir.Value = cmStrCat(' ', libPathFlag,
+                            this->ConvertToOutputForExisting(libDir.Value),
+                            libPathTerminator, ' ');
+    linkPath.emplace_back(libDir);
+  }
+
+  for (auto& linkDir : cmList(stdLinkDirString)) {
+    linkPath.emplace_back(cmStrCat(' ', libPathFlag,
+                                   this->ConvertToOutputForExisting(linkDir),
+                                   libPathTerminator, ' '));
+  }
 }
 
 std::string cmLinkLineComputer::ComputeRPath(cmComputeLinkInformation& cli)
@@ -123,10 +181,9 @@ std::string cmLinkLineComputer::ComputeRPath(cmComputeLinkInformation& cli)
     std::vector<std::string> runtimeDirs;
     cli.GetRPath(runtimeDirs, this->Relink);
 
-    for (std::vector<std::string>::iterator ri = runtimeDirs.begin();
-         ri != runtimeDirs.end(); ++ri) {
+    for (std::string const& rd : runtimeDirs) {
       rpath += cli.GetRuntimeFlag();
-      rpath += this->ConvertToOutputFormat(*ri);
+      rpath += this->ConvertToOutputFormat(rd);
       rpath += " ";
     }
   } else {
@@ -145,17 +202,16 @@ std::string cmLinkLineComputer::ComputeRPath(cmComputeLinkInformation& cli)
 }
 
 std::string cmLinkLineComputer::ComputeFrameworkPath(
-  cmComputeLinkInformation& cli, std::string const& fwSearchFlag)
+  cmComputeLinkInformation& cli, cmValue fwSearchFlag)
 {
+  if (!fwSearchFlag) {
+    return std::string{};
+  }
+
   std::string frameworkPath;
-  if (!fwSearchFlag.empty()) {
-    std::vector<std::string> const& fwDirs = cli.GetFrameworkPaths();
-    for (std::vector<std::string>::const_iterator fdi = fwDirs.begin();
-         fdi != fwDirs.end(); ++fdi) {
-      frameworkPath += fwSearchFlag;
-      frameworkPath += this->ConvertToOutputFormat(*fdi);
-      frameworkPath += " ";
-    }
+  for (auto const& fd : cli.GetFrameworkPaths()) {
+    frameworkPath = cmStrCat(std::move(frameworkPath), fwSearchFlag,
+                             this->ConvertToOutputFormat(fd), ' ');
   }
   return frameworkPath;
 }
@@ -163,13 +219,30 @@ std::string cmLinkLineComputer::ComputeFrameworkPath(
 std::string cmLinkLineComputer::ComputeLinkLibraries(
   cmComputeLinkInformation& cli, std::string const& stdLibString)
 {
-  std::ostringstream fout;
-  fout << this->ComputeRPath(cli);
+  std::string linkLibraries;
+  std::vector<BT<std::string>> linkLibrariesList;
+  this->ComputeLinkLibraries(cli, stdLibString, linkLibrariesList);
+  cli.AppendValues(linkLibraries, linkLibrariesList);
+  return linkLibraries;
+}
+
+void cmLinkLineComputer::ComputeLinkLibraries(
+  cmComputeLinkInformation& cli, std::string const& stdLibString,
+  std::vector<BT<std::string>>& linkLibraries)
+{
+  std::ostringstream rpathOut;
+  rpathOut << this->ComputeRPath(cli);
+
+  std::string rpath = rpathOut.str();
+  if (!rpath.empty()) {
+    linkLibraries.emplace_back(std::move(rpath));
+  }
 
   // Write the library flags to the build rule.
-  fout << this->ComputeLinkLibs(cli);
+  this->ComputeLinkLibs(cli, linkLibraries);
 
   // Add the linker runtime search path if any.
+  std::ostringstream fout;
   std::string rpath_link = cli.GetRPathLinkString();
   if (!cli.GetRPathLinkFlag().empty() && !rpath_link.empty()) {
     fout << cli.GetRPathLinkFlag();
@@ -182,7 +255,10 @@ std::string cmLinkLineComputer::ComputeLinkLibraries(
     fout << stdLibString << " ";
   }
 
-  return fout.str();
+  std::string remainingLibs = fout.str();
+  if (!remainingLibs.empty()) {
+    linkLibraries.emplace_back(remainingLibs);
+  }
 }
 
 std::string cmLinkLineComputer::GetLinkerLanguage(cmGeneratorTarget* target,

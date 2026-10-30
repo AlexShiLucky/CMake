@@ -1,4 +1,3 @@
-
 #define assert(E)                                                             \
   if (!(E))                                                                   \
     return 1;
@@ -17,6 +16,7 @@ public:
   }
   operator T&() { return val; }
   operator T() const { return val; }
+
 private:
   T val;
 };
@@ -37,6 +37,7 @@ int someFunc()
   }
 
   int* vp = new int[i];
+  delete[] vp;
 
   return 0;
 }

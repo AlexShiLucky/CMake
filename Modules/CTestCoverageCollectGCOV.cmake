@@ -1,73 +1,174 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# CTestCoverageCollectGCOV
-# ------------------------
-#
-# This module provides the ``ctest_coverage_collect_gcov`` function.
-#
-# This function runs gcov on all .gcda files found in the binary tree
-# and packages the resulting .gcov files into a tar file.
-# This tarball also contains the following:
-#
-# * *data.json* defines the source and build directories for use by CDash.
-# * *Labels.json* indicates any :prop_sf:`LABELS` that have been set on the
-#   source files.
-# * The *uncovered* directory holds any uncovered files found by
-#   :variable:`CTEST_EXTRA_COVERAGE_GLOB`.
-#
-# After generating this tar file, it can be sent to CDash for display with the
-# :command:`ctest_submit(CDASH_UPLOAD)` command.
-#
-# .. command:: cdash_coverage_collect_gcov
-#
-#   ::
-#
-#     ctest_coverage_collect_gcov(TARBALL <tarfile>
-#       [SOURCE <source_dir>][BUILD <build_dir>]
-#       [GCOV_COMMAND <gcov_command>]
-#       [GCOV_OPTIONS <options>...]
-#       )
-#
-#   Run gcov and package a tar file for CDash.  The options are:
-#
-#   ``TARBALL <tarfile>``
-#     Specify the location of the ``.tar`` file to be created for later
-#     upload to CDash.  Relative paths will be interpreted with respect
-#     to the top-level build directory.
-#
-#   ``SOURCE <source_dir>``
-#     Specify the top-level source directory for the build.
-#     Default is the value of :variable:`CTEST_SOURCE_DIRECTORY`.
-#
-#   ``BUILD <build_dir>``
-#     Specify the top-level build directory for the build.
-#     Default is the value of :variable:`CTEST_BINARY_DIRECTORY`.
-#
-#   ``GCOV_COMMAND <gcov_command>``
-#     Specify the full path to the ``gcov`` command on the machine.
-#     Default is the value of :variable:`CTEST_COVERAGE_COMMAND`.
-#
-#   ``GCOV_OPTIONS <options>...``
-#     Specify options to be passed to gcov.  The ``gcov`` command
-#     is run as ``gcov <options>... -o <gcov-dir> <file>.gcda``.
-#     If not specified, the default option is just ``-b``.
-#
-#   ``GLOB``
-#     Recursively search for .gcda files in build_dir rather than
-#     determining search locations by reading TargetDirectories.txt.
-#
-#   ``DELETE``
-#     Delete coverage files after they've been packaged into the .tar.
-#
-#   ``QUIET``
-#     Suppress non-error messages that otherwise would have been
-#     printed out by this function.
+#[=======================================================================[.rst:
+CTestCoverageCollectGCOV
+------------------------
+
+.. versionadded:: 3.2
+
+This module is intended for use in CTest dashboard scripts and provides a
+command to generate a tarball containing code coverage reports.
+
+Load this module in a CTest script with:
+
+.. code-block:: cmake
+
+  include(CTestCoverageCollectGCOV)
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
+
+.. command:: ctest_coverage_collect_gcov
+
+  Runs ``gcov`` and packages a tar file for CDash:
+
+  .. code-block:: cmake
+
+    ctest_coverage_collect_gcov(
+      TARBALL <tar-file>
+      [TARBALL_COMPRESSION <compression>]
+      [SOURCE <source-dir>]
+      [BUILD <build-dir>]
+      [GCOV_COMMAND <gcov-command>]
+      [GCOV_OPTIONS <options>...]
+      [GLOB]
+      [DELETE]
+      [QUIET]
+    )
+
+  This command runs ``gcov`` on all ``.gcda`` files found in the binary tree
+  and packages the resulting ``.gcov`` files into a tar file, along with the
+  following:
+
+  * *data.json* file that defines the source and build directories for use
+    by CDash.
+  * *Labels.json* files that indicate any :prop_sf:`LABELS` that have been
+    set on the source files.
+  * The *uncovered* directory containing any uncovered files found by
+    :variable:`CTEST_EXTRA_COVERAGE_GLOB`.
+
+  The resulting tar file can be submitted to CDash for display using the
+  :command:`ctest_submit(CDASH_UPLOAD)` command.
+
+  The arguments are:
+
+  ``TARBALL <tar-file>``
+    Specify the location of the ``.tar`` file to be created for later
+    upload to CDash.  Relative paths will be interpreted with respect
+    to the top-level build directory.
+
+  ``TARBALL_COMPRESSION <compression>``
+    .. versionadded:: 3.18
+
+    Specify a compression algorithm for the
+    ``TARBALL`` data file.  Using this option reduces the size of the data file
+    before it is submitted to CDash.
+    ``<compression>`` should be one of the following:
+
+    * ``GZIP``
+    * ``BZIP2``
+    * ``LZMA``
+
+      .. versionadded:: 4.3
+
+    * ``LZMA2``
+
+      .. versionadded:: 4.3
+
+      This is an alias for ``XZ``.
+
+    * ``XZ``
+    * ``ZSTD``
+    * ``FROM_EXT``
+    * An expression that CMake evaluates as ``FALSE``
+
+    The default value is ``BZIP2``.
+
+    If ``FROM_EXT`` is specified, the resulting file will be compressed based on
+    the file extension of the ``<tar-file>`` (i.e. ``.tar.gz`` will use ``GZIP``
+    compression). File extensions that will produce compressed output include:
+
+    * ``.tar.gz``
+    * ``.tgz``
+    * ``.tar.bzip2``
+    * ``.tbz``
+    * ``.tar.xz``
+    * ``.txz``
+    * ``.tar.lzma``
+
+      .. versionadded:: 4.3
+
+    * ``.tlzma``
+
+      .. versionadded:: 4.3
+
+    * ``.tar.zst``
+
+      .. versionadded:: 4.3
+
+    * ``.tzst``
+
+      .. versionadded:: 4.3
+
+  ``SOURCE <source-dir>``
+    Specify the top-level source directory for the build.
+    Default is the value of :variable:`CTEST_SOURCE_DIRECTORY`.
+
+  ``BUILD <build-dir>``
+    Specify the top-level build directory for the build.
+    Default is the value of :variable:`CTEST_BINARY_DIRECTORY`.
+
+  ``GCOV_COMMAND <gcov-command>``
+    Specify the full path to the ``gcov`` command on the machine.
+    Default is the value of :variable:`CTEST_COVERAGE_COMMAND`.
+
+  ``GCOV_OPTIONS <options>...``
+    Specify options to be passed to gcov.  The ``gcov`` command
+    is run as ``gcov <options>... -o <gcov-dir> <file>.gcda``.
+    If not specified, the default option is just ``-b -x``.
+
+  ``GLOB``
+    .. versionadded:: 3.6
+
+    Recursively search for ``.gcda`` files in ``<build-dir>`` rather than
+    determining search locations by reading ``CMakeFiles/TargetDirectories.txt``
+    (file generated by CMake at the generation phase).
+
+  ``DELETE``
+    .. versionadded:: 3.6
+
+    Delete coverage files after they've been packaged into the ``.tar``.
+
+  ``QUIET``
+    Suppress non-error messages that otherwise would have been
+    printed out by this command.
+
+  .. versionadded:: 3.3
+    Added support for the :variable:`CTEST_CUSTOM_COVERAGE_EXCLUDE` variable.
+
+Examples
+^^^^^^^^
+
+Generating code coverage data packaged as a ``.tar.gz`` file in a
+:option:`ctest -S` script:
+
+.. code-block:: cmake
+  :caption: ``script.cmake``
+
+  include(CTestCoverageCollectGCOV)
+
+  ctest_coverage_collect_gcov(
+    TARBALL "${CTEST_BINARY_DIRECTORY}/gcov.tar.gz"
+    TARBALL_COMPRESSION "GZIP"
+  )
+#]=======================================================================]
 
 function(ctest_coverage_collect_gcov)
   set(options QUIET GLOB DELETE)
-  set(oneValueArgs TARBALL SOURCE BUILD GCOV_COMMAND)
+  set(oneValueArgs TARBALL SOURCE BUILD GCOV_COMMAND TARBALL_COMPRESSION)
   set(multiValueArgs GCOV_OPTIONS)
   cmake_parse_arguments(GCOV  "${options}" "${oneValueArgs}"
     "${multiValueArgs}" "" ${ARGN} )
@@ -90,11 +191,18 @@ function(ctest_coverage_collect_gcov)
   else()
     set(gcov_command "${GCOV_GCOV_COMMAND}")
   endif()
+  set(supported_compressions "GZIP" "BZIP2" "LZMA" "LZMA2" "XZ" "ZSTD" "FROM_EXT")
+  if(NOT DEFINED GCOV_TARBALL_COMPRESSION)
+    set(GCOV_TARBALL_COMPRESSION "BZIP2")
+  elseif( GCOV_TARBALL_COMPRESSION AND
+      NOT GCOV_TARBALL_COMPRESSION IN_LIST supported_compressions)
+    message(FATAL_ERROR "TARBALL_COMPRESSION must be OFF or one of ${supported_compressions} for ctest_coverage_collect_gcov")
+  endif()
   # run gcov on each gcda file in the binary tree
   set(gcda_files)
   set(label_files)
   if (GCOV_GLOB)
-      file(GLOB_RECURSE gfiles RELATIVE ${binary_dir} "${binary_dir}/*.gcda")
+      file(GLOB_RECURSE gfiles "${binary_dir}/*.gcda")
       list(LENGTH gfiles len)
       # if we have gcda files then also grab the labels file for that target
       if(${len} GREATER 0)
@@ -108,7 +216,7 @@ function(ctest_coverage_collect_gcov)
     file(STRINGS "${binary_dir}/CMakeFiles/TargetDirectories.txt" target_dirs
          ENCODING UTF-8)
     foreach(target_dir ${target_dirs})
-      file(GLOB_RECURSE gfiles RELATIVE ${binary_dir} "${target_dir}/*.gcda")
+      file(GLOB_RECURSE gfiles "${target_dir}/*.gcda")
       list(LENGTH gfiles len)
       # if we have gcda files then also grab the labels file for that target
       if(${len} GREATER 0)
@@ -129,32 +237,41 @@ function(ctest_coverage_collect_gcov)
     return()
   endif()
   # setup the dir for the coverage files
+  # FIXME(#27518): This staging directory ignores CTEST_OUTPUT_DIRECTORY.
+  # Moving it is not a simple substitution: the .gcov files are
+  # globbed relative to binary_dir and tar runs from there.
   set(coverage_dir "${binary_dir}/Testing/CoverageInfo")
   file(MAKE_DIRECTORY  "${coverage_dir}")
-  # call gcov on each .gcda file
-  foreach (gcda_file ${gcda_files})
-    # get the directory of the gcda file
-    get_filename_component(gcda_file ${binary_dir}/${gcda_file} ABSOLUTE)
-    get_filename_component(gcov_dir ${gcda_file} DIRECTORY)
-    # run gcov, this will produce the .gcov file in the current
-    # working directory
-    if(NOT DEFINED GCOV_GCOV_OPTIONS)
-      set(GCOV_GCOV_OPTIONS -b)
-    endif()
-    execute_process(COMMAND
-      ${gcov_command} ${GCOV_GCOV_OPTIONS} -o ${gcov_dir} ${gcda_file}
-      OUTPUT_VARIABLE out
-      RESULT_VARIABLE res
-      WORKING_DIRECTORY ${coverage_dir})
+  # run gcov, this will produce the .gcov files in the current
+  # working directory
+  if(NOT DEFINED GCOV_GCOV_OPTIONS)
+    set(GCOV_GCOV_OPTIONS -b -x)
+  endif()
+  if (GCOV_QUIET)
+    set(coverage_out_opts
+      OUTPUT_QUIET
+      ERROR_QUIET
+      )
+  else()
+    set(coverage_out_opts
+      OUTPUT_FILE "${coverage_dir}/gcov.log"
+      ERROR_FILE  "${coverage_dir}/gcov.log"
+      )
+  endif()
+  execute_process(COMMAND
+    ${gcov_command} ${GCOV_GCOV_OPTIONS} ${gcda_files}
+    RESULT_VARIABLE res
+    WORKING_DIRECTORY ${coverage_dir}
+    ${coverage_out_opts}
+    )
 
-    if (GCOV_DELETE)
-      file(REMOVE ${gcda_file})
-    endif()
+  if (GCOV_DELETE)
+    file(REMOVE ${gcda_files})
+  endif()
 
-  endforeach()
   if(NOT "${res}" EQUAL 0)
     if (NOT GCOV_QUIET)
-      message(STATUS "Error running gcov: ${res} ${out}")
+      message(STATUS "Error running gcov: ${res}, see\n  ${coverage_dir}/gcov.log")
     endif()
   endif()
   # create json file with project information
@@ -263,18 +380,51 @@ ${label_files}
 ${uncovered_files_for_tar}
 ")
 
-  if (GCOV_QUIET)
-    set(tar_opts "cfj")
-  else()
-    set(tar_opts "cvfj")
+  # Prepare tar command line arguments
+
+  set(tar_opts "")
+  set(zstd_tar_opt "")
+  # Select data compression mode
+  if( GCOV_TARBALL_COMPRESSION STREQUAL "FROM_EXT")
+    if( GCOV_TARBALL MATCHES [[\.(tgz|tar.gz)$]] )
+      string(APPEND tar_opts "z")
+    elseif( GCOV_TARBALL MATCHES [[\.(txz|tar.xz)$]] )
+      string(APPEND tar_opts "J")
+    elseif( GCOV_TARBALL MATCHES [[\.(tbz|tar.bz)$]] )
+      string(APPEND tar_opts "j")
+    elseif( GCOV_TARBALL MATCHES [[\.(tlzma|tar.lzma)$]] )
+      set(zstd_tar_opt "--lzma")
+    elseif( GCOV_TARBALL MATCHES [[\.(tzst|tar.zst)$]] )
+      set(zstd_tar_opt "--zstd")
+    endif()
+  elseif(GCOV_TARBALL_COMPRESSION STREQUAL "GZIP")
+    string(APPEND tar_opts "z")
+  elseif((GCOV_TARBALL_COMPRESSION STREQUAL "XZ") OR (GCOV_TARBALL_COMPRESSION STREQUAL "LZMA2"))
+    string(APPEND tar_opts "J")
+  elseif(GCOV_TARBALL_COMPRESSION STREQUAL "BZIP2")
+    string(APPEND tar_opts "j")
+  elseif(GCOV_TARBALL_COMPRESSION STREQUAL "ZSTD")
+    set(zstd_tar_opt "--zstd")
+  elseif(GCOV_TARBALL_COMPRESSION STREQUAL "LZMA")
+    set(zstd_tar_opt "--lzma")
   endif()
+  # Verbosity options
+  if(NOT GCOV_QUIET AND NOT tar_opts MATCHES v)
+    string(APPEND tar_opts "v")
+  endif()
+  # Prepend option 'c' specifying 'create'
+  string(PREPEND tar_opts "c")
+  # Append option 'f' so that the next argument is the filename
+  string(APPEND tar_opts "f")
 
   execute_process(COMMAND
-    ${CMAKE_COMMAND} -E tar ${tar_opts} ${GCOV_TARBALL}
+    ${CMAKE_COMMAND} -E tar ${tar_opts} ${GCOV_TARBALL} ${zstd_tar_opt}
     "--mtime=1970-01-01 0:0:0 UTC"
     "--format=gnutar"
     --files-from=${coverage_dir}/coverage_file_list.txt
-    WORKING_DIRECTORY ${binary_dir})
+    WORKING_DIRECTORY ${binary_dir}
+    RESULT_VARIABLE _result_tar
+    )
 
   if (GCOV_DELETE)
     foreach(gcov_file ${unfiltered_gcov_files})

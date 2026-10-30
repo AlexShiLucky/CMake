@@ -1,33 +1,20 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# CMakeFindPackageMode
-# --------------------
-#
-#
-#
-# This file is executed by cmake when invoked with --find-package.  It
-# expects that the following variables are set using -D:
-#
-# ``NAME``
-#   name of the package
-# ``COMPILER_ID``
-#   the CMake compiler ID for which the result is,
-#   i.e. GNU/Intel/Clang/MSVC, etc.
-# ``LANGUAGE``
-#   language for which the result will be used,
-#   i.e. C/CXX/Fortan/ASM
-# ``MODE``
-#   ``EXIST``
-#     only check for existence of the given package
-#   ``COMPILE``
-#     print the flags needed for compiling an object file which uses
-#     the given package
-#   ``LINK``
-#     print the flags needed for linking when using the given package
-# ``QUIET``
-#   if TRUE, don't print anything
+#[=======================================================================[.rst:
+CMakeFindPackageMode
+--------------------
+
+This module is executed by ``cmake`` when invoked with the
+:ref:`--find-package <Find-Package Tool Mode>` option to locate the requested
+package.
+
+.. note::
+
+  This is internal module and is not meant to be included directly in the
+  project.  For usage details, refer to the :ref:`--find-package
+  <Find-Package Tool Mode>` documentation.
+#]=======================================================================]
 
 if(NOT NAME)
   message(FATAL_ERROR "Name of the package to be searched not specified. Set the CMake variable NAME, e.g. -DNAME=JPEG .")
@@ -65,6 +52,8 @@ if("${CMAKE_SYSTEM_NAME}" MATCHES Darwin  AND  "${COMPILER_ID}" MATCHES GNU)
   set(CMAKE_${LANGUAGE}_OSX_DEPLOYMENT_TARGET_FLAG "")
 endif()
 
+include(CMakeSystemSpecificInitialize)
+
 # Also load the system specific file, which sets up e.g. the search paths.
 # This makes the FIND_XXX() calls work much better
 include(CMakeSystemSpecificInformation)
@@ -75,14 +64,16 @@ if(UNIX)
   # from the outside
   if(NOT CMAKE_SIZEOF_VOID_P)
     set(CMAKE_SIZEOF_VOID_P 4)
-    if(EXISTS /usr/lib64)
+    if(EXISTS ${CMAKE_SYSROOT}/usr/lib64)
       set(CMAKE_SIZEOF_VOID_P 8)
     else()
       # use the file utility to check whether itself is 64 bit:
       find_program(FILE_EXECUTABLE file)
       if(FILE_EXECUTABLE)
         get_filename_component(FILE_ABSPATH "${FILE_EXECUTABLE}" ABSOLUTE)
-        execute_process(COMMAND "${FILE_ABSPATH}" "${FILE_ABSPATH}" OUTPUT_VARIABLE fileOutput ERROR_QUIET)
+        execute_process(COMMAND "${FILE_ABSPATH}" "${FILE_ABSPATH}"
+          OUTPUT_VARIABLE fileOutput ERROR_QUIET
+          RESULT_VARIABLE _result_file)
         if("${fileOutput}" MATCHES "64-bit")
           set(CMAKE_SIZEOF_VOID_P 8)
         endif()

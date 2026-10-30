@@ -31,13 +31,12 @@
 
 /* Originally from NetBSD's mknod(8) source. */
 
-#ifndef	_PACK_DEV_H
-#define	_PACK_DEV_H
+#ifndef	ARCHIVE_PACK_DEV_H
+#define	ARCHIVE_PACK_DEV_H
 
 typedef	dev_t pack_t(int, unsigned long [], const char **);
 
-pack_t	*pack_find(const char *);
-pack_t	 pack_native;
+pack_t	*__archive_pack_find(const char *);
 
 #define	major_netbsd(x)		((int32_t)((((x) & 0x000fff00) >>  8)))
 #define	minor_netbsd(x)		((int32_t)((((x) & 0xfff00000) >> 12) | \
@@ -46,4 +45,4 @@ pack_t	 pack_native;
 					 (((y) << 12) & 0xfff00000) | \
 					 (((y) <<  0) & 0x000000ff)))
 
-#endif	/* _PACK_DEV_H */
+#endif	/* !ARCHIVE_PACK_DEV_H */

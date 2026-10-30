@@ -1,28 +1,37 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestCurl_h
-#define cmCTestCurl_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cm_curl.h"
 #include <string>
 #include <vector>
 
+#include <cm/optional>
+
+#include <cm3p/curl/curl.h>
+
 class cmCTest;
+
+struct cmCTestCurlOpts
+{
+  cmCTestCurlOpts(cmCTest* ctest);
+  cm::optional<int> TLSVersionOpt;
+  cm::optional<bool> TLSVerifyOpt;
+  bool VerifyHostOff = false;
+};
 
 class cmCTestCurl
 {
 public:
   cmCTestCurl(cmCTest*);
   ~cmCTestCurl();
-  bool UploadFile(std::string const& url, std::string const& file,
+  cmCTestCurl(cmCTestCurl const&) = delete;
+  cmCTestCurl& operator=(cmCTestCurl const&) = delete;
+  bool UploadFile(std::string const& local_file, std::string const& url,
                   std::string const& fields, std::string& response);
   bool HttpRequest(std::string const& url, std::string const& fields,
                    std::string& response);
-  // currently only supports CURLOPT_SSL_VERIFYPEER_OFF
-  // and CURLOPT_SSL_VERIFYHOST_OFF
-  void SetCurlOptions(std::vector<std::string> const& args);
   void SetHttpHeaders(std::vector<std::string> const& v)
   {
     this->HttpHeaders = v;
@@ -38,16 +47,13 @@ protected:
 
 private:
   cmCTest* CTest;
-  CURL* Curl;
+  cmCTestCurlOpts CurlOpts;
+  CURL* Curl = nullptr;
   std::vector<std::string> HttpHeaders;
   std::string HTTPProxyAuth;
   std::string HTTPProxy;
-  curl_proxytype HTTPProxyType;
-  bool VerifyHostOff;
-  bool VerifyPeerOff;
-  bool UseHttp10;
-  bool Quiet;
-  int TimeOutSeconds;
+  long HTTPProxyType;
+  bool UseHttp10 = false;
+  bool Quiet = false;
+  int TimeOutSeconds = 0;
 };
-
-#endif

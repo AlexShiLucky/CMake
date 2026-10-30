@@ -5,25 +5,33 @@ set -x
 shopt -s dotglob
 
 readonly name="curl"
-readonly ownership="Curl Upstream <curl-library@cool.haxx.se>"
+readonly ownership="Curl Upstream <curl-library@lists.haxx.se>"
 readonly subtree="Utilities/cmcurl"
 readonly repo="https://github.com/curl/curl.git"
-readonly tag="curl-7_54_1"
+readonly tag="curl-8_23_0"
 readonly shortlog=false
+readonly exact_tree_match=false
 readonly paths="
   CMake/*
   CMakeLists.txt
   COPYING
   include/curl/*.h
-  include/curl/curlbuild.h.cmake
   lib/*.c
   lib/*.h
   lib/CMakeLists.txt
   lib/Makefile.inc
-  lib/curl_config.h.cmake
+  lib/curl_config-cmake.h.in
   lib/libcurl.rc
+  lib/curlx/*.c
+  lib/curlx/*.h
   lib/vauth/*.c
   lib/vauth/*.h
+  lib/vdns/*.c
+  lib/vdns/*.h
+  lib/vquic/*.c
+  lib/vquic/*.h
+  lib/vssh/*.c
+  lib/vssh/*.h
   lib/vtls/*.c
   lib/vtls/*.h
 "

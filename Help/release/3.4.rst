@@ -66,7 +66,7 @@ Variables
 Properties
 ----------
 
-* :ref:`Visual Studio Generators` learned to support additonal
+* :ref:`Visual Studio Generators` learned to support additional
   target properties to customize projects for NVIDIA Nsight
   Tegra Visual Studio Edition:
 
@@ -117,7 +117,7 @@ Modules
   useful with the :generator:`Ninja` generator to monitor CMake
   superbuild progress and prevent CPU oversubscription.
 
-* The :module:`FindBISON` module ``BISON_TARGET`` macro learned a
+* The :module:`FindBISON` module ``bison_target()`` command learned a
   new ``DEFINES_FILE`` option to specify a custom output header
   to be generated.
 
@@ -140,7 +140,7 @@ Modules
   (such as for related tools or data and plugin install paths).
 
 * The :module:`FindProtobuf` module gained a new
-  :command:`protobuf_generate_python` function to generate python
+  :command:`protobuf_generate_python` command to generate Python
   sources from ``.proto`` files.
 
 * The :module:`FindTIFF` module learned to search separately for
@@ -197,7 +197,7 @@ CTest
 CPack
 -----
 
-* The :module:`CPackDeb` module learned to set package dependencies
+* The :cpack_gen:`CPack DEB Generator` learned to set package dependencies
   per component.  See variables:
 
   * :variable:`CPACK_DEBIAN_<COMPONENT>_PACKAGE_BREAKS`
@@ -227,7 +227,7 @@ Other
   will be merged with linker-generated manifests and embedded in the
   binary.
 
-* The `Concurrent Fortran 77 <https://ccur.com>`__ compiler is now supported.
+* The Concurrent Fortran 77 compiler is now supported.
   Its :variable:`compiler id <CMAKE_<LANG>_COMPILER_ID>` is ``CCur``.
 
 * :manual:`cmake(1)` gained a new ``--trace-expand`` command line option
@@ -249,11 +249,11 @@ Other Changes
   :module:`CheckSymbolExists`, and :module:`FindThreads` modules learned to
   work in environments where only CXX is enabled.
 
-* The :module:`CPackDeb` module now correctly excludes symlinks during package
-  checksum calculation.
+* The :cpack_gen:`CPack DEB Generator` now correctly excludes symlinks
+  during package checksum calculation.
 
-* The :module:`CPackDeb` no longer uses fakeroot and system tar program for
-  packaging.
+* The :cpack_gen:`CPack DEB Generator` no longer uses fakeroot and
+  system tar program for packaging.
 
 * The :module:`CPack` module no longer mangles settings with CMake-special
   characters when they're used as defaults for other settings. The macro

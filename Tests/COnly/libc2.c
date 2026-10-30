@@ -1,6 +1,9 @@
 #include "libc2.h"
 
-float LibC2Func()
+#ifdef __POCC__
+CM_TEST_LIB_EXPORT
+#endif
+float LibC2Func(void)
 {
   return 1.0;
 }

@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmXMLSafe_h
-#define cmXMLSafe_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -16,7 +15,7 @@ class cmXMLSafe
 public:
   /** Construct with the data to be written.  This assumes the data
       will exist for the duration of this object's life.  */
-  cmXMLSafe(const char* s);
+  cmXMLSafe(char const* s);
   cmXMLSafe(std::string const& s);
 
   /** Specify whether to escape quotes too.  This is needed when
@@ -25,7 +24,7 @@ public:
   cmXMLSafe& Quotes(bool b = true);
 
   /** Get the escaped data as a string.  */
-  std::string str();
+  std::string str() const;
 
 private:
   char const* Data;
@@ -33,5 +32,3 @@ private:
   bool DoQuotes;
   friend std::ostream& operator<<(std::ostream&, cmXMLSafe const&);
 };
-
-#endif

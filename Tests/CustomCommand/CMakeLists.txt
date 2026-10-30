@@ -1,7 +1,7 @@
 #
 # Wrapping
 #
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 project (CustomCommand)
 
 add_subdirectory(GeneratedHeader)
@@ -70,7 +70,7 @@ add_custom_command(OUTPUT ${PROJECT_BINARY_DIR}/doc1.h APPEND
   COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/doc1temp.h
                                    ${PROJECT_BINARY_DIR}/doc1.h
   COMMAND ${CMAKE_COMMAND} -E echo " Removing doc1temp.h."
-  COMMAND ${CMAKE_COMMAND} -E remove -f ${PROJECT_BINARY_DIR}/doc1temp.h
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${PROJECT_BINARY_DIR}/doc1temp.h
   )
 
 # Add custom command to generate foo.h.
@@ -214,11 +214,13 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated_extern.cxx
 
 add_executable(CustomCommandUsingTargetTest main.cxx ${CMAKE_CURRENT_BINARY_DIR}/generated_extern.cxx )
 
+add_executable(CustomCommandUsingTargetTestAlias ALIAS CustomCommandUsingTargetTest )
+
 add_custom_target(RunTarget
   COMMAND generator_extern ${CMAKE_CURRENT_BINARY_DIR}/run_target.cxx
   )
 
-add_custom_command(TARGET CustomCommandUsingTargetTest POST_BUILD
+add_custom_command(TARGET CustomCommandUsingTargetTestAlias POST_BUILD
                    COMMAND dummy_generator ${CMAKE_CURRENT_BINARY_DIR}/generated_dummy.cxx)
 
 add_subdirectory(GeneratorInExtraDir)
@@ -410,9 +412,13 @@ add_custom_target(do_check_command_line ALL
   COMMENT "Checking custom target command line escapes ($dollar-signs$)"
   )
 add_dependencies(do_check_command_line check_command_line)
+add_custom_command(TARGET do_check_command_line POST_BUILD VERBATIM
+  COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD command with $dollar-signs$"
+  COMMENT "Checking custom target POST_BUILD command line escapes ($dollar-signs$)"
+)
 
 add_custom_target(pre_check_command_line
-  COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/check_mark.txt
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_BINARY_DIR}/check_mark.txt
   )
 add_dependencies(do_check_command_line pre_check_command_line)
 
@@ -479,6 +485,12 @@ add_library(NormOutput "${gen_file}")
 string(APPEND gen_path "/bar")
 set(gen_file "${gen_path}/bar.cxx")
 
+# FASTBuild doesn't support directories as an output of custom commands,
+# so mark the output as SYMBOLIC to let FASTBuild know that it's not expected to appear on disk.
+if(CMAKE_GENERATOR MATCHES "FASTBuild")
+  set_property(SOURCE "${gen_path}" PROPERTY SYMBOLIC ON)
+endif()
+
 add_custom_command(
   OUTPUT "${gen_path}"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${gen_path}"
@@ -514,6 +526,14 @@ add_custom_target(UseConsoleTarget ALL
   USES_TERMINAL
 )
 
+if(CMAKE_XCODE_BUILD_SYSTEM VERSION_GREATER_EQUAL 12)
+  # Xcode's "new build system" does not support multiple targets
+  # producing the same custom command output.
+  add_custom_target(GenPath DEPENDS "${gen_path}")
+  add_dependencies(NormDepends GenPath)
+  add_dependencies(UseConsole GenPath)
+endif()
+
 # Test COMMAND_EXPAND_LISTS
 set(cmp_args "1ARG=COMMAND_EXPAND_LISTS" "2ARG=test" "3ARG=outfile"
   "4ARG=content")
@@ -534,3 +554,56 @@ add_custom_command(
 set_property(SOURCE "${gen_file}" PROPERTY SYMBOLIC ON)
 add_custom_target(command_expand_lists ALL DEPENDS "${gen_file}")
 set_property(TARGET command_expand_lists PROPERTY CMPARGS "${cmp_args}")
+
+# This also tests that `./` is squeezed out of the resulting path.
+set(depends_path "./depended_upon_path.txt")
+
+add_custom_command(
+  OUTPUT ${depends_path}
+  COMMAND ${CMAKE_COMMAND} -E touch ${depends_path}
+)
+
+add_custom_command(
+  OUTPUT "depends_on_path.txt"
+  COMMAND ${CMAKE_COMMAND} -E touch "depends_on_path.txt"
+  DEPENDS ${depends_path}
+)
+
+add_custom_target(depends_on_path ALL DEPENDS "depends_on_path.txt")
+
+add_custom_command(
+  OUTPUT "depends_on_in_source_path.txt"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/main.cxx" depends_on_in_source_path.txt
+  DEPENDS main.cxx
+)
+
+add_custom_target(depends_on_in_source_path ALL DEPENDS "depends_on_in_source_path.txt")
+
+add_custom_command(
+  OUTPUT "depends_on_in_rel_source_path.txt"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/main.cxx" depends_on_in_rel_source_path.txt
+  DEPENDS ./main.cxx
+)
+
+add_custom_target(depends_on_in_rel_source_path ALL DEPENDS "depends_on_in_rel_source_path.txt")
+
+add_library(mac_fw SHARED mac_fw.c)
+set_target_properties(mac_fw PROPERTIES
+  FRAMEWORK 1
+  LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib
+  )
+add_custom_command(OUTPUT mac_fw.txt COMMAND ${CMAKE_COMMAND} -E touch mac_fw.txt DEPENDS mac_fw)
+add_custom_target(drive_mac_fw ALL DEPENDS mac_fw.txt)
+
+# Test empty COMMANDs are omitted
+add_executable(empty_command empty_command.cxx)
+add_custom_command(TARGET empty_command POST_BUILD COMMAND $<0:date>)
+
+# Test OUTPUT allows filenames containing "#" on generators that support this
+if(NOT CMAKE_GENERATOR MATCHES "Borland Makefiles")
+  add_custom_target(file_with_hash ALL DEPENDS "${PROJECT_BINARY_DIR}/hash#in#name.txt")
+  add_custom_command(
+    OUTPUT "${PROJECT_BINARY_DIR}/hash#in#name.txt"
+    COMMAND ${CMAKE_COMMAND} -E touch "${PROJECT_BINARY_DIR}/hash#in#name.txt"
+  )
+endif()

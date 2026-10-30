@@ -25,9 +25,6 @@
 
 #include "archive_platform.h"
 
-__FBSDID("$FreeBSD$");
-
-
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
@@ -53,31 +50,21 @@ static int	lrzip_bidder_bid(struct archive_read_filter_bidder *,
 static int	lrzip_bidder_init(struct archive_read_filter *);
 
 
-static int
-lrzip_reader_free(struct archive_read_filter_bidder *self)
-{
-	(void)self; /* UNUSED */
-	return (ARCHIVE_OK);
-}
+static const struct archive_read_filter_bidder_vtable
+lrzip_bidder_vtable = {
+	.bid = lrzip_bidder_bid,
+	.init = lrzip_bidder_init,
+};
 
 int
 archive_read_support_filter_lrzip(struct archive *_a)
 {
 	struct archive_read *a = (struct archive_read *)_a;
-	struct archive_read_filter_bidder *reader;
 
-	archive_check_magic(_a, ARCHIVE_READ_MAGIC,
-	    ARCHIVE_STATE_NEW, "archive_read_support_filter_lrzip");
-
-	if (__archive_read_get_bidder(a, &reader) != ARCHIVE_OK)
+	if (__archive_read_register_bidder(a, NULL,
+				&lrzip_bidder_vtable) != ARCHIVE_OK)
 		return (ARCHIVE_FATAL);
 
-	reader->data = NULL;
-	reader->name = "lrzip";
-	reader->bid = lrzip_bidder_bid;
-	reader->init = lrzip_bidder_init;
-	reader->options = NULL;
-	reader->free = lrzip_reader_free;
 	/* This filter always uses an external program. */
 	archive_set_error(_a, ARCHIVE_ERRNO_MISC,
 	    "Using external lrzip program for lrzip decompression");
@@ -88,19 +75,17 @@ archive_read_support_filter_lrzip(struct archive *_a)
  * Bidder just verifies the header and returns the number of verified bits.
  */
 static int
-lrzip_bidder_bid(struct archive_read_filter_bidder *self,
-    struct archive_read_filter *filter)
+lrzip_bidder_bid(struct archive_read_filter_bidder *b,
+    struct archive_read_filter *f)
 {
 	const unsigned char *p;
-	ssize_t avail, len;
 	int i;
 
-	(void)self; /* UNUSED */
+	(void)b; /* UNUSED */
 	/* Start by looking at the first six bytes of the header, which
 	 * is all fixed layout. */
-	len = 6;
-	p = __archive_read_filter_ahead(filter, len, &avail);
-	if (p == NULL || avail == 0)
+	p = __archive_read_filter_ahead(f, 6, NULL);
+	if (p == NULL)
 		return (0);
 
 	if (memcmp(p, LRZIP_HEADER_MAGIC, LRZIP_HEADER_MAGIC_LEN))
@@ -114,19 +99,19 @@ lrzip_bidder_bid(struct archive_read_filter_bidder *self,
 	if ((i < 6) || (i > 10))
 		return 0;
 
-	return (int)len;
+	return (48);
 }
 
 static int
-lrzip_bidder_init(struct archive_read_filter *self)
+lrzip_bidder_init(struct archive_read_filter *f)
 {
 	int r;
 
-	r = __archive_read_program(self, "lrzip -d -q");
+	r = __archive_read_program(f, "lrzip -d -q");
 	/* Note: We set the format here even if __archive_read_program()
 	 * above fails.  We do, after all, know what the format is
 	 * even if we weren't able to read it. */
-	self->code = ARCHIVE_FILTER_LRZIP;
-	self->name = "lrzip";
+	f->code = ARCHIVE_FILTER_LRZIP;
+	f->name = "lrzip";
 	return (r);
 }

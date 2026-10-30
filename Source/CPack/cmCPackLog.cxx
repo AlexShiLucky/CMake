@@ -1,60 +1,44 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCPackLog.h"
 
 #include <iostream>
+
+#include <cm/memory>
 
 #include "cmGeneratedFileStream.h"
 #include "cmSystemTools.h"
 
 cmCPackLog::cmCPackLog()
 {
-  this->Verbose = false;
-  this->Debug = false;
-  this->Quiet = false;
-  this->NewLine = true;
-
-  this->LastTag = cmCPackLog::NOTAG;
   this->DefaultOutput = &std::cout;
   this->DefaultError = &std::cerr;
-
-  this->LogOutput = nullptr;
-  this->LogOutputCleanup = false;
 }
 
-cmCPackLog::~cmCPackLog()
-{
-  this->SetLogOutputStream(nullptr);
-}
+cmCPackLog::~cmCPackLog() = default;
 
 void cmCPackLog::SetLogOutputStream(std::ostream* os)
 {
-  if (this->LogOutputCleanup && this->LogOutput) {
-    delete this->LogOutput;
-  }
-  this->LogOutputCleanup = false;
+  this->LogOutputStream.reset();
   this->LogOutput = os;
 }
 
-bool cmCPackLog::SetLogOutputFile(const char* fname)
+bool cmCPackLog::SetLogOutputFile(char const* fname)
 {
-  cmGeneratedFileStream* cg = nullptr;
+  this->LogOutputStream.reset();
   if (fname) {
-    cg = new cmGeneratedFileStream(fname);
+    this->LogOutputStream = cm::make_unique<cmGeneratedFileStream>(fname);
   }
-  if (cg && !*cg) {
-    delete cg;
-    cg = nullptr;
+  if (this->LogOutputStream && !*this->LogOutputStream) {
+    this->LogOutputStream.reset();
   }
-  this->SetLogOutputStream(cg);
-  if (!cg) {
-    return false;
-  }
-  this->LogOutputCleanup = true;
-  return true;
+
+  this->LogOutput = this->LogOutputStream.get();
+
+  return this->LogOutput != nullptr;
 }
 
-void cmCPackLog::Log(int tag, const char* file, int line, const char* msg,
+void cmCPackLog::Log(int tag, char const* file, int line, char const* msg,
                      size_t length)
 {
   // By default no logging
@@ -83,7 +67,7 @@ void cmCPackLog::Log(int tag, const char* file, int line, const char* msg,
       if (!tagString.empty()) {
         tagString += ",";
       }
-      tagString = "VERBOSE";
+      tagString += "VERBOSE";
     }
   }
   if (tag & LOG_WARNING) {
@@ -93,7 +77,7 @@ void cmCPackLog::Log(int tag, const char* file, int line, const char* msg,
       if (!tagString.empty()) {
         tagString += ",";
       }
-      tagString = "WARNING";
+      tagString += "WARNING";
     }
   }
   if (tag & LOG_ERROR) {
@@ -103,7 +87,7 @@ void cmCPackLog::Log(int tag, const char* file, int line, const char* msg,
       if (!tagString.empty()) {
         tagString += ",";
       }
-      tagString = "ERROR";
+      tagString += "ERROR";
     }
   }
   if (tag & LOG_DEBUG && this->Debug) {
@@ -113,7 +97,7 @@ void cmCPackLog::Log(int tag, const char* file, int line, const char* msg,
       if (!tagString.empty()) {
         tagString += ",";
       }
-      tagString = "DEBUG";
+      tagString += "DEBUG";
     }
     useFileAndLine = true;
   }
@@ -124,7 +108,7 @@ void cmCPackLog::Log(int tag, const char* file, int line, const char* msg,
       if (!tagString.empty()) {
         tagString += ",";
       }
-      tagString = "VERBOSE";
+      tagString += "VERBOSE";
     }
   }
   if (this->Quiet) {
@@ -175,6 +159,6 @@ void cmCPackLog::Log(int tag, const char* file, int line, const char* msg,
   }
 
   if (error) {
-    cmSystemTools::SetErrorOccured();
+    cmSystemTools::SetErrorOccurred();
   }
 }

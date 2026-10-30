@@ -22,8 +22,6 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\" $FreeBSD$
-.\"
 .Dd February 2, 2012
 .Dt ARCHIVE_READ_OPEN 3
 .Os
@@ -33,6 +31,7 @@
 .Nm archive_read_open_fd ,
 .Nm archive_read_open_FILE ,
 .Nm archive_read_open_filename ,
+.Nm archive_read_open_filenames ,
 .Nm archive_read_open_memory
 .Nd functions for reading streaming archives
 .Sh LIBRARY
@@ -64,6 +63,12 @@ Streaming Archive Library (libarchive, -larchive)
 .Fo archive_read_open_filename
 .Fa "struct archive *"
 .Fa "const char *filename"
+.Fa "size_t block_size"
+.Fc
+.Ft int
+.Fo archive_read_open_filenames
+.Fa "struct archive *"
+.Fa "const char **filenames"
 .Fa "size_t block_size"
 .Fc
 .Ft int
@@ -113,6 +118,15 @@ Like
 except that it accepts a simple filename and a block size.
 A NULL filename represents standard input.
 This function is safe for use with tape drives or other blocked devices.
+.It Fn archive_read_open_filenames
+Like
+.Fn archive_read_open ,
+except that it accepts a NULL-terminated array of filenames to open in
+sequence (as would be created by the
+.Xr split 1
+command) and a block size.
+A NULL filename at the beginning of the array represents standard input.
+This function is safe for use with tape drives or other blocked devices.
 .It Fn archive_read_open_memory
 Like
 .Fn archive_read_open ,
@@ -152,7 +166,7 @@ The callback functions must match the following prototypes:
 .El
 .Pp
 The open callback is invoked by
-.Fn archive_open .
+.Fn archive_read_open .
 It should return
 .Cm ARCHIVE_OK
 if the underlying file or data source is successfully
@@ -196,7 +210,7 @@ performance gains when reading uncompressed
 archives from slow disk drives or other media
 that can skip quickly.
 .Pp
-The close callback is invoked by archive_close when
+The close callback is invoked by archive_read_close when
 the archive processing is complete.
 The callback should return
 .Cm ARCHIVE_OK
@@ -205,7 +219,7 @@ On failure, the callback should invoke
 .Fn archive_set_error
 to register an error code and message and
 return
-.Cm ARCHIVE_FATAL.
+.Cm ARCHIVE_FATAL .
 .\" .Sh EXAMPLE
 .\"
 .Sh RETURN VALUES
@@ -223,11 +237,11 @@ functions.
 .\"
 .Sh SEE ALSO
 .Xr tar 1 ,
-.Xr libarchive 3 ,
 .Xr archive_read 3 ,
 .Xr archive_read_data 3 ,
 .Xr archive_read_filter 3 ,
 .Xr archive_read_format 3 ,
 .Xr archive_read_set_options 3 ,
 .Xr archive_util 3 ,
+.Xr libarchive 3 ,
 .Xr tar 5

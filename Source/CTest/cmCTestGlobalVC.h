@@ -1,11 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestGlobalVC_h
-#define cmCTestGlobalVC_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmCTestVC.h"
 
 #include <iosfwd>
 #include <list>
@@ -13,7 +10,10 @@
 #include <string>
 #include <vector>
 
+#include "cmCTestVC.h"
+
 class cmCTest;
+class cmMakefile;
 class cmXMLWriter;
 
 /** \class cmCTestGlobalVC
@@ -24,13 +24,15 @@ class cmCTestGlobalVC : public cmCTestVC
 {
 public:
   /** Construct with a CTest instance and update log stream.  */
-  cmCTestGlobalVC(cmCTest* ctest, std::ostream& log);
+  cmCTestGlobalVC(cmCTest* ctest, cmMakefile* mf, std::ostream& log);
 
-  ~cmCTestGlobalVC() CM_OVERRIDE;
+  ~cmCTestGlobalVC() override;
 
 protected:
   // Implement cmCTestVC internal API.
-  bool WriteXMLUpdates(cmXMLWriter& xml) CM_OVERRIDE;
+  bool WriteXMLUpdates(cmXMLWriter& xml) override;
+
+  void SetNewRevision(std::string const& revision) override;
 
   /** Represent a vcs-reported action for one path in a revision.  */
   struct Change
@@ -59,7 +61,7 @@ protected:
   // Information about revisions from a svn log.
   std::list<Revision> Revisions;
 
-  virtual const char* LocalPath(std::string const& path);
+  virtual char const* LocalPath(std::string const& path);
 
   virtual void DoRevision(Revision const& revision,
                           std::vector<Change> const& changes);
@@ -71,5 +73,3 @@ protected:
   void WriteXMLDirectory(cmXMLWriter& xml, std::string const& path,
                          Directory const& dir);
 };
-
-#endif

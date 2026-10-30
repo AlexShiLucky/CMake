@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 set(_ANDROID_TOOL_C_COMPILER "")
 set(_ANDROID_TOOL_CXX_COMPILER "")
@@ -30,8 +30,9 @@ execute_process(
   OUTPUT_VARIABLE _gcc_version
   ERROR_VARIABLE _gcc_error
   OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE _gcc_result
   )
-if(_gcc_version MATCHES "^([0-9]+\\.[0-9]+)")
+if(_gcc_result EQUAL 0 AND _gcc_version MATCHES "^([0-9]+\\.[0-9]+)")
   set(_ANDROID_TOOL_C_TOOLCHAIN_VERSION "${CMAKE_MATCH_1}")
 else()
   message(FATAL_ERROR
@@ -62,5 +63,4 @@ else()
   set(_ANDROID_TOOL_CXX_COMPILER_EXTERNAL_TOOLCHAIN "")
 endif()
 
-set(_ANDROID_TOOL_NDK_TOOLCHAIN_HOST_TAG "")
 set(_ANDROID_TOOL_NDK_TOOLCHAIN_VERSION "")

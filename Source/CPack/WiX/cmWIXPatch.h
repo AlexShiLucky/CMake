@@ -1,12 +1,11 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmWIXPatch_h
-#define cmWIXPatch_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
+
+#include <string>
 
 #include "cmWIXPatchParser.h"
 #include "cmWIXSourceWriter.h"
-
-#include <string>
 
 /** \class cmWIXPatch
  * \brief Class that maintains and applies patch fragments
@@ -23,15 +22,13 @@ public:
   bool CheckForUnappliedFragments();
 
 private:
-  void ApplyElementChildren(const cmWIXPatchElement& element,
+  void ApplyElementChildren(cmWIXPatchElement const& element,
                             cmWIXSourceWriter& writer);
 
-  void ApplyElement(const cmWIXPatchElement& element,
+  void ApplyElement(cmWIXPatchElement const& element,
                     cmWIXSourceWriter& writer);
 
   cmCPackLog* Logger;
 
   cmWIXPatchParser::fragment_map_t Fragments;
 };
-
-#endif

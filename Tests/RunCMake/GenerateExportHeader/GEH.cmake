@@ -1,5 +1,6 @@
 # Test add_compiler_export_flags without deprecation warning.
-set(CMAKE_WARN_DEPRECATED OFF)
+cmake_policy(SET CMP0218 NEW)
+cmake_diagnostic(SET CMD_DEPRECATED IGNORE)
 
 project(GenerateExportHeader)
 
@@ -43,17 +44,18 @@ endif()
 
 include(GenerateExportHeader)
 
-set(CMAKE_CXX_STANDARD 98)
-
-# Clang/C2 in C++98 mode cannot properly handle some of MSVC headers
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
-    CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
-  set(CMAKE_CXX_STANDARD 11)
-endif()
-
 add_subdirectory(lib_shared_and_static)
 
-add_compiler_export_flags()
+if(CMAKE_SYSTEM_NAME MATCHES "AIX" AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+   AND CMAKE_CXX_COMPILE_OPTIONS_VISIBILITY)
+  # With GNU 7 on AIX, passing -fvisibility=hidden when driving the
+  # linker for a shared library drops the so init/destruct symbols.
+  # Just use the modern approach instead of testing the macro.
+  set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+  set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
+else()
+  add_compiler_export_flags()
+endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_CURRENT_BINARY_DIR})
@@ -74,13 +76,15 @@ endmacro()
 
 macro_add_test_library(libshared)
 macro_add_test_library(libstatic)
+macro_add_test_library(libattributes)
 
 add_subdirectory(nodeprecated)
+add_subdirectory(includeguard)
 if(NOT BORLAND)
   add_subdirectory(c_identifier)
 endif()
 
-if (CMAKE_COMPILER_IS_GNUCXX OR (${CMAKE_CXX_COMPILER_ID} MATCHES Clang))
+if (CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|LCC)$" OR (${CMAKE_CXX_COMPILER_ID} MATCHES Clang))
   # No need to clutter the test output with warnings.
   string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
 endif()
@@ -93,12 +97,14 @@ add_executable(GenerateExportHeader exportheader_test.cpp)
 
 target_link_libraries(GenerateExportHeader ${link_libraries})
 if (WIN32 OR CYGWIN)
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
+  if((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM") AND
     CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
     set(_platform Win32-Clang)
-  elseif(MSVC AND COMPILER_HAS_DEPRECATED)
+  elseif((MSVC OR CMAKE_C_COMPILER_ID STREQUAL "OrangeC") AND COMPILER_HAS_DEPRECATED)
     set(_platform Win32)
-  elseif((MINGW OR CYGWIN) AND COMPILER_HAS_DEPRECATED)
+  elseif(CYGWIN AND COMPILER_HAS_DEPRECATED)
+    set(_platform Cygwin)
+  elseif(MINGW AND COMPILER_HAS_DEPRECATED)
     set(_platform MinGW)
   else()
     set(_platform WinEmpty)

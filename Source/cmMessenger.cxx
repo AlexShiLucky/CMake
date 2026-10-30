@@ -1,203 +1,280 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmMessenger.h"
 
-#include "cmAlgorithms.h"
+#include <algorithm>
+#include <array>
+#include <sstream>
+#include <utility>
+
+#include <cmext/string_view>
+
 #include "cmDocumentationFormatter.h"
-#include "cmState.h"
+#include "cmMessageMetadata.h"
+#include "cmMessageType.h"
+#include "cmStateSnapshot.h"
+#include "cmStdIoTerminal.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
-#if defined(CMAKE_BUILD_WITH_CMAKE)
-#include "cmsys/SystemInformation.hxx"
+#if !defined(CMAKE_BOOTSTRAP)
+#  include "cmsys/SystemInformation.hxx"
 #endif
 
-#include <sstream>
+#ifdef CMake_ENABLE_DEBUGGER
+#  include "cmDebuggerAdapter.h"
+#endif
 
-cmake::MessageType cmMessenger::ConvertMessageType(cmake::MessageType t) const
+namespace {
+char const* getMessageTypeStr(MessageType t)
 {
-  bool warningsAsErrors;
-
-  if (t == cmake::AUTHOR_WARNING || t == cmake::AUTHOR_ERROR) {
-    warningsAsErrors = this->GetDevWarningsAsErrors();
-    if (warningsAsErrors && t == cmake::AUTHOR_WARNING) {
-      t = cmake::AUTHOR_ERROR;
-    } else if (!warningsAsErrors && t == cmake::AUTHOR_ERROR) {
-      t = cmake::AUTHOR_WARNING;
-    }
-  } else if (t == cmake::DEPRECATION_WARNING ||
-             t == cmake::DEPRECATION_ERROR) {
-    warningsAsErrors = this->GetDeprecatedWarningsAsErrors();
-    if (warningsAsErrors && t == cmake::DEPRECATION_WARNING) {
-      t = cmake::DEPRECATION_ERROR;
-    } else if (!warningsAsErrors && t == cmake::DEPRECATION_ERROR) {
-      t = cmake::DEPRECATION_WARNING;
-    }
+  switch (t) {
+    case MessageType::FATAL_ERROR:
+      return "Error";
+    case MessageType::INTERNAL_ERROR:
+      return "Internal Error (please report a bug)";
+    case MessageType::LOG:
+      return "Debug Log";
+    default:
+      break;
   }
-
-  return t;
+  return "Warning";
 }
 
-bool cmMessenger::IsMessageTypeVisible(cmake::MessageType t) const
+std::string getDiagnosticCategoryStr(cmDiagnosticCategory category)
 {
-  bool isVisible = true;
-
-  if (t == cmake::DEPRECATION_ERROR) {
-    if (!this->GetDeprecatedWarningsAsErrors()) {
-      isVisible = false;
-    }
-  } else if (t == cmake::DEPRECATION_WARNING) {
-    if (this->GetSuppressDeprecatedWarnings()) {
-      isVisible = false;
-    }
-  } else if (t == cmake::AUTHOR_ERROR) {
-    if (!this->GetDevWarningsAsErrors()) {
-      isVisible = false;
-    }
-  } else if (t == cmake::AUTHOR_WARNING) {
-    if (this->GetSuppressDevWarnings()) {
-      isVisible = false;
-    }
-  }
-
-  return isVisible;
+  std::string out = cmSystemTools::LowerCase(
+    cmDiagnostics::GetCategoryString(category).substr(4));
+  std::replace(out.begin(), out.end(), '_', '-');
+  return out;
 }
 
-static bool printMessagePreamble(cmake::MessageType t, std::ostream& msg)
+cm::StdIo::TermAttr getMessageColor(MessageType t)
 {
-  // Construct the message header.
-  if (t == cmake::FATAL_ERROR) {
-    msg << "CMake Error";
-  } else if (t == cmake::INTERNAL_ERROR) {
-    msg << "CMake Internal Error (please report a bug)";
-  } else if (t == cmake::LOG) {
-    msg << "CMake Debug Log";
-  } else if (t == cmake::DEPRECATION_ERROR) {
-    msg << "CMake Deprecation Error";
-  } else if (t == cmake::DEPRECATION_WARNING) {
-    msg << "CMake Deprecation Warning";
-  } else if (t == cmake::AUTHOR_WARNING) {
-    msg << "CMake Warning (dev)";
-  } else if (t == cmake::AUTHOR_ERROR) {
-    msg << "CMake Error (dev)";
-  } else {
-    msg << "CMake Warning";
+  switch (t) {
+    case MessageType::INTERNAL_ERROR:
+    case MessageType::FATAL_ERROR:
+      return cm::StdIo::TermAttr::ForegroundRed;
+    case MessageType::WARNING:
+      return cm::StdIo::TermAttr::ForegroundYellow;
+    default:
+      return cm::StdIo::TermAttr::Normal;
   }
-  return true;
+}
+
+bool isAuthorDiagnostic(cmDiagnosticCategory category)
+{
+  while (category != cmDiagnostics::CMD_NONE) {
+    if (category == cmDiagnostics::CMD_AUTHOR) {
+      return true;
+    }
+    category = cmDiagnostics::CategoryInfo[category].Parent;
+  }
+  return false;
 }
 
 void printMessageText(std::ostream& msg, std::string const& text)
 {
   msg << ":\n";
   cmDocumentationFormatter formatter;
-  formatter.SetIndent("  ");
-  formatter.PrintFormatted(msg, text.c_str());
+  formatter.SetIndent(2u);
+  formatter.PrintFormatted(msg, text);
 }
 
-void displayMessage(cmake::MessageType t, std::ostringstream& msg)
+void displayMessage(MessageType type, cmDiagnosticCategory category,
+                    cmMessenger::SuppressionHint hint, std::ostringstream& msg)
 {
-  // Add a note about warning suppression.
-  if (t == cmake::AUTHOR_WARNING) {
-    msg << "This warning is for project developers.  Use -Wno-dev to suppress "
-           "it.";
-  } else if (t == cmake::AUTHOR_ERROR) {
-    msg << "This error is for project developers. Use -Wno-error=dev to "
-           "suppress "
-           "it.";
+  if (hint == cmMessenger::SuppressionHint::Show &&
+      isAuthorDiagnostic(category)) {
+    // Add a note about warning suppression.
+    std::ostringstream text;
+    if (type == MessageType::WARNING) {
+      text << "This warning is for project developers.  "
+              "Use -Wno-author";
+      if (category != cmDiagnostics::CMD_AUTHOR) {
+        text << " or -Wno-" << getDiagnosticCategoryStr(category);
+      }
+    } else if (type == MessageType::FATAL_ERROR) {
+      text << "This error is for project developers.  "
+              "Use -Wno-error=author";
+      if (category != cmDiagnostics::CMD_AUTHOR) {
+        text << " or -Wno-error=" << getDiagnosticCategoryStr(category);
+      }
+    }
+    text << " to suppress it.";
+
+    cmDocumentationFormatter formatter;
+    formatter.PrintFormatted(msg, text.str());
+  } else {
+    // Add a terminating blank line.
+    msg << '\n';
   }
 
-  // Add a terminating blank line.
-  msg << "\n";
-
-#if defined(CMAKE_BUILD_WITH_CMAKE)
+#if !defined(CMAKE_BOOTSTRAP)
   // Add a C++ stack trace to internal errors.
-  if (t == cmake::INTERNAL_ERROR) {
+  if (type == MessageType::INTERNAL_ERROR) {
     std::string stack = cmsys::SystemInformation::GetProgramStack(0, 0);
     if (!stack.empty()) {
       if (cmHasLiteralPrefix(stack, "WARNING:")) {
         stack = "Note:" + stack.substr(8);
       }
-      msg << stack << "\n";
+      msg << stack << '\n';
     }
   }
 #endif
 
   // Output the message.
-  if (t == cmake::FATAL_ERROR || t == cmake::INTERNAL_ERROR ||
-      t == cmake::DEPRECATION_ERROR || t == cmake::AUTHOR_ERROR) {
-    cmSystemTools::SetErrorOccured();
-    cmSystemTools::Message(msg.str().c_str(), "Error");
+  cmMessageMetadata md;
+  md.attrs = getMessageColor(type);
+  if (type == MessageType::FATAL_ERROR ||
+      type == MessageType::INTERNAL_ERROR) {
+    cmSystemTools::SetErrorOccurred();
+    md.title = "Error";
   } else {
-    cmSystemTools::Message(msg.str().c_str(), "Warning");
+    md.title = "Warning";
   }
+  cmSystemTools::Message(msg.str(), md);
 }
 
-cmMessenger::cmMessenger(cmState* state)
-  : State(state)
+void PrintCallStack(std::ostream& out, cmListFileBacktrace bt,
+                    cm::optional<std::string> const& topSource)
 {
-}
-
-void cmMessenger::IssueMessage(cmake::MessageType t, const std::string& text,
-                               const cmListFileBacktrace& backtrace) const
-{
-  bool force = false;
-  if (!force) {
-    // override the message type, if needed, for warnings and errors
-    cmake::MessageType override = this->ConvertMessageType(t);
-    if (override != t) {
-      t = override;
-      force = true;
-    }
-  }
-
-  if (!force && !this->IsMessageTypeVisible(t)) {
+  // The call stack exists only if we have at least two calls on top
+  // of the bottom.
+  if (bt.Empty()) {
     return;
   }
-  this->DisplayMessage(t, text, backtrace);
+  std::string lastFilePath = bt.Top().FilePath;
+  bt = bt.Pop();
+  if (bt.Empty()) {
+    return;
+  }
+
+  bool first = true;
+  for (; !bt.Empty(); bt = bt.Pop()) {
+    cmListFileContext lfc = bt.Top();
+    if (lfc.Name.empty() &&
+        lfc.Line != cmListFileContext::DeferPlaceholderLine &&
+        lfc.FilePath == lastFilePath) {
+      // An entry with no function name is frequently preceded (in the stack)
+      // by a more specific entry.  When this happens (as verified by the
+      // preceding entry referencing the same file path), skip the less
+      // specific entry, as we have already printed the more specific one.
+      continue;
+    }
+    if (first) {
+      first = false;
+      out << "Call Stack (most recent call first):\n";
+    }
+    lastFilePath = lfc.FilePath;
+    if (topSource) {
+      lfc.FilePath = cmSystemTools::RelativeIfUnder(*topSource, lfc.FilePath);
+    }
+    out << "  " << lfc << '\n';
+  }
 }
 
-void cmMessenger::DisplayMessage(cmake::MessageType t, const std::string& text,
-                                 const cmListFileBacktrace& backtrace) const
+} // anonymous namespace
+
+void cmMessenger::IssueMessage(MessageType t, std::string const& text,
+                               cmListFileBacktrace const& backtrace)
+{
+  this->DisplayMessage(t, cmDiagnostics::CMD_NONE, text, backtrace);
+}
+
+void cmMessenger::IssueDiagnostic(cmDiagnosticCategory category,
+                                  std::string const& text,
+                                  cmStateSnapshot const& fallbackContext,
+                                  cmDiagnosticContext const& context)
+{
+  cmDiagnosticAction const action = [&] {
+    if (context.HasState) {
+      cmDiagnosticAction const ca = context.DiagnosticState[category];
+      if (ca != cmDiagnostics::Undefined) {
+        return ca;
+      }
+
+      // If the context has recorded states, but not the state we want, this
+      // implies that we had the opportunity to record the state and failed to
+      // do so. Ask users to report this.
+      std::string msg =
+        cmStrCat("Stored diagnostic context did not record state for "_s,
+                 cmDiagnostics::GetCategoryString(category),
+                 ".  Please report this as a bug.\n"_s);
+      this->IssueMessage(MessageType::LOG, msg, context.GetBacktrace());
+    }
+
+    return fallbackContext.GetDiagnostic(category);
+  }();
+
+  switch (action) {
+    case cmDiagnostics::FatalError:
+      cmSystemTools::SetFatalErrorOccurred();
+      CM_FALLTHROUGH;
+    case cmDiagnostics::SendError:
+      cmSystemTools::SetErrorOccurred();
+      this->DisplayMessage(MessageType::FATAL_ERROR, category, text,
+                           context.GetBacktrace());
+      break;
+    case cmDiagnostics::Warn:
+      this->DisplayMessage(MessageType::WARNING, category, text,
+                           context.GetBacktrace());
+      break;
+    default:
+      return;
+  }
+}
+
+void cmMessenger::DisplayMessage(MessageType type,
+                                 cmDiagnosticCategory category,
+                                 std::string const& text,
+                                 cmListFileBacktrace const& backtrace)
 {
   std::ostringstream msg;
-  if (!printMessagePreamble(t, msg)) {
-    return;
+
+  // Print the message preamble.
+  msg << "CMake " << getMessageTypeStr(type);
+  if (category != cmDiagnostics::CMD_NONE) {
+    msg << " (" << getDiagnosticCategoryStr(category) << ')';
   }
 
   // Add the immediate context.
-  backtrace.PrintTitle(msg);
+  this->PrintBacktraceTitle(msg, backtrace);
 
   printMessageText(msg, text);
 
   // Add the rest of the context.
-  backtrace.PrintCallStack(msg);
+  PrintCallStack(msg, backtrace, this->TopSource);
 
-  displayMessage(t, msg);
+  displayMessage(type, category, this->SuppressionHintMode, msg);
+
+  // Add message to logs
+  this->DisplayedMessages.emplace_back(
+    Message{ type, category, backtrace, text });
+
+#ifdef CMake_ENABLE_DEBUGGER
+  if (DebuggerAdapter) {
+    DebuggerAdapter->OnMessageOutput(type, msg.str());
+  }
+#endif
 }
 
-bool cmMessenger::GetSuppressDevWarnings() const
+void cmMessenger::PrintBacktraceTitle(std::ostream& out,
+                                      cmListFileBacktrace const& bt) const
 {
-  const char* cacheEntryValue =
-    this->State->GetCacheEntryValue("CMAKE_SUPPRESS_DEVELOPER_WARNINGS");
-  return cmSystemTools::IsOn(cacheEntryValue);
+  // The title exists only if we have a call on top of the bottom.
+  if (bt.Empty()) {
+    return;
+  }
+  cmListFileContext lfc = bt.Top();
+  if (this->TopSource) {
+    lfc.FilePath =
+      cmSystemTools::RelativeIfUnder(*this->TopSource, lfc.FilePath);
+  }
+  out << (lfc.Line ? " at " : " in ") << lfc;
 }
 
-bool cmMessenger::GetSuppressDeprecatedWarnings() const
+void cmMessenger::SetTopSource(cm::optional<std::string> topSource)
 {
-  const char* cacheEntryValue =
-    this->State->GetCacheEntryValue("CMAKE_WARN_DEPRECATED");
-  return cacheEntryValue && cmSystemTools::IsOff(cacheEntryValue);
-}
-
-bool cmMessenger::GetDevWarningsAsErrors() const
-{
-  const char* cacheEntryValue =
-    this->State->GetCacheEntryValue("CMAKE_SUPPRESS_DEVELOPER_ERRORS");
-  return cacheEntryValue && cmSystemTools::IsOff(cacheEntryValue);
-}
-
-bool cmMessenger::GetDeprecatedWarningsAsErrors() const
-{
-  const char* cacheEntryValue =
-    this->State->GetCacheEntryValue("CMAKE_ERROR_DEPRECATED");
-  return cmSystemTools::IsOn(cacheEntryValue);
+  this->TopSource = std::move(topSource);
 }

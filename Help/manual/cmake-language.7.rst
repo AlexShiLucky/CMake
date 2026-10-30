@@ -12,6 +12,8 @@ Organization
 
 CMake input files are written in the "CMake Language" in source files
 named ``CMakeLists.txt`` or ending in a ``.cmake`` file name extension.
+The term *listfile* is a general name for any such source file containing
+CMake commands that the tool processes.
 
 CMake Language source files in a project are organized into:
 
@@ -37,10 +39,10 @@ Scripts
 
 An individual ``<script>.cmake`` source file may be processed
 in *script mode* by using the :manual:`cmake(1)` command-line tool
-with the ``-P`` option.  Script mode simply runs the commands in
-the given CMake Language source file and does not generate a
-build system.  It does not allow CMake commands that define build
-targets or actions.
+with the :option:`-P <cmake -P>` option.  Script mode simply runs
+the commands in the given CMake Language source file and does not
+generate a build system.  It does not allow CMake commands that
+define build targets or actions.
 
 Modules
 -------
@@ -74,7 +76,12 @@ encoded in UTF-8 on Windows (using UTF-16 to call system APIs).
 Furthermore, CMake 3.0 and above allow a leading UTF-8
 `Byte-Order Mark`_ in source files.
 
-.. _`Byte-Order Mark`: http://en.wikipedia.org/wiki/Byte_order_mark
+.. _Byte-Order Mark: https://en.wikipedia.org/wiki/Byte_order_mark
+
+.. versionadded:: 4.3
+
+  The :command:`cmake_host_system_information` command's ``LOCALE_CHARSET``
+  query returns the expected character set encoding.
 
 Source Files
 ------------
@@ -183,18 +190,18 @@ same length:
 
 .. productionlist::
  bracket_argument: `bracket_open` `bracket_content` `bracket_close`
- bracket_open: '[' '='{len} '['
- bracket_content: <any text not containing a `bracket_close`
-                :  of the same {len} as the `bracket_open`>
- bracket_close: ']' '='{len} ']'
+ bracket_open: '[' '='* '['
+ bracket_content: <any text not containing a `bracket_close` with
+                :  the same number of '=' as the `bracket_open`>
+ bracket_close: ']' '='* ']'
 
 .. raw:: latex
 
    \end{small}
 
-An opening bracket of length *len >= 0* is written ``[`` followed
-by *len* ``=`` followed by ``[`` and the corresponding closing
-bracket is written ``]`` followed by *len* ``=`` followed by ``]``.
+An opening bracket is written ``[`` followed by zero or more ``=`` followed
+by ``[``.  The corresponding closing bracket is written ``]`` followed
+by the same number of ``=`` followed by ``]``.
 Brackets do not nest.  A unique length may always be chosen
 for the opening and closing brackets to contain closing brackets
 of other lengths.
@@ -206,9 +213,10 @@ enclosed content, such as `Escape Sequences`_ or `Variable References`_,
 is performed.  A bracket argument is always given to the command
 invocation as exactly one argument.
 
-For example:
+.. ATTENTION No code-block syntax highlighting in the following example
+   (long string literal not supported by our cmake.py)
 
-.. code-block:: cmake
+For example::
 
  message([=[
  This is the first line in a bracket argument with bracket length 1.
@@ -223,7 +231,7 @@ For example:
  They interpret the opening bracket as the start of an
  `Unquoted Argument`_.
 
-.. _`Lua`: http://www.lua.org/
+.. _`Lua`: https://www.lua.org/
 
 .. _`Quoted Argument`:
 
@@ -253,16 +261,22 @@ closing quotes.  Both `Escape Sequences`_ and `Variable References`_
 are evaluated.  A quoted argument is always given to the command
 invocation as exactly one argument.
 
+.. ATTENTION No code-block syntax highlighting in the following example
+   (escape \" not supported by our cmake.py)
+
 For example:
 
-::
+.. code-block:: cmake
 
- message("This is a quoted argument containing multiple lines.
- This is always one argument even though it contains a ; character.
- Both \\-escape sequences and ${variable} references are evaluated.
- The text does not end on an escaped double-quote like \".
- It does end in an unescaped double quote.
- ")
+  message("This is a quoted argument containing multiple lines.
+  This is always one argument even though it contains a ; character.
+  Both \\-escape sequences and ${variable} references are evaluated.
+  The text does not end on an escaped double-quote like \".
+  It does end in an unescaped double quote.
+  ")
+
+.. ATTENTION No code-block syntax highlighting in the following example
+   (for conformity with the two above examples)
 
 The final ``\`` on any line ending in an odd number of backslashes
 is treated as a line continuation and ignored along with the
@@ -270,11 +284,11 @@ immediately following newline character.  For example:
 
 .. code-block:: cmake
 
- message("\
- This is the first line of a quoted argument. \
- In fact it is the only line but since it is long \
- the source code uses line continuation.\
- ")
+  message("\
+  This is the first line of a quoted argument. \
+  In fact it is the only line but since it is long \
+  the source code uses line continuation.\
+  ")
 
 .. note::
  CMake versions prior to 3.0 do not support continuation with ``\``.
@@ -334,6 +348,8 @@ For example:
  beginning of an unquoted argument, and are treated as part of the
  content.  For example, the unquoted arguments ``-Da="b c"``,
  ``-Da=$(v)``, and ``a" "b"c"d`` are each interpreted literally.
+ They may instead be written as quoted arguments ``"-Da=\"b c\""``,
+ ``"-Da=$(v)"``, and ``"a\" \"b\"c\"d"``, respectively.
 
  Make-style references are treated literally as part of the content
  and do not undergo variable expansion.  They are treated as part
@@ -380,23 +396,35 @@ historical considerations.)
 Variable References
 -------------------
 
-A *variable reference* has the form ``${variable_name}`` and is
+A *variable reference* has the form ``${<variable>}`` and is
 evaluated inside a `Quoted Argument`_ or an `Unquoted Argument`_.
-A variable reference is replaced by the value of the variable,
-or by the empty string if the variable is not set.
+A variable reference is replaced by the value of the specified
+variable or cache entry, or if neither is set, by the empty string.
 Variable references can nest and are evaluated from the
 inside out, e.g. ``${outer_${inner_variable}_variable}``.
 
 Literal variable references may consist of alphanumeric characters,
 the characters ``/_.+-``, and `Escape Sequences`_.  Nested references
-may be used to evaluate variables of any name.  (See also policy
-:policy:`CMP0053` documentation for historical considerations.)
+may be used to evaluate variables of any name.  See also policy
+:policy:`CMP0053` documentation for historical considerations and reasons why
+the ``$`` is also technically permitted but is discouraged.
 
 The `Variables`_ section documents the scope of variable names
 and how their values are set.
 
-An *environment variable reference* has the form ``$ENV{VAR}`` and
-is evaluated in the same contexts as a normal variable reference.
+An *environment variable reference* has the form ``$ENV{<variable>}``.
+See the `Environment Variables`_ section for more information.
+
+A *cache variable reference* has the form ``$CACHE{<variable>}``,
+and is replaced by the value of the specified cache entry without
+checking for a normal variable of the same name.  If the cache
+entry does not exist, it is replaced by the empty string.
+See :variable:`CACHE` for more information.
+
+The :command:`if` command has a special condition syntax that
+allows for variable references in the short form ``<variable>``
+instead of ``${<variable>}``.  However, environment variables
+always need to be referenced as ``$ENV{<variable>}``.
 
 Comments
 --------
@@ -411,7 +439,7 @@ comments: a `Bracket Comment`_ and a `Line Comment`_.
 Bracket Comment
 ^^^^^^^^^^^^^^^
 
-A ``#`` immediately followed by a `Bracket Argument`_ forms a
+A ``#`` immediately followed by a :token:`bracket_open` forms a
 *bracket comment* consisting of the entire bracket enclosure:
 
 .. raw:: latex
@@ -442,7 +470,7 @@ For example:
 Line Comment
 ^^^^^^^^^^^^
 
-A ``#`` not immediately followed by a `Bracket Argument`_ forms a
+A ``#`` not immediately followed by a :token:`bracket_open` forms a
 *line comment* that runs until the end of the line:
 
 .. raw:: latex
@@ -450,7 +478,7 @@ A ``#`` not immediately followed by a `Bracket Argument`_ forms a
    \begin{small}
 
 .. productionlist::
- line_comment: '#' <any text not starting in a `bracket_argument`
+ line_comment: '#' <any text not starting in a `bracket_open`
              :      and not containing a `newline`>
 
 .. raw:: latex
@@ -509,20 +537,23 @@ of alphanumeric characters plus ``_`` and ``-``.
 Variables have dynamic scope.  Each variable "set" or "unset"
 creates a binding in the current scope:
 
+Block Scope
+ The :command:`block` command may create a new scope for variable bindings.
+
 Function Scope
  `Command Definitions`_ created by the :command:`function` command
  create commands that, when invoked, process the recorded commands
  in a new variable binding scope.  A variable "set" or "unset"
  binds in this scope and is visible for the current function and
- any nested calls, but not after the function returns.
+ any nested calls within it, but not after the function returns.
 
 Directory Scope
  Each of the `Directories`_ in a source tree has its own variable
  bindings.  Before processing the ``CMakeLists.txt`` file for a
  directory, CMake copies all variable bindings currently defined
  in the parent directory, if any, to initialize the new directory
- scope.  CMake `Scripts`_, when processed with ``cmake -P``, bind
- variables in one "directory" scope.
+ scope.  CMake `Scripts`_, when processed with :option:`cmake -P`,
+ bind variables in one "directory" scope.
 
  A variable "set" or "unset" not inside a function call binds
  to the current directory scope.
@@ -541,10 +572,50 @@ to the binding in the current directory scope, if any.  If a
 is found, or no binding is found, CMake then searches for a
 cache entry.  If a cache entry is found, its value is used.
 Otherwise, the variable reference evaluates to an empty string.
+The ``$CACHE{VAR}`` syntax can be used to do direct cache entry
+lookups.
 
-The :manual:`cmake-variables(7)` manual documents many variables
+The :manual:`cmake-variables(7)` manual documents the many variables
 that are provided by CMake or have meaning to CMake when set
 by project code.
+
+.. include:: include/ID_RESERVE.rst
+
+.. _`CMake Language Environment Variables`:
+
+Environment Variables
+=====================
+
+Environment Variables are like ordinary `Variables`_, with the
+following differences:
+
+Scope
+ Environment variables have global scope in a CMake process.
+ They are never cached.
+
+References
+ `Variable References`_ have the form ``$ENV{<variable>}``, using the
+ :variable:`ENV` operator.
+
+Initialization
+ Initial values of the CMake environment variables are those of
+ the calling process.
+ Values can be changed using the :command:`set` and :command:`unset`
+ commands.
+ These commands only affect the running CMake process,
+ not the system environment at large.
+ Changed values are not written back to the calling process,
+ and they are not seen by subsequent build or test processes.
+
+ See the :option:`cmake -E env <cmake-E env>` command-line
+ tool to run a command in a modified environment.
+
+Inspection
+ See the :option:`cmake -E environment <cmake-E environment>` command-line
+ tool to display all current environment variables.
+
+The :manual:`cmake-env-variables(7)` manual documents environment
+variables that have special meaning to CMake.
 
 .. _`CMake Language Lists`:
 
@@ -576,3 +647,121 @@ in list elements, thus flattening nested lists:
 .. code-block:: cmake
 
  set(x a "b;c") # sets "x" to "a;b;c", not "a;b\;c"
+
+In general, lists do not support elements containing ``;`` characters.
+To avoid problems, consider the following advice:
+
+* The interfaces of many CMake commands, variables, and properties accept
+  semicolon-separated lists.  Avoid passing lists with elements containing
+  semicolons to these interfaces unless they document either direct support
+  or some way to escape or encode semicolons.
+
+* When constructing a list, substitute an otherwise-unused placeholder
+  for ``;`` in elements when.  Then substitute ``;`` for the placeholder
+  when processing list elements.
+  For example, the following code uses ``|`` in place of ``;`` characters:
+
+  .. code-block:: cmake
+
+    set(mylist a "b|c")
+    foreach(entry IN LISTS mylist)
+      string(REPLACE "|" ";" entry "${entry}")
+      # use "${entry}" normally
+    endforeach()
+
+  The :module:`ExternalProject` module's ``LIST_SEPARATOR`` option is an
+  example of an interface built using this approach.
+
+* In lists of :manual:`generator expressions <cmake-generator-expressions(7)>`,
+  use the :genex:`$<SEMICOLON>` generator expression.
+
+* In command calls, use `Quoted Argument`_ syntax whenever possible.
+  The called command will receive the content of the argument with
+  semicolons preserved.  An `Unquoted Argument`_ will be split on
+  semicolons.
+
+* In :command:`function` implementations, avoid ``ARGV`` and ``ARGN``,
+  which do not distinguish semicolons in values from those separating values.
+  Instead, prefer using named positional arguments and the ``ARGC`` and
+  ``ARGV#`` variables.
+  When using :command:`cmake_parse_arguments` to parse arguments, prefer
+  its ``PARSE_ARGV`` signature, which uses the ``ARGV#`` variables.
+
+  Note that this approach does not apply to :command:`macro` implementations
+  because they reference arguments using placeholders, not real variables.
+
+.. _`CMake Language Regex Specification`:
+
+Regex Specification
+===================
+
+Several CMake commands accept regular expressions, including
+:command:`string(REGEX ...) <string>`, :command:`if(MATCHES)`,
+:command:`list(FILTER)`, and others, as well as command-line options such as
+:option:`ctest -L` and related modes.
+
+The following characters have special meaning in regular expressions:
+
+``^``
+  Matches at beginning of input
+``$``
+  Matches at end of input
+``.``
+  Matches any single character
+``\<char>``
+  Matches the single character specified by ``<char>``.  Use this to
+  match special regex characters, e.g. ``\.`` for a literal ``.``
+  or ``\\`` for a literal backslash ``\``.  Escaping a non-special
+  character is unnecessary but allowed, e.g. ``\a`` matches ``a``.
+``[ ]``
+  Matches any character(s) inside the brackets.
+  To match a literal ``]``, make it the first character, e.g., ``[]ab]``.
+``[^ ]``
+  Matches any character(s) not inside the brackets.
+  To not match a literal ``]``, make it the first character, e.g., ``[^]ab]``.
+``-``
+  Inside brackets, specifies an inclusive range between characters on
+  either side, e.g., ``[a-f]`` is ``[abcdef]``.
+  To match a literal ``-`` using brackets, make it the first or the last
+  character, e.g., ``[+*/-]`` matches basic mathematical operators.
+``*``
+  Matches preceding pattern zero or more times
+``+``
+  Matches preceding pattern one or more times
+``?``
+  Matches preceding pattern zero or once only
+``|``
+  Matches a pattern on either side of the ``|``
+``()``
+  Saves a matched subexpression, which can be referenced
+  in the ``REGEX REPLACE`` operation.
+
+  .. versionadded:: 3.9
+    All regular expression-related commands, including e.g.
+    :command:`if(MATCHES)`, save subgroup matches in the variables
+    :variable:`CMAKE_MATCH_<n>` for ``<n>`` 0..9.
+
+.. noqa: spellcheck off
+
+``*``, ``+`` and ``?`` have higher precedence than concatenation.  ``|``
+has lower precedence than concatenation.  This means that the regular
+expression ``^ab+d$`` matches ``abbd`` but not ``ababd``, and the regular
+expression ``^(ab|cd)$`` matches ``ab`` but not ``abd``.
+
+.. noqa: spellcheck on
+
+CMake language :ref:`Escape Sequences` such as ``\t``, ``\r``, ``\n``,
+and ``\\`` may be used to construct literal tabs, carriage returns,
+newlines, and backslashes (respectively) to pass in a regex.  For example:
+
+* The quoted argument ``"[ \t\r\n]"`` specifies a regex that matches
+  any single whitespace character.
+* The quoted argument ``"[/\\]"`` specifies a regex that matches
+  a single forward slash ``/`` or backslash ``\``.
+* The quoted argument ``"[A-Za-z0-9_]"`` specifies a regex that matches
+  any single "word" character in the C locale.
+* The quoted argument ``"\\(\\a\\+b\\)"`` specifies a regex that matches
+  the exact string ``(a+b)``.  Each ``\\`` is parsed in a quoted argument
+  as just ``\``, so the regex itself is actually ``\(\a\+\b\)``.  This
+  can alternatively be specified in a :ref:`bracket argument` without
+  having to escape the backslashes, e.g. ``[[\(\a\+\b\)]]``.

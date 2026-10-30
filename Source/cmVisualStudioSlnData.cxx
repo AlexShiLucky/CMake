@@ -1,44 +1,68 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmVisualStudioSlnData.h"
 
-const cmSlnProjectEntry* cmSlnData::GetProjectByGUID(
-  const std::string& projectGUID) const
+#include <cstddef>
+#include <utility>
+
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
+
+void cmSlnProjectEntry::AddProjectConfiguration(
+  std::string const& solutionConfiguration,
+  std::string const& projectConfiguration)
 {
-  ProjectStorage::const_iterator it(ProjectsByGUID.find(projectGUID));
-  if (it != ProjectsByGUID.end())
-    return &it->second;
-  else
-    return NULL;
+  projectConfigurationMap[solutionConfiguration] = projectConfiguration;
 }
 
-const cmSlnProjectEntry* cmSlnData::GetProjectByName(
-  const std::string& projectName) const
+std::string cmSlnProjectEntry::GetProjectConfiguration(
+  std::string const& solutionConfiguration) const
 {
-  ProjectStringIndex::const_iterator it(ProjectNameIndex.find(projectName));
-  if (it != ProjectNameIndex.end())
+  auto i = projectConfigurationMap.find(solutionConfiguration);
+  if (i != projectConfigurationMap.end()) {
+    return i->second;
+  }
+  return {};
+}
+
+cmSlnProjectEntry* cmSlnData::GetProjectByGUID(std::string const& projectGUID)
+{
+  auto it(ProjectsByGUID.find(projectGUID));
+  if (it != ProjectsByGUID.end()) {
+    return &it->second;
+  }
+  return nullptr;
+}
+
+cmSlnProjectEntry const* cmSlnData::GetProjectByName(
+  std::string const& projectName) const
+{
+  auto it(ProjectNameIndex.find(projectName));
+  if (it != ProjectNameIndex.end()) {
     return &it->second->second;
-  else
-    return NULL;
+  }
+  return nullptr;
 }
 
 std::vector<cmSlnProjectEntry> cmSlnData::GetProjects() const
 {
-  ProjectStringIndex::const_iterator it(this->ProjectNameIndex.begin()),
-    itEnd(this->ProjectNameIndex.end());
+  auto it(this->ProjectNameIndex.begin());
+  auto itEnd(this->ProjectNameIndex.end());
   std::vector<cmSlnProjectEntry> result;
-  for (; it != itEnd; ++it)
+  for (; it != itEnd; ++it) {
     result.push_back(it->second->second);
+  }
   return result;
 }
 
 cmSlnProjectEntry* cmSlnData::AddProject(
-  const std::string& projectGUID, const std::string& projectName,
-  const std::string& projectRelativePath)
+  std::string const& projectGUID, std::string const& projectName,
+  std::string const& projectRelativePath)
 {
-  ProjectStorage::iterator it(ProjectsByGUID.find(projectGUID));
-  if (it != ProjectsByGUID.end())
-    return NULL;
+  auto it(ProjectsByGUID.find(projectGUID));
+  if (it != ProjectsByGUID.end()) {
+    return nullptr;
+  }
   it = ProjectsByGUID
          .insert(ProjectStorage::value_type(
            projectGUID,
@@ -46,4 +70,29 @@ cmSlnProjectEntry* cmSlnData::AddProject(
          .first;
   ProjectNameIndex[projectName] = it;
   return &it->second;
+}
+
+std::string cmSlnData::GetConfigurationTarget(
+  std::string const& projectName, std::string const& solutionConfiguration,
+  std::string const& platformName)
+{
+  std::string solutionTarget =
+    cmStrCat(solutionConfiguration, '|', platformName);
+  cmSlnProjectEntry const* project = GetProjectByName(projectName);
+  if (!project) {
+    return platformName;
+  }
+
+  std::string projectTarget = project->GetProjectConfiguration(solutionTarget);
+  if (projectTarget.empty()) {
+    return platformName;
+  }
+
+  std::vector<std::string> targetElements =
+    cmSystemTools::SplitString(projectTarget, '|');
+  if (targetElements.size() != 2) {
+    return platformName;
+  }
+
+  return targetElements[1];
 }

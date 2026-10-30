@@ -1,14 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmComputeComponentGraph_h
-#define cmComputeComponentGraph_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmGraphAdjacencyList.h"
-
+#include <cstddef>
 #include <stack>
 #include <vector>
+
+#include "cmGraphAdjacencyList.h"
 
 /** \class cmComputeComponentGraph
  * \brief Analyze a graph to determine strongly connected components.
@@ -24,16 +24,19 @@ class cmComputeComponentGraph
 {
 public:
   // Represent the graph with an adjacency list.
-  typedef cmGraphNodeList NodeList;
-  typedef cmGraphEdgeList EdgeList;
-  typedef cmGraphAdjacencyList Graph;
+  using NodeList = cmGraphNodeList;
+  using EdgeList = cmGraphEdgeList;
+  using Graph = cmGraphAdjacencyList;
 
   cmComputeComponentGraph(Graph const& input);
   ~cmComputeComponentGraph();
 
+  /** Run the computation.  */
+  void Compute();
+
   /** Get the adjacency list of the component graph.  */
   Graph const& GetComponentGraph() const { return this->ComponentGraph; }
-  EdgeList const& GetComponentGraphEdges(int c) const
+  EdgeList const& GetComponentGraphEdges(size_t c) const
   {
     return this->ComponentGraph[c];
   }
@@ -43,13 +46,15 @@ public:
   {
     return this->Components;
   }
-  NodeList const& GetComponent(int c) const { return this->Components[c]; }
+  NodeList const& GetComponent(size_t c) const { return this->Components[c]; }
 
   /** Get map from original node index to component index.  */
-  std::vector<int> const& GetComponentMap() const
+  std::vector<size_t> const& GetComponentMap() const
   {
     return this->TarjanComponents;
   }
+
+  static size_t const INVALID_COMPONENT;
 
 private:
   void TransferEdges();
@@ -60,20 +65,18 @@ private:
   // Tarjan's algorithm.
   struct TarjanEntry
   {
-    int Root;
-    int VisitIndex;
+    size_t Root;
+    size_t VisitIndex;
   };
-  std::vector<int> TarjanVisited;
-  std::vector<int> TarjanComponents;
+  std::vector<size_t> TarjanVisited;
+  std::vector<size_t> TarjanComponents;
   std::vector<TarjanEntry> TarjanEntries;
   std::vector<NodeList> Components;
-  std::stack<int> TarjanStack;
-  int TarjanWalkId;
-  int TarjanIndex;
+  std::stack<size_t> TarjanStack;
+  size_t TarjanWalkId;
+  size_t TarjanIndex;
   void Tarjan();
-  void TarjanVisit(int i);
+  void TarjanVisit(size_t i);
 
   // Connected components.
 };
-
-#endif

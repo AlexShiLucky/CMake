@@ -1,6 +1,6 @@
 #include "StaticLibExample.h"
 
-int FourtyFour()
+int FortyFour(void)
 {
   return 44;
 }

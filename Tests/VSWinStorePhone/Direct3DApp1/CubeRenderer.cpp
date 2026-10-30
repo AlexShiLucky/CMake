@@ -1,16 +1,29 @@
+// clang-format off
 #include "pch.h"
 
 #include "CubeRenderer.h"
+// clang-format on
 
 using namespace DirectX;
 using namespace Microsoft::WRL;
 using namespace Windows::Foundation;
 using namespace Windows::UI::Core;
+using namespace JusticeLeagueWinRT;
 
 CubeRenderer::CubeRenderer()
   : m_loadingComplete(false)
   , m_indexCount(0)
 {
+  // Create a new WinRT object to validate that we can link properly
+  Batman ^ hero = ref new Batman();
+  hero->savePeople();
+
+  // Test that .manifest files can be bundled with app
+  DX::ReadDataAsync("Direct3DApp1\\Simple.manifest")
+    .then([this](Platform::Array<byte> ^ fileData) {
+      std::string manifestContent(fileData->begin(), fileData->end());
+      assert(manifestContent.find("hello") == 0);
+    });
 }
 
 void CubeRenderer::CreateDeviceResources()
@@ -142,7 +155,7 @@ void CubeRenderer::Update(float timeTotal, float timeDelta)
 
 void CubeRenderer::Render()
 {
-  const float midnightBlue[] = { 0.098f, 0.098f, 0.439f, 1.000f };
+  float const midnightBlue[] = { 0.098f, 0.098f, 0.439f, 1.000f };
   m_d3dContext->ClearRenderTargetView(m_renderTargetView.Get(), midnightBlue);
 
   m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(),

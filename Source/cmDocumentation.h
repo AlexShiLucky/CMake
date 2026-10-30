@@ -1,27 +1,53 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef _cmDocumentation_h
-#define _cmDocumentation_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmDocumentationFormatter.h"
 
 #include <iosfwd>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
-class cmDocumentationSection;
+#include "cmDocumentationFormatter.h"
+#include "cmDocumentationSection.h"
+
 struct cmDocumentationEntry;
 
 /** Class to generate documentation.  */
-class cmDocumentation : public cmDocumentationEnums
+class cmDocumentation
 {
 public:
-  cmDocumentation();
+  /** Types of help provided.  */
+  enum Type
+  {
+    None,
+    Version,
+    VersionJson,
+    Usage,
+    Help,
+    Full,
+    ListManuals,
+    ListCommands,
+    ListDiagnostics,
+    ListModules,
+    ListProperties,
+    ListVariables,
+    ListPolicies,
+    ListGenerators,
+    OneArbitrary,
+    OneManual,
+    OneCommand,
+    OneDiagnostic,
+    OneModule,
+    OneProperty,
+    OneVariable,
+    OnePolicy,
+    OldCustomModules
+  };
 
-  ~cmDocumentation();
+  cmDocumentation();
 
   /**
    * Check command line arguments for documentation options.  Returns
@@ -31,8 +57,8 @@ public:
    * all arguments after the -E are ignored and not searched for
    * help arguments.
    */
-  bool CheckOptions(int argc, const char* const* argv,
-                    const char* exitOpt = nullptr);
+  bool CheckOptions(int argc, char const* const* argv,
+                    char const* exitOpt = nullptr);
 
   /**
    * Print help requested on the command line.  Call after
@@ -47,26 +73,36 @@ public:
 
   void SetShowGenerators(bool showGen) { this->ShowGenerators = showGen; }
 
+  /** Whether the requested documentation prints the generator list.  */
+  bool RequestsGenerators() const;
+
   /** Set the program name for standard document generation.  */
-  void SetName(const std::string& name);
+  void SetName(std::string const& name);
 
   /** Set a section of the documentation. Typical sections include Name,
       Usage, Description, Options */
-  void SetSection(const char* sectionName, cmDocumentationSection* section);
-  void SetSection(const char* sectionName,
-                  std::vector<cmDocumentationEntry>& docs);
-  void SetSection(const char* sectionName, const char* docs[][2]);
-  void SetSections(std::map<std::string, cmDocumentationSection*>& sections);
+  void SetSection(char const* sectionName, cmDocumentationSection section);
+  template <typename Iterable>
+  void SetSection(char const* sectionName, Iterable const& docs)
+  {
+    cmDocumentationSection sec{ sectionName };
+    sec.Append(docs);
+    this->SetSection(sectionName, std::move(sec));
+  }
 
   /** Add the documentation to the beginning/end of the section */
-  void PrependSection(const char* sectionName, const char* docs[][2]);
-  void PrependSection(const char* sectionName,
-                      std::vector<cmDocumentationEntry>& docs);
-  void PrependSection(const char* sectionName, cmDocumentationEntry& docs);
-  void AppendSection(const char* sectionName, const char* docs[][2]);
-  void AppendSection(const char* sectionName,
-                     std::vector<cmDocumentationEntry>& docs);
-  void AppendSection(const char* sectionName, cmDocumentationEntry& docs);
+  template <typename Iterable>
+  void PrependSection(char const* sectionName, Iterable const& docs)
+  {
+    this->SectionAtName(sectionName).Prepend(docs);
+  }
+  void PrependSection(char const* sectionName, cmDocumentationEntry& docs);
+  template <typename Iterable>
+  void AppendSection(char const* sectionName, Iterable const& docs)
+  {
+    this->SectionAtName(sectionName).Append(docs);
+  }
+  void AppendSection(char const* sectionName, cmDocumentationEntry& docs);
 
   /** Add common (to all tools) documentation section(s) */
   void addCommonStandardDocSections();
@@ -86,17 +122,21 @@ private:
   bool PrintFiles(std::ostream& os, std::string const& pattern);
 
   bool PrintVersion(std::ostream& os);
+  bool PrintVersionJson(std::ostream& os);
   bool PrintUsage(std::ostream& os);
   bool PrintHelp(std::ostream& os);
   bool PrintHelpFull(std::ostream& os);
+  bool PrintHelpOneArbitrary(std::ostream& os);
   bool PrintHelpOneManual(std::ostream& os);
   bool PrintHelpOneCommand(std::ostream& os);
+  bool PrintHelpOneDiagnostic(std::ostream& os);
   bool PrintHelpOneModule(std::ostream& os);
   bool PrintHelpOnePolicy(std::ostream& os);
   bool PrintHelpOneProperty(std::ostream& os);
   bool PrintHelpOneVariable(std::ostream& os);
   bool PrintHelpListManuals(std::ostream& os);
   bool PrintHelpListCommands(std::ostream& os);
+  bool PrintHelpListDiagnostics(std::ostream& os);
   bool PrintHelpListModules(std::ostream& os);
   bool PrintHelpListProperties(std::ostream& os);
   bool PrintHelpListVariables(std::ostream& os);
@@ -104,23 +144,19 @@ private:
   bool PrintHelpListGenerators(std::ostream& os);
   bool PrintOldCustomModules(std::ostream& os);
 
-  const char* GetNameString() const;
-  bool IsOption(const char* arg) const;
+  char const* GetNameString() const;
 
   bool ShowGenerators;
 
   std::string NameString;
-  std::map<std::string, cmDocumentationSection*> AllSections;
+  std::map<std::string, cmDocumentationSection> AllSections;
+  cmDocumentationSection& SectionAtName(char const* name);
 
   std::string CurrentArgument;
 
   struct RequestedHelpItem
   {
-    RequestedHelpItem()
-      : HelpType(None)
-    {
-    }
-    cmDocumentationEnums::Type HelpType;
+    Type HelpType = None;
     std::string Filename;
     std::string Argument;
   };
@@ -129,6 +165,5 @@ private:
   cmDocumentationFormatter Formatter;
 
   static void WarnFormFromFilename(RequestedHelpItem& request, bool& result);
+  static std::string GeneralizeKeyword(std::string word);
 };
-
-#endif

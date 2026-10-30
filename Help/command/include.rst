@@ -3,16 +3,16 @@ include
 
 Load and run CMake code from a file or module.
 
-::
+.. code-block:: cmake
 
-  include(<file|module> [OPTIONAL] [RESULT_VARIABLE <VAR>]
-                        [NO_POLICY_SCOPE])
+  include(<file|module> [OPTIONAL] [RESULT_VARIABLE <var>]
+                        [NO_POLICY_SCOPE] [NO_DIAGNOSTIC_SCOPE])
 
-Load and run CMake code from the file given.  Variable reads and
+Loads and runs CMake code from the file given.  Variable reads and
 writes access the scope of the caller (dynamic scoping).  If ``OPTIONAL``
 is present, then no error is raised if the file does not exist.  If
-``RESULT_VARIABLE`` is given the variable will be set to the full filename
-which has been included or NOTFOUND if it failed.
+``RESULT_VARIABLE`` is given the variable ``<var>`` will be set to the
+full filename which has been included or ``NOTFOUND`` if it failed.
 
 If a module is specified instead of a file, the file with name
 ``<modulename>.cmake`` is searched first in :variable:`CMAKE_MODULE_PATH`,
@@ -23,3 +23,6 @@ module directory, then first the CMake builtin module directory is searched and
 
 See the :command:`cmake_policy` command documentation for discussion of the
 ``NO_POLICY_SCOPE`` option.
+
+See the :command:`cmake_diagnostic` command documentation for discussion of the
+``NO_DIAGNOSTIC_SCOPE`` option.

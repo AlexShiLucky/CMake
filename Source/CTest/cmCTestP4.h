@@ -1,18 +1,18 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestP4_h
-#define cmCTestP4_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmCTestGlobalVC.h"
 
 #include <iosfwd>
 #include <map>
 #include <string>
 #include <vector>
 
+#include "cmCTestGlobalVC.h"
+
 class cmCTest;
+class cmMakefile;
 
 /** \class cmCTestP4
  * \brief Interaction with the Perforce command-line tool
@@ -22,9 +22,9 @@ class cmCTestP4 : public cmCTestGlobalVC
 {
 public:
   /** Construct with a CTest instance and update log stream.  */
-  cmCTestP4(cmCTest* ctest, std::ostream& log);
+  cmCTestP4(cmCTest* ctest, cmMakefile* mf, std::ostream& log);
 
-  ~cmCTestP4() CM_OVERRIDE;
+  ~cmCTestP4() override;
 
 private:
   std::vector<std::string> ChangeLists;
@@ -35,29 +35,21 @@ private:
     std::string Name;
     std::string EMail;
     std::string AccessTime;
-
-    User()
-      : UserName()
-      , Name()
-      , EMail()
-      , AccessTime()
-    {
-    }
   };
   std::map<std::string, User> Users;
   std::vector<std::string> P4Options;
 
-  User GetUserData(const std::string& username);
-  void SetP4Options(std::vector<char const*>& options);
+  User GetUserData(std::string const& username);
+  void SetP4Options(std::vector<std::string>& options);
 
   std::string GetWorkingRevision();
-  bool NoteOldRevision() CM_OVERRIDE;
-  bool NoteNewRevision() CM_OVERRIDE;
-  bool UpdateImpl() CM_OVERRIDE;
-  bool UpdateCustom(const std::string& custom);
+  bool NoteOldRevision() override;
+  bool NoteNewRevision() override;
+  bool UpdateImpl() override;
+  bool UpdateCustom(std::string const& custom);
 
-  bool LoadRevisions() CM_OVERRIDE;
-  bool LoadModifications() CM_OVERRIDE;
+  bool LoadRevisions() override;
+  bool LoadModifications() override;
 
   class ChangesParser;
   class DescribeParser;
@@ -72,5 +64,3 @@ private:
   friend class DescribeParser;
   friend class DiffParser;
 };
-
-#endif

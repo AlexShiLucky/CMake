@@ -1,9 +1,11 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmWIXAccessControlList.h"
 
-#include "cmCPackGenerator.h"
+#include <cm/string_view>
 
+#include "cmCPackGenerator.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
 cmWIXAccessControlList::cmWIXAccessControlList(
@@ -17,11 +19,10 @@ cmWIXAccessControlList::cmWIXAccessControlList(
 
 bool cmWIXAccessControlList::Apply()
 {
-  std::vector<std::string> entries;
-  this->InstalledFile.GetPropertyAsList("CPACK_WIX_ACL", entries);
+  auto entries = this->InstalledFile.GetPropertyAsList("CPACK_WIX_ACL");
 
-  for (size_t i = 0; i < entries.size(); ++i) {
-    this->CreatePermissionElement(entries[i]);
+  for (auto const& entry : entries) {
+    this->CreatePermissionElement(entry);
   }
 
   return true;
@@ -35,12 +36,13 @@ void cmWIXAccessControlList::CreatePermissionElement(std::string const& entry)
     return;
   }
 
-  std::string user_and_domain = entry.substr(0, pos);
-  std::string permission_string = entry.substr(pos + 1);
+  cm::string_view enview(entry);
+  cm::string_view user_and_domain = enview.substr(0, pos);
+  cm::string_view permission_string = enview.substr(pos + 1);
 
   pos = user_and_domain.find('@');
-  std::string user;
-  std::string domain;
+  cm::string_view user;
+  cm::string_view domain;
   if (pos != std::string::npos) {
     user = user_and_domain.substr(0, pos);
     domain = user_and_domain.substr(pos + 1);
@@ -48,17 +50,14 @@ void cmWIXAccessControlList::CreatePermissionElement(std::string const& entry)
     user = user_and_domain;
   }
 
-  std::vector<std::string> permissions =
-    cmSystemTools::tokenize(permission_string, ",");
-
   this->SourceWriter.BeginElement("Permission");
-  this->SourceWriter.AddAttribute("User", user);
+  this->SourceWriter.AddAttribute("User", std::string(user));
   if (!domain.empty()) {
-    this->SourceWriter.AddAttribute("Domain", domain);
+    this->SourceWriter.AddAttribute("Domain", std::string(domain));
   }
-  for (size_t i = 0; i < permissions.size(); ++i) {
-    this->EmitBooleanAttribute(entry,
-                               cmSystemTools::TrimWhitespace(permissions[i]));
+  for (auto permission :
+       cmTokenizedView(permission_string, ',', cmTokenizerMode::New)) {
+    this->EmitBooleanAttribute(entry, cmTrimWhitespace(permission));
   }
   this->SourceWriter.EndElement("Permission");
 }
@@ -66,13 +65,14 @@ void cmWIXAccessControlList::CreatePermissionElement(std::string const& entry)
 void cmWIXAccessControlList::ReportError(std::string const& entry,
                                          std::string const& message)
 {
-  cmCPackLogger(cmCPackLog::LOG_ERROR, "Failed processing ACL entry '"
-                  << entry << "': " << message << std::endl);
+  cmCPackLogger(cmCPackLog::LOG_ERROR,
+                "Failed processing ACL entry '" << entry << "': " << message
+                                                << std::endl);
 }
 
 bool cmWIXAccessControlList::IsBooleanAttribute(std::string const& name)
 {
-  static const char* validAttributes[] = {
+  static char const* validAttributes[] = {
     /* clang-format needs this comment to break after the opening brace */
     "Append",
     "ChangePermission",
@@ -101,13 +101,14 @@ bool cmWIXAccessControlList::IsBooleanAttribute(std::string const& name)
     "Write",
     "WriteAttributes",
     "WriteExtendedAttributes",
-    0
+    nullptr
   };
 
   size_t i = 0;
   while (validAttributes[i]) {
-    if (name == validAttributes[i++])
+    if (name == validAttributes[i++]) {
       return true;
+    }
   }
 
   return false;
@@ -117,9 +118,8 @@ void cmWIXAccessControlList::EmitBooleanAttribute(std::string const& entry,
                                                   std::string const& name)
 {
   if (!this->IsBooleanAttribute(name)) {
-    std::ostringstream message;
-    message << "Unknown boolean attribute '" << name << "'";
-    this->ReportError(entry, message.str());
+    this->ReportError(entry,
+                      cmStrCat("Unknown boolean attribute '", name, '\''));
   }
 
   this->SourceWriter.AddAttribute(name, "yes");

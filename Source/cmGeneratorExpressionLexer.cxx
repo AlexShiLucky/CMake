@@ -1,59 +1,57 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmGeneratorExpressionLexer.h"
 
-cmGeneratorExpressionLexer::cmGeneratorExpressionLexer()
-  : SawBeginExpression(false)
-  , SawGeneratorExpression(false)
-{
-}
+cmGeneratorExpressionLexer::cmGeneratorExpressionLexer() = default;
 
-static void InsertText(const char* upto, const char* c,
+static void InsertText(char const* upto, char const* c,
                        std::vector<cmGeneratorExpressionToken>& result)
 {
   if (upto != c) {
-    result.push_back(cmGeneratorExpressionToken(
-      cmGeneratorExpressionToken::Text, upto, c - upto));
+    result.emplace_back(cmGeneratorExpressionToken::Text, upto, c - upto);
   }
 }
 
 std::vector<cmGeneratorExpressionToken> cmGeneratorExpressionLexer::Tokenize(
-  const std::string& input)
+  std::string const& input)
 {
   std::vector<cmGeneratorExpressionToken> result;
 
-  const char* c = input.c_str();
-  const char* upto = c;
+  if (input.find('$') == std::string::npos) {
+    result.emplace_back(cmGeneratorExpressionToken::Text, input.c_str(),
+                        input.size());
+    return result;
+  }
+
+  char const* c = input.c_str();
+  char const* upto = c;
 
   for (; *c; ++c) {
     switch (*c) {
       case '$':
         if (c[1] == '<') {
           InsertText(upto, c, result);
-          result.push_back(cmGeneratorExpressionToken(
-            cmGeneratorExpressionToken::BeginExpression, c, 2));
+          result.emplace_back(cmGeneratorExpressionToken::BeginExpression, c,
+                              2);
           upto = c + 2;
           ++c;
-          SawBeginExpression = true;
+          this->SawBeginExpression = true;
         }
         break;
       case '>':
         InsertText(upto, c, result);
-        result.push_back(cmGeneratorExpressionToken(
-          cmGeneratorExpressionToken::EndExpression, c, 1));
+        result.emplace_back(cmGeneratorExpressionToken::EndExpression, c, 1);
         upto = c + 1;
-        SawGeneratorExpression = SawBeginExpression;
+        this->SawGeneratorExpression = this->SawBeginExpression;
         break;
       case ':':
         InsertText(upto, c, result);
-        result.push_back(cmGeneratorExpressionToken(
-          cmGeneratorExpressionToken::ColonSeparator, c, 1));
+        result.emplace_back(cmGeneratorExpressionToken::ColonSeparator, c, 1);
         upto = c + 1;
         break;
       case ',':
         InsertText(upto, c, result);
-        result.push_back(cmGeneratorExpressionToken(
-          cmGeneratorExpressionToken::CommaSeparator, c, 1));
+        result.emplace_back(cmGeneratorExpressionToken::CommaSeparator, c, 1);
         upto = c + 1;
         break;
       default:

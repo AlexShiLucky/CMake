@@ -1,61 +1,34 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestUploadCommand_h
-#define cmCTestUploadCommand_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCTest.h"
+#include <string>
+#include <vector>
+
+#include "cmArgumentParserTypes.h"
 #include "cmCTestHandlerCommand.h"
 
-#include <string>
+class cmExecutionStatus;
 
-class cmCTestGenericHandler;
-class cmCommand;
-
-/** \class cmCTestUpload
- * \brief Run a ctest script
- *
- * cmCTestUploadCommand defines the command to upload result files for
- * the project.
- */
 class cmCTestUploadCommand : public cmCTestHandlerCommand
 {
 public:
-  cmCTestUploadCommand() {}
-
-  /**
-   * This is a virtual constructor for the command.
-   */
-  cmCommand* Clone() CM_OVERRIDE
-  {
-    cmCTestUploadCommand* ni = new cmCTestUploadCommand;
-    ni->CTest = this->CTest;
-    ni->CTestScriptHandler = this->CTestScriptHandler;
-    return ni;
-  }
-
-  /**
-   * The name of the command as specified in CMakeList.txt.
-   */
-  std::string GetName() const CM_OVERRIDE { return "ctest_upload"; }
-
-  typedef cmCTestHandlerCommand Superclass;
+  using cmCTestHandlerCommand::cmCTestHandlerCommand;
 
 protected:
-  cmCTestGenericHandler* InitializeHandler() CM_OVERRIDE;
-
-  bool CheckArgumentKeyword(std::string const& arg) CM_OVERRIDE;
-  bool CheckArgumentValue(std::string const& arg) CM_OVERRIDE;
-
-  enum
+  struct UploadArguments : BasicArguments
   {
-    ArgumentDoingFiles = Superclass::ArgumentDoingLast1,
-    ArgumentDoingCaptureCMakeError,
-    ArgumentDoingLast2
+    ArgumentParser::MaybeEmpty<std::vector<std::string>> Files;
+    bool Quiet = false;
   };
 
-  cmCTest::SetOfStrings Files;
-};
+private:
+  std::string GetName() const override { return "ctest_upload"; }
 
-#endif
+  bool ExecuteUpload(UploadArguments& args, cmExecutionStatus& status) const;
+
+  bool InitialPass(std::vector<std::string> const& args,
+                   cmExecutionStatus& status) const override;
+};

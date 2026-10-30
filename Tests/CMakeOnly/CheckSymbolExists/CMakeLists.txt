@@ -7,13 +7,19 @@
 # If you change this test do not forget to change the CheckCXXSymbolExists
 # test, too.
 
+cmake_minimum_required(VERSION 3.10)
 project(CheckSymbolExists C)
-
-cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
 set(CMAKE_REQUIRED_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}")
 
 include(CheckSymbolExists)
+
+set(CMAKE_REQUIRED_FLAGS "-DCSE_REQUIRED_FLAG")
+check_symbol_exists(required_flag_symbol "cm_cse.h" CSE_RESULT_REQUIRED_FLAG)
+if(NOT CSE_RESULT_REQUIRED_FLAG)
+  message(SEND_ERROR "CheckSymbolExists did not honor CMAKE_REQUIRED_FLAGS")
+endif()
+unset(CMAKE_REQUIRED_FLAGS)
 
 foreach(_config_type Release RelWithDebInfo MinSizeRel Debug)
   set(CMAKE_TRY_COMPILE_CONFIGURATION ${_config_type})
@@ -38,7 +44,7 @@ else ()
   message(STATUS "errno found as expected")
 endif ()
 
-if (CMAKE_COMPILER_IS_GNUCC)
+if (CMAKE_C_COMPILER_ID MATCHES "^(GNU|LCC)$")
   string(APPEND CMAKE_C_FLAGS " -O3")
   unset(CSE_RESULT_O3 CACHE)
   message(STATUS "Testing with optimization -O3")
@@ -48,4 +54,15 @@ if (CMAKE_COMPILER_IS_GNUCC)
   if (CSE_RESULT_O3)
     message(SEND_ERROR "CheckSymbolExists reported a nonexistent symbol as existing with optimization -O3")
   endif ()
+
+  string(APPEND CMAKE_C_FLAGS " -pedantic-errors")
+  unset(CS_RESULT_PEDANTIC_ERRORS CACHE)
+  message(STATUS "Testing with -pedantic-errors")
+
+  check_symbol_exists(fopen "stdio.h" CSE_RESULT_PEDANTIC_ERRORS)
+
+  if(NOT CSE_RESULT_PEDANTIC_ERRORS)
+    message(SEND_ERROR "CheckSymbolExists reported an existing symbol as nonexisting with -pedantic-errors")
+  endif()
+
 endif ()

@@ -1,8 +1,9 @@
 int foo();
+int bar();
 
-int main()
+int main(void)
 {
-  if (foo() == 0) {
+  if (foo() != bar()) {
     return 1;
   }
   return 0;

@@ -25,8 +25,6 @@
 
 #include "archive_platform.h"
 
-__FBSDID("$FreeBSD$");
-
 #ifdef HAVE_STRING_H
 #  include <string.h>
 #endif
@@ -38,7 +36,6 @@ __FBSDID("$FreeBSD$");
 #include "archive_cmdline_private.h"
 #include "archive_string.h"
 
-static int cmdline_set_path(struct archive_cmdline *, const char *);
 static int cmdline_add_arg(struct archive_cmdline *, const char *);
 
 static ssize_t
@@ -73,7 +70,7 @@ get_argument(struct archive_string *as, const char *p)
 	archive_string_empty(as);
 
 	/* Skip beginning space characters. */
-	while (*s != '\0' && *s == ' ')
+	while (*s == ' ')
 		s++;
 	/* Copy non-space characters. */
 	while (*s != '\0' && *s != ' ') {
@@ -100,10 +97,10 @@ get_argument(struct archive_string *as, const char *p)
 
 /*
  * Set up command line arguments.
- * Returns ARChIVE_OK if everything okey.
- * Returns ARChIVE_FAILED if there is a lack of the `"' terminator or an
+ * Returns ARCHIVE_OK if everything okay.
+ * Returns ARCHIVE_FAILED if there is a lack of the `"' terminator or an
  * empty command line.
- * Returns ARChIVE_FATAL if no memory.
+ * Returns ARCHIVE_FATAL if no memory.
  */
 int
 __archive_cmdline_parse(struct archive_cmdline *data, const char *cmd)
@@ -125,9 +122,12 @@ __archive_cmdline_parse(struct archive_cmdline *data, const char *cmd)
 		r = ARCHIVE_FAILED;/* An empty command path. */
 		goto exit_function;
 	}
-	r = cmdline_set_path(data, as.s);
-	if (r != ARCHIVE_OK)
+	free(data->path);
+	data->path = strdup(as.s);
+	if (data->path == NULL) {
+		r = ARCHIVE_FATAL;
 		goto exit_function;
+	}
 	p = strrchr(as.s, '/');
 	if (p == NULL)
 		p = as.s;
@@ -160,23 +160,7 @@ exit_function:
 }
 
 /*
- * Set the program path.
- */
-static int
-cmdline_set_path(struct archive_cmdline *data, const char *path)
-{
-	char *newptr;
-
-	newptr = realloc(data->path, strlen(path) + 1);
-	if (newptr == NULL)
-		return (ARCHIVE_FATAL);
-	data->path = newptr;
-	strcpy(data->path, path);
-	return (ARCHIVE_OK);
-}
-
-/*
- * Add a argument for the program.
+ * Add an argument for the program.
  */
 static int
 cmdline_add_arg(struct archive_cmdline *data, const char *arg)

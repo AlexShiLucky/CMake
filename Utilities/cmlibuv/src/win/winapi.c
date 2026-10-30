@@ -26,6 +26,7 @@
 
 
 /* Ntdll function pointers */
+sRtlGetVersion pRtlGetVersion;
 sRtlNtStatusToDosError pRtlNtStatusToDosError;
 sNtDeviceIoControlFile pNtDeviceIoControlFile;
 sNtQueryInformationFile pNtQueryInformationFile;
@@ -33,127 +34,221 @@ sNtSetInformationFile pNtSetInformationFile;
 sNtQueryVolumeInformationFile pNtQueryVolumeInformationFile;
 sNtQueryDirectoryFile pNtQueryDirectoryFile;
 sNtQuerySystemInformation pNtQuerySystemInformation;
-
-
-/* Kernel32 function pointers */
-sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
-sSetFileCompletionNotificationModes pSetFileCompletionNotificationModes;
-sCreateSymbolicLinkW pCreateSymbolicLinkW;
-sCancelIoEx pCancelIoEx;
-sInitializeConditionVariable pInitializeConditionVariable;
-sSleepConditionVariableCS pSleepConditionVariableCS;
-sSleepConditionVariableSRW pSleepConditionVariableSRW;
-sWakeAllConditionVariable pWakeAllConditionVariable;
-sWakeConditionVariable pWakeConditionVariable;
-sCancelSynchronousIo pCancelSynchronousIo;
-sGetFinalPathNameByHandleW pGetFinalPathNameByHandleW;
-
+sNtQueryInformationProcess pNtQueryInformationProcess;
 
 /* Powrprof.dll function pointer */
 sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotification;
 
+/* bcryptprimitives.dll function pointer */
+sProcessPrng pProcessPrng;
 
-void uv_winapi_init(void) {
+/* User32.dll function pointer */
+sSetWinEventHook pSetWinEventHook;
+
+/* ws2_32.dll function pointer */
+uv_sGetHostNameW pGetHostNameW;
+
+/* api-ms-win-core-file-l2-1-4.dll function pointer */
+sGetFileInformationByName pGetFileInformationByName;
+
+#if _WIN32_WINNT < 0x0602 /* _WIN32_WINNT_WIN8 */
+sGetSystemTimePreciseAsFileTime pGetSystemTimePreciseAsFileTime;
+sWaitOnAddress pWaitOnAddress;
+sWakeByAddressSingle pWakeByAddressSingle;
+
+static VOID WINAPI uv__WaitOnAddress(volatile VOID* a, PVOID b, SIZE_T sz,
+                                     DWORD timeoutMS)
+{
+  static DWORD const waitMS = 1;
+  DWORD waitedMS = 0;
+  for (;;) {
+    switch (sz) {
+      case 1:
+        if (*(volatile uint8_t*)a != *(uint8_t*)b) return;
+        break;
+      case 2:
+        if (*(volatile uint16_t*)a != *(uint16_t*)b) return;
+        break;
+      case 4:
+        if (*(volatile uint32_t*)a != *(uint32_t*)b) return;
+        break;
+      case 8:
+        if (*(volatile uint64_t*)a != *(uint64_t*)b) return;
+        break;
+      default:
+        return;
+    }
+    if (timeoutMS != INFINITE) {
+      if (waitedMS >= timeoutMS) {
+        return;
+      }
+      waitedMS += waitMS;
+    }
+    Sleep(waitMS);
+  }
+}
+
+static VOID WINAPI uv__WakeByAddressSingle(PVOID address)
+{
+  (void)address;
+}
+#endif
+
+void uv__winapi_init(void) {
   HMODULE ntdll_module;
-  HMODULE kernel32_module;
   HMODULE powrprof_module;
+  HMODULE user32_module;
+  HMODULE ws2_32_module;
+  HMODULE bcryptprimitives_module;
+  HMODULE api_win_core_file_module;
+#if _WIN32_WINNT < 0x0602 /* _WIN32_WINNT_WIN8 */
+  HMODULE kernel32_module;
+  HMODULE api_win_core_synch_module;
+#endif
 
-  ntdll_module = GetModuleHandleA("ntdll.dll");
+  union {
+    FARPROC proc;
+    sRtlGetVersion pRtlGetVersion;
+    sRtlNtStatusToDosError pRtlNtStatusToDosError;
+    sNtDeviceIoControlFile pNtDeviceIoControlFile;
+    sNtQueryInformationFile pNtQueryInformationFile;
+    sNtSetInformationFile pNtSetInformationFile;
+    sNtQueryVolumeInformationFile pNtQueryVolumeInformationFile;
+    sNtQueryDirectoryFile pNtQueryDirectoryFile;
+    sNtQuerySystemInformation pNtQuerySystemInformation;
+    sNtQueryInformationProcess pNtQueryInformationProcess;
+    sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotification;
+    sProcessPrng pProcessPrng;
+    sSetWinEventHook pSetWinEventHook;
+    uv_sGetHostNameW pGetHostNameW;
+    sGetFileInformationByName pGetFileInformationByName;
+#if _WIN32_WINNT < 0x0602 /* _WIN32_WINNT_WIN8 */
+    sGetSystemTimePreciseAsFileTime pGetSystemTimePreciseAsFileTime;
+    sWaitOnAddress pWaitOnAddress;
+    sWakeByAddressSingle pWakeByAddressSingle;
+#endif
+  } u;
+
+  ntdll_module = GetModuleHandleW(L"ntdll.dll");
   if (ntdll_module == NULL) {
-    uv_fatal_error(GetLastError(), "GetModuleHandleA");
+    uv_fatal_error(GetLastError(), "GetModuleHandleW");
   }
 
-  pRtlNtStatusToDosError = (sRtlNtStatusToDosError) GetProcAddress(
-      ntdll_module,
-      "RtlNtStatusToDosError");
+  u.proc = GetProcAddress(ntdll_module, "RtlGetVersion");
+  pRtlGetVersion = u.pRtlGetVersion;
+
+  u.proc = GetProcAddress(ntdll_module, "RtlNtStatusToDosError");
+  pRtlNtStatusToDosError = u.pRtlNtStatusToDosError;
   if (pRtlNtStatusToDosError == NULL) {
     uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  pNtDeviceIoControlFile = (sNtDeviceIoControlFile) GetProcAddress(
-      ntdll_module,
-      "NtDeviceIoControlFile");
+  u.proc = GetProcAddress(ntdll_module, "NtDeviceIoControlFile");
+  pNtDeviceIoControlFile = u.pNtDeviceIoControlFile;
   if (pNtDeviceIoControlFile == NULL) {
     uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  pNtQueryInformationFile = (sNtQueryInformationFile) GetProcAddress(
-      ntdll_module,
-      "NtQueryInformationFile");
+  u.proc = GetProcAddress(ntdll_module, "NtQueryInformationFile");
+  pNtQueryInformationFile = u.pNtQueryInformationFile;
   if (pNtQueryInformationFile == NULL) {
     uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  pNtSetInformationFile = (sNtSetInformationFile) GetProcAddress(
-      ntdll_module,
-      "NtSetInformationFile");
+  u.proc = GetProcAddress(ntdll_module, "NtSetInformationFile");
+  pNtSetInformationFile = u.pNtSetInformationFile;
   if (pNtSetInformationFile == NULL) {
     uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  pNtQueryVolumeInformationFile = (sNtQueryVolumeInformationFile)
-      GetProcAddress(ntdll_module, "NtQueryVolumeInformationFile");
+  u.proc = GetProcAddress(ntdll_module, "NtQueryVolumeInformationFile");
+  pNtQueryVolumeInformationFile = u.pNtQueryVolumeInformationFile;
   if (pNtQueryVolumeInformationFile == NULL) {
     uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  pNtQueryDirectoryFile = (sNtQueryDirectoryFile)
-      GetProcAddress(ntdll_module, "NtQueryDirectoryFile");
-  if (pNtQueryVolumeInformationFile == NULL) {
+  u.proc = GetProcAddress(ntdll_module, "NtQueryDirectoryFile");
+  pNtQueryDirectoryFile = u.pNtQueryDirectoryFile;
+  if (pNtQueryDirectoryFile == NULL) {
     uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  pNtQuerySystemInformation = (sNtQuerySystemInformation) GetProcAddress(
-      ntdll_module,
-      "NtQuerySystemInformation");
+  u.proc = GetProcAddress(ntdll_module, "NtQuerySystemInformation");
+  pNtQuerySystemInformation = u.pNtQuerySystemInformation;
   if (pNtQuerySystemInformation == NULL) {
     uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  kernel32_module = GetModuleHandleA("kernel32.dll");
-  if (kernel32_module == NULL) {
-    uv_fatal_error(GetLastError(), "GetModuleHandleA");
+  u.proc = GetProcAddress(ntdll_module, "NtQueryInformationProcess");
+  pNtQueryInformationProcess = u.pNtQueryInformationProcess;
+  if (pNtQueryInformationProcess == NULL) {
+    uv_fatal_error(GetLastError(), "GetProcAddress");
   }
 
-  pGetQueuedCompletionStatusEx = (sGetQueuedCompletionStatusEx) GetProcAddress(
-      kernel32_module,
-      "GetQueuedCompletionStatusEx");
-
-  pSetFileCompletionNotificationModes = (sSetFileCompletionNotificationModes)
-    GetProcAddress(kernel32_module, "SetFileCompletionNotificationModes");
-
-  pCreateSymbolicLinkW = (sCreateSymbolicLinkW)
-    GetProcAddress(kernel32_module, "CreateSymbolicLinkW");
-
-  pCancelIoEx = (sCancelIoEx)
-    GetProcAddress(kernel32_module, "CancelIoEx");
-
-  pInitializeConditionVariable = (sInitializeConditionVariable)
-    GetProcAddress(kernel32_module, "InitializeConditionVariable");
-
-  pSleepConditionVariableCS = (sSleepConditionVariableCS)
-    GetProcAddress(kernel32_module, "SleepConditionVariableCS");
-
-  pSleepConditionVariableSRW = (sSleepConditionVariableSRW)
-    GetProcAddress(kernel32_module, "SleepConditionVariableSRW");
-
-  pWakeAllConditionVariable = (sWakeAllConditionVariable)
-    GetProcAddress(kernel32_module, "WakeAllConditionVariable");
-
-  pWakeConditionVariable = (sWakeConditionVariable)
-    GetProcAddress(kernel32_module, "WakeConditionVariable");
-
-  pCancelSynchronousIo = (sCancelSynchronousIo)
-    GetProcAddress(kernel32_module, "CancelSynchronousIo");
-
-  pGetFinalPathNameByHandleW = (sGetFinalPathNameByHandleW)
-    GetProcAddress(kernel32_module, "GetFinalPathNameByHandleW");
-
-
-  powrprof_module = LoadLibraryA("powrprof.dll");
+  powrprof_module = LoadLibraryExA("powrprof.dll",
+                                   NULL,
+                                   LOAD_LIBRARY_SEARCH_SYSTEM32);
   if (powrprof_module != NULL) {
-    pPowerRegisterSuspendResumeNotification = (sPowerRegisterSuspendResumeNotification)
-      GetProcAddress(powrprof_module, "PowerRegisterSuspendResumeNotification");
+    u.proc = GetProcAddress(powrprof_module,
+                            "PowerRegisterSuspendResumeNotification");
+    pPowerRegisterSuspendResumeNotification =
+        u.pPowerRegisterSuspendResumeNotification;
   }
 
+  bcryptprimitives_module = LoadLibraryExA("bcryptprimitives.dll",
+                                           NULL,
+                                           LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (bcryptprimitives_module != NULL) {
+    u.proc = GetProcAddress(bcryptprimitives_module, "ProcessPrng");
+    pProcessPrng = u.pProcessPrng;
+  }
+
+  user32_module = GetModuleHandleW(L"user32.dll");
+  if (user32_module != NULL) {
+    u.proc = GetProcAddress(user32_module, "SetWinEventHook");
+    pSetWinEventHook = u.pSetWinEventHook;
+  }
+
+  ws2_32_module = GetModuleHandleW(L"ws2_32.dll");
+  if (ws2_32_module != NULL) {
+    u.proc = GetProcAddress(ws2_32_module, "GetHostNameW");
+    pGetHostNameW = u.pGetHostNameW;
+  }
+
+  api_win_core_file_module =
+      GetModuleHandleW(L"api-ms-win-core-file-l2-1-4.dll");
+  if (api_win_core_file_module != NULL) {
+    u.proc = GetProcAddress(api_win_core_file_module,
+                            "GetFileInformationByName");
+    pGetFileInformationByName = u.pGetFileInformationByName;
+  }
+
+#if _WIN32_WINNT < 0x0602 /* _WIN32_WINNT_WIN8 */
+  kernel32_module = GetModuleHandleW(L"kernel32.dll");
+  if (kernel32_module != NULL) {
+    u.proc = GetProcAddress(kernel32_module,
+                            "GetSystemTimePreciseAsFileTime");
+    pGetSystemTimePreciseAsFileTime = u.pGetSystemTimePreciseAsFileTime;
+    if (pGetSystemTimePreciseAsFileTime == NULL) {
+      pGetSystemTimePreciseAsFileTime = GetSystemTimeAsFileTime;
+    }
+  }
+
+  api_win_core_synch_module =
+    GetModuleHandleW(L"api-ms-win-core-synch-l1-2-0.dll");
+  if (api_win_core_synch_module != NULL) {
+    u.proc = GetProcAddress(api_win_core_synch_module,
+                            "WaitOnAddress");
+    pWaitOnAddress = u.pWaitOnAddress;
+
+    u.proc = GetProcAddress(api_win_core_synch_module,
+                            "WakeByAddressSingle");
+    pWakeByAddressSingle = u.pWakeByAddressSingle;
+
+  }
+  if (!pWaitOnAddress || !pWakeByAddressSingle) {
+    pWaitOnAddress = uv__WaitOnAddress;
+    pWakeByAddressSingle = uv__WakeByAddressSingle;
+  }
+#endif
 }

@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 #[=======================================================================[.rst:
 FindLibUV
@@ -19,11 +19,7 @@ Result Variables
 This module defines the following variables:
 
 ``LibUV_FOUND``
-  True if libuv was found, false otherwise.
-``LibUV_INCLUDE_DIRS``
-  Include directories needed to include libuv headers.
-``LibUV_LIBRARIES``
-  Libraries needed to link to libuv.
+  Boolean indicating whether (the requested version of) libuv was found.
 ``LibUV_VERSION``
   The version of libuv found.
 ``LibUV_VERSION_MAJOR``
@@ -32,6 +28,10 @@ This module defines the following variables:
   The minor version of libuv.
 ``LibUV_VERSION_PATCH``
   The patch version of libuv.
+``LibUV_INCLUDE_DIRS``
+  Include directories needed to include libuv headers.
+``LibUV_LIBRARIES``
+  Libraries needed to link to libuv.
 
 Cache Variables
 ^^^^^^^^^^^^^^^
@@ -63,6 +63,8 @@ mark_as_advanced(LibUV_INCLUDE_DIR)
 set(_LibUV_H_REGEX "#[ \t]*define[ \t]+UV_VERSION_(MAJOR|MINOR|PATCH)[ \t]+[0-9]+")
 if(LibUV_INCLUDE_DIR AND EXISTS "${LibUV_INCLUDE_DIR}/uv-version.h")
   file(STRINGS "${LibUV_INCLUDE_DIR}/uv-version.h" _LibUV_H REGEX "${_LibUV_H_REGEX}")
+elseif(LibUV_INCLUDE_DIR AND EXISTS "${LibUV_INCLUDE_DIR}/uv/version.h")
+  file(STRINGS "${LibUV_INCLUDE_DIR}/uv/version.h" _LibUV_H REGEX "${_LibUV_H_REGEX}")
 elseif(LibUV_INCLUDE_DIR AND EXISTS "${LibUV_INCLUDE_DIR}/uv.h")
   file(STRINGS "${LibUV_INCLUDE_DIR}/uv.h" _LibUV_H REGEX "${_LibUV_H_REGEX}")
 else()
@@ -99,12 +101,10 @@ unset(_LibUV_H)
 
 #-----------------------------------------------------------------------------
 include(${CMAKE_CURRENT_LIST_DIR}/../../Modules/FindPackageHandleStandardArgs.cmake)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(LibUV
-  FOUND_VAR LibUV_FOUND
+find_package_handle_standard_args(LibUV
   REQUIRED_VARS LibUV_LIBRARY LibUV_INCLUDE_DIR
   VERSION_VAR LibUV_VERSION
   )
-set(LIBUV_FOUND ${LibUV_FOUND})
 
 #-----------------------------------------------------------------------------
 # Provide documented result variables and targets.

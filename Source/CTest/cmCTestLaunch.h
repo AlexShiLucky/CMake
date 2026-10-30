@@ -1,16 +1,21 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestLaunch_h
-#define cmCTestLaunch_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmsys/RegularExpression.hxx"
-#include <set>
 #include <string>
 #include <vector>
 
-class cmXMLWriter;
+#include <cm/optional>
+
+#include <cmsys/SystemInformation.hxx>
+
+#include "cmCTestLaunchReporter.h"
+
+namespace cmsys {
+class RegularExpression;
+}
 
 /** \class cmCTestLaunch
  * \brief Launcher for make rules to report results for ctest
@@ -19,85 +24,67 @@ class cmXMLWriter;
  */
 class cmCTestLaunch
 {
+
 public:
+  enum class Op
+  {
+    Normal,
+    Instrument,
+    InstrumentTest,
+  };
+
   /** Entry point from ctest executable main().  */
-  static int Main(int argc, const char* const argv[]);
+  static int Main(int argc, char const* const argv[], Op operation);
+
+  cmCTestLaunch(cmCTestLaunch const&) = delete;
+  cmCTestLaunch& operator=(cmCTestLaunch const&) = delete;
 
 private:
   // Initialize the launcher from its command line.
-  cmCTestLaunch(int argc, const char* const* argv);
+  cmCTestLaunch(int argc, char const* const* argv, Op operation);
   ~cmCTestLaunch();
 
   // Run the real command.
   int Run();
   void RunChild();
 
-  // Methods to check the result of the real command.
-  bool IsError() const;
+  // Method to check the result of the real command.
   bool CheckResults();
 
-  // Launcher options specified before the real command.
-  std::string OptionOutput;
-  std::string OptionSource;
-  std::string OptionLanguage;
-  std::string OptionTargetName;
-  std::string OptionTargetType;
-  std::string OptionBuildDir;
-  std::string OptionFilterPrefix;
-  bool ParseArguments(int argc, const char* const* argv);
+  // Parse out launcher-specific options specified before the real command.
+  bool ParseArguments(int argc, char const* const* argv);
 
   // The real command line appearing after launcher arguments.
-  int RealArgC;
-  const char* const* RealArgV;
-  std::string CWD;
+  std::vector<std::string> RealArgV;
 
   // The real command line after response file expansion.
   std::vector<std::string> RealArgs;
-  void HandleRealArg(const char* arg);
+  void HandleRealArg(char const* arg);
+  std::string MetricsFile;
 
-  // A hash of the real command line is unique and unlikely to collide.
-  std::string LogHash;
-  void ComputeFileNames();
+  cm::optional<cmsys::SystemInformation::ProcessResourceUsage>
+    ChildResourceUsage;
+  void WriteMetricsFile() const;
 
-  bool Passthru;
-  struct cmsysProcess_s* Process;
-  int ExitCode;
-
-  // Temporary log files for stdout and stderr of real command.
-  std::string LogDir;
-  std::string LogOut;
-  std::string LogErr;
+  // Whether or not any data have been written to stdout or stderr.
   bool HaveOut;
   bool HaveErr;
+  std::string CapturedStdOut;
+  std::string CapturedStdErr;
 
-  // Labels associated with the build rule.
-  std::set<std::string> Labels;
-  void LoadLabels();
-  bool SourceMatches(std::string const& lhs, std::string const& rhs);
-
-  // Regular expressions to match warnings and their exceptions.
+  // Load custom rules to match warnings and their exceptions.
   bool ScrapeRulesLoaded;
-  std::vector<cmsys::RegularExpression> RegexWarning;
-  std::vector<cmsys::RegularExpression> RegexWarningSuppress;
   void LoadScrapeRules();
-  void LoadScrapeRules(const char* purpose,
-                       std::vector<cmsys::RegularExpression>& regexps);
+  void LoadScrapeRules(char const* purpose,
+                       std::vector<cmsys::RegularExpression>& regexps) const;
   bool ScrapeLog(std::string const& fname);
-  bool Match(std::string const& line,
-             std::vector<cmsys::RegularExpression>& regexps);
-  bool MatchesFilterPrefix(std::string const& line) const;
 
-  // Methods to generate the xml fragment.
-  void WriteXML();
-  void WriteXMLAction(cmXMLWriter& xml);
-  void WriteXMLCommand(cmXMLWriter& xml);
-  void WriteXMLResult(cmXMLWriter& xml);
-  void WriteXMLLabels(cmXMLWriter& xml);
-  void DumpFileToXML(cmXMLWriter& xml, std::string const& fname);
+  // Helper class to generate the xml fragment.
+  cmCTestLaunchReporter Reporter;
 
   // Configuration
   void LoadConfig();
-  std::string SourceDir;
-};
 
-#endif
+  // Mode
+  Op Operation;
+};

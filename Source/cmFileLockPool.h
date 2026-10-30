@@ -1,90 +1,87 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmFileLockPool_h
-#define cmFileLockPool_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
-class cmFileLock;
+#include "cmFileLock.h"
+
 class cmFileLockResult;
 
 class cmFileLockPool
 {
-  CM_DISABLE_COPY(cmFileLockPool)
-
 public:
   cmFileLockPool();
   ~cmFileLockPool();
 
+  cmFileLockPool(cmFileLockPool const&) = delete;
+  cmFileLockPool& operator=(cmFileLockPool const&) = delete;
+
   //@{
   /**
-    * @brief Function scope control.
-    */
+   * @brief Function scope control.
+   */
   void PushFunctionScope();
   void PopFunctionScope();
   //@}
 
   //@{
   /**
-    * @brief File scope control.
-    */
+   * @brief File scope control.
+   */
   void PushFileScope();
   void PopFileScope();
   //@}
 
   //@{
   /**
-    * @brief Lock the file in given scope.
-    * @param timeoutSec Lock timeout. If -1 try until success or fatal error.
-    */
-  cmFileLockResult LockFunctionScope(const std::string& filename,
+   * @brief Lock the file in given scope.
+   * @param timeoutSec Lock timeout. If -1 try until success or fatal error.
+   */
+  cmFileLockResult LockFunctionScope(std::string const& filename,
                                      unsigned long timeoutSec);
-  cmFileLockResult LockFileScope(const std::string& filename,
+  cmFileLockResult LockFileScope(std::string const& filename,
                                  unsigned long timeoutSec);
-  cmFileLockResult LockProcessScope(const std::string& filename,
+  cmFileLockResult LockProcessScope(std::string const& filename,
                                     unsigned long timeoutSec);
   //@}
 
   /**
-    * @brief Unlock the file explicitly.
-    */
-  cmFileLockResult Release(const std::string& filename);
+   * @brief Unlock the file explicitly.
+   */
+  cmFileLockResult Release(std::string const& filename);
 
 private:
-  bool IsAlreadyLocked(const std::string& filename) const;
+  bool IsAlreadyLocked(std::string const& filename) const;
 
   class ScopePool
   {
-    CM_DISABLE_COPY(ScopePool)
-
   public:
     ScopePool();
     ~ScopePool();
 
-    cmFileLockResult Lock(const std::string& filename,
+    ScopePool(ScopePool const&) = delete;
+    ScopePool(ScopePool&&) noexcept;
+    ScopePool& operator=(ScopePool const&) = delete;
+    ScopePool& operator=(ScopePool&&) noexcept;
+
+    cmFileLockResult Lock(std::string const& filename,
                           unsigned long timeoutSec);
-    cmFileLockResult Release(const std::string& filename);
-    bool IsAlreadyLocked(const std::string& filename) const;
+    cmFileLockResult Release(std::string const& filename);
+    bool IsAlreadyLocked(std::string const& filename) const;
 
   private:
-    typedef std::vector<cmFileLock*> List;
-    typedef List::iterator It;
-    typedef List::const_iterator CIt;
+    using List = std::vector<cmFileLock>;
 
     List Locks;
   };
 
-  typedef std::vector<ScopePool*> List;
-
-  typedef List::iterator It;
-  typedef List::const_iterator CIt;
+  using List = std::vector<ScopePool>;
 
   List FunctionScopes;
   List FileScopes;
   ScopePool ProcessScope;
 };
-
-#endif // cmFileLockPool_h

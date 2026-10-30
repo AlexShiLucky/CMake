@@ -1,45 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef _cmDocumentationFormatter_h
-#define _cmDocumentationFormatter_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <cstddef>
 #include <iosfwd>
+#include <string>
 
-/** This is just a helper class to make it build with MSVC 6.0.
-Actually the enums and internal classes could directly go into
-cmDocumentation, but then MSVC6 complains in RequestedHelpItem that
-cmDocumentation is an undefined type and so it doesn't know the enums.
-Moving the enums to a class which is then already completely parsed helps
-against this. */
-class cmDocumentationEnums
-{
-public:
-  /** Types of help provided.  */
-  enum Type
-  {
-    None,
-    Version,
-    Usage,
-    Help,
-    Full,
-    ListManuals,
-    ListCommands,
-    ListModules,
-    ListProperties,
-    ListVariables,
-    ListPolicies,
-    ListGenerators,
-    OneManual,
-    OneCommand,
-    OneModule,
-    OneProperty,
-    OneVariable,
-    OnePolicy,
-    OldCustomModules
-  };
-};
+#include <cm/string_view>
 
 class cmDocumentationSection;
 
@@ -47,20 +16,17 @@ class cmDocumentationSection;
 class cmDocumentationFormatter
 {
 public:
-  cmDocumentationFormatter();
-  virtual ~cmDocumentationFormatter();
-  void PrintFormatted(std::ostream& os, const char* text);
+  std::string Format(cm::string_view text) const;
+  void PrintSection(std::ostream& os, cmDocumentationSection const& section);
+  void PrintFormatted(std::ostream& os, std::string const& text) const;
+  void SetIndent(std::size_t indent) { this->TextIndent = indent; }
 
-  virtual void PrintSection(std::ostream& os,
-                            cmDocumentationSection const& section);
-  virtual void PrintPreformatted(std::ostream& os, const char* text);
-  virtual void PrintParagraph(std::ostream& os, const char* text);
-  void PrintColumn(std::ostream& os, const char* text);
-  void SetIndent(const char* indent);
+  static constexpr std::size_t TEXT_WIDTH = 77u;
 
 private:
-  int TextWidth;
-  const char* TextIndent;
-};
+  void PrintPreformatted(std::ostream& os, std::string const&) const;
+  void PrintParagraph(std::ostream& os, std::string const&) const;
+  void PrintColumn(std::ostream& os, std::string const&) const;
 
-#endif
+  std::size_t TextIndent = 0u;
+};

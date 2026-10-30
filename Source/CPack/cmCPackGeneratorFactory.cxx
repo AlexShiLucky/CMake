@@ -1,62 +1,116 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCPackGeneratorFactory.h"
 
 #include <ostream>
 #include <utility>
 
 #include "IFW/cmCPackIFWGenerator.h"
-#include "cmAlgorithms.h"
-#include "cmCPack7zGenerator.h"
-#ifdef HAVE_FREEBSD_PKG
-#include "cmCPackFreeBSDGenerator.h"
+#if ENABLE_BUILD_FREEBSD_PKG
+#  include "cmCPackFreeBSDGenerator.h"
 #endif
+#include "cmCPackAPKGenerator.h"
+#include "cmCPackArchiveGenerator.h"
 #include "cmCPackDebGenerator.h"
+#include "cmCPackExternalGenerator.h"
 #include "cmCPackGenerator.h"
+#include "cmCPackInnoSetupGenerator.h"
 #include "cmCPackLog.h"
 #include "cmCPackNSISGenerator.h"
+#include "cmCPackNuGetGenerator.h"
 #include "cmCPackSTGZGenerator.h"
-#include "cmCPackTGZGenerator.h"
-#include "cmCPackTXZGenerator.h"
-#include "cmCPackTarBZip2Generator.h"
-#include "cmCPackTarCompressGenerator.h"
-#include "cmCPackZIPGenerator.h"
 
 #ifdef __APPLE__
-#include "cmCPackBundleGenerator.h"
-#include "cmCPackDragNDropGenerator.h"
-#include "cmCPackOSXX11Generator.h"
-#include "cmCPackPackageMakerGenerator.h"
-#include "cmCPackProductBuildGenerator.h"
+#  include "cmCPackBundleGenerator.h"
+#  include "cmCPackDragNDropGenerator.h"
+#  include "cmCPackProductBuildGenerator.h"
 #endif
 
 #ifdef __CYGWIN__
-#include "cmCPackCygwinBinaryGenerator.h"
-#include "cmCPackCygwinSourceGenerator.h"
+#  include "cmCPackCygwinBinaryGenerator.h"
+#  include "cmCPackCygwinSourceGenerator.h"
 #endif
 
 #if !defined(_WIN32) && !defined(__QNXNTO__) && !defined(__BEOS__) &&         \
   !defined(__HAIKU__)
-#include "cmCPackRPMGenerator.h"
+#  include "cmCPackRPMGenerator.h"
 #endif
 
-#ifdef _WIN32
-#include "WiX/cmCPackWIXGenerator.h"
+#if ENABLE_BUILD_WIX_GENERATOR
+#  include "WiX/cmCPackWIXGenerator.h"
+#endif
+
+#ifdef __linux__
+#  include "cmCPackAppImageGenerator.h"
 #endif
 
 cmCPackGeneratorFactory::cmCPackGeneratorFactory()
 {
-  if (cmCPackTGZGenerator::CanGenerate()) {
+  if (cmCPackArchiveGenerator::CanGenerate()) {
+    this->RegisterGenerator(
+      "7Z", "7-Zip file format with default compression algorithm",
+      cmCPackArchiveGenerator::Create7ZGenerator);
+    this->RegisterGenerator("7Z_STORE",
+                            "7-Zip file format without compression",
+                            cmCPackArchiveGenerator::Create7ZStoreGenerator);
+    this->RegisterGenerator("7Z_DEFLATE",
+                            "7-Zip file format with Deflate compression",
+                            cmCPackArchiveGenerator::Create7ZDeflateGenerator);
+    this->RegisterGenerator("7Z_BZ2",
+                            "7-Zip file format with BZip2 compression",
+                            cmCPackArchiveGenerator::Create7ZBzip2Generator);
+    this->RegisterGenerator("7Z_LZMA",
+                            "7-Zip file format with LZMA compression",
+                            cmCPackArchiveGenerator::Create7ZLzmaGenerator);
+    this->RegisterGenerator("7Z_LZMA2",
+                            "7-Zip file format with LZMA2 compression",
+                            cmCPackArchiveGenerator::Create7ZLzma2Generator);
+    this->RegisterGenerator("7Z_ZSTD",
+                            "7-Zip file format with Zstandard compression",
+                            cmCPackArchiveGenerator::Create7ZZstdGenerator);
+    this->RegisterGenerator("7Z_PPMD",
+                            "7-Zip file format with PPMd compression",
+                            cmCPackArchiveGenerator::Create7ZPPMdGenerator);
+    this->RegisterGenerator("TBZ2", "Tar BZip2 compression",
+                            cmCPackArchiveGenerator::CreateTBZ2Generator);
     this->RegisterGenerator("TGZ", "Tar GZip compression",
-                            cmCPackTGZGenerator::CreateGenerator);
-  }
-  if (cmCPackTXZGenerator::CanGenerate()) {
+                            cmCPackArchiveGenerator::CreateTGZGenerator);
     this->RegisterGenerator("TXZ", "Tar XZ compression",
-                            cmCPackTXZGenerator::CreateGenerator);
+                            cmCPackArchiveGenerator::CreateTXZGenerator);
+    this->RegisterGenerator("TZ", "Tar Compress compression",
+                            cmCPackArchiveGenerator::CreateTZGenerator);
+    this->RegisterGenerator("TZST", "Tar Zstandard compression",
+                            cmCPackArchiveGenerator::CreateTZSTGenerator);
+    this->RegisterGenerator("TAR", "Tar no compression",
+                            cmCPackArchiveGenerator::CreateTarGenerator);
+    this->RegisterGenerator(
+      "ZIP", "ZIP file format with default compression algorithm",
+      cmCPackArchiveGenerator::CreateZIPGenerator);
+    this->RegisterGenerator("ZIP_STORE", "ZIP file format without compression",
+                            cmCPackArchiveGenerator::CreateZipStoreGenerator);
+    this->RegisterGenerator(
+      "ZIP_DEFLATE", "ZIP file format with Deflate compression",
+      cmCPackArchiveGenerator::CreateZipDeflateGenerator);
+    this->RegisterGenerator("ZIP_BZ2",
+                            "ZIP file format with BZip2 compression",
+                            cmCPackArchiveGenerator::CreateZipBzip2Generator);
+    this->RegisterGenerator("ZIP_LZMA",
+                            "ZIP file format with LZMA compression",
+                            cmCPackArchiveGenerator::CreateZipLzmaGenerator);
+    this->RegisterGenerator("ZIP_LZMA2",
+                            "ZIP file format with LZMA2 compression",
+                            cmCPackArchiveGenerator::CreateZipLzma2Generator);
+    this->RegisterGenerator("ZIP_ZSTD",
+                            "ZIP file format with Zstandard compression",
+                            cmCPackArchiveGenerator::CreateZipZstdGenerator);
   }
   if (cmCPackSTGZGenerator::CanGenerate()) {
     this->RegisterGenerator("STGZ", "Self extracting Tar GZip compression",
                             cmCPackSTGZGenerator::CreateGenerator);
+  }
+  if (cmCPackInnoSetupGenerator::CanGenerate()) {
+    this->RegisterGenerator("INNOSETUP", "Inno Setup packages",
+                            cmCPackInnoSetupGenerator::CreateGenerator);
   }
   if (cmCPackNSISGenerator::CanGenerate()) {
     this->RegisterGenerator("NSIS", "Null Soft Installer",
@@ -78,32 +132,27 @@ cmCPackGeneratorFactory::cmCPackGeneratorFactory()
                             cmCPackCygwinSourceGenerator::CreateGenerator);
   }
 #endif
-
-  if (cmCPackZIPGenerator::CanGenerate()) {
-    this->RegisterGenerator("ZIP", "ZIP file format",
-                            cmCPackZIPGenerator::CreateGenerator);
-  }
-  if (cmCPack7zGenerator::CanGenerate()) {
-    this->RegisterGenerator("7Z", "7-Zip file format",
-                            cmCPack7zGenerator::CreateGenerator);
-  }
-#ifdef _WIN32
+#if ENABLE_BUILD_WIX_GENERATOR
   if (cmCPackWIXGenerator::CanGenerate()) {
     this->RegisterGenerator("WIX", "MSI file format via WiX tools",
                             cmCPackWIXGenerator::CreateGenerator);
   }
 #endif
-  if (cmCPackTarBZip2Generator::CanGenerate()) {
-    this->RegisterGenerator("TBZ2", "Tar BZip2 compression",
-                            cmCPackTarBZip2Generator::CreateGenerator);
-  }
-  if (cmCPackTarCompressGenerator::CanGenerate()) {
-    this->RegisterGenerator("TZ", "Tar Compress compression",
-                            cmCPackTarCompressGenerator::CreateGenerator);
-  }
   if (cmCPackDebGenerator::CanGenerate()) {
     this->RegisterGenerator("DEB", "Debian packages",
                             cmCPackDebGenerator::CreateGenerator);
+  }
+  if (cmCPackNuGetGenerator::CanGenerate()) {
+    this->RegisterGenerator("NuGet", "NuGet packages",
+                            cmCPackNuGetGenerator::CreateGenerator);
+  }
+  if (cmCPackAPKGenerator::CanGenerate()) {
+    this->RegisterGenerator("APK", "Android APK packages",
+                            cmCPackAPKGenerator::CreateGenerator);
+  }
+  if (cmCPackExternalGenerator::CanGenerate()) {
+    this->RegisterGenerator("External", "CPack External packages",
+                            cmCPackExternalGenerator::CreateGenerator);
   }
 #ifdef __APPLE__
   if (cmCPackDragNDropGenerator::CanGenerate()) {
@@ -113,14 +162,6 @@ cmCPackGeneratorFactory::cmCPackGeneratorFactory()
   if (cmCPackBundleGenerator::CanGenerate()) {
     this->RegisterGenerator("Bundle", "Mac OSX bundle",
                             cmCPackBundleGenerator::CreateGenerator);
-  }
-  if (cmCPackPackageMakerGenerator::CanGenerate()) {
-    this->RegisterGenerator("PackageMaker", "Mac OSX Package Maker installer",
-                            cmCPackPackageMakerGenerator::CreateGenerator);
-  }
-  if (cmCPackOSXX11Generator::CanGenerate()) {
-    this->RegisterGenerator("OSXX11", "Mac OSX X11 bundle",
-                            cmCPackOSXX11Generator::CreateGenerator);
   }
   if (cmCPackProductBuildGenerator::CanGenerate()) {
     this->RegisterGenerator("productbuild", "Mac OSX pkg",
@@ -134,44 +175,37 @@ cmCPackGeneratorFactory::cmCPackGeneratorFactory()
                             cmCPackRPMGenerator::CreateGenerator);
   }
 #endif
-#ifdef HAVE_FREEBSD_PKG
+#if ENABLE_BUILD_FREEBSD_PKG
   if (cmCPackFreeBSDGenerator::CanGenerate()) {
     this->RegisterGenerator("FREEBSD", "FreeBSD pkg(8) packages",
                             cmCPackFreeBSDGenerator::CreateGenerator);
   }
 #endif
+#ifdef __linux__
+  if (cmCPackAppImageGenerator::CanGenerate()) {
+    this->RegisterGenerator("AppImage", "AppImage packages",
+                            cmCPackAppImageGenerator::CreateGenerator);
+  }
+#endif
 }
 
-cmCPackGeneratorFactory::~cmCPackGeneratorFactory()
+std::unique_ptr<cmCPackGenerator> cmCPackGeneratorFactory::NewGenerator(
+  std::string const& name)
 {
-  cmDeleteAll(this->Generators);
-}
-
-cmCPackGenerator* cmCPackGeneratorFactory::NewGenerator(
-  const std::string& name)
-{
-  cmCPackGenerator* gen = this->NewGeneratorInternal(name);
+  auto it = this->GeneratorCreators.find(name);
+  if (it == this->GeneratorCreators.end()) {
+    return nullptr;
+  }
+  std::unique_ptr<cmCPackGenerator> gen(it->second());
   if (!gen) {
     return nullptr;
   }
-  this->Generators.push_back(gen);
   gen->SetLogger(this->Logger);
   return gen;
 }
 
-cmCPackGenerator* cmCPackGeneratorFactory::NewGeneratorInternal(
-  const std::string& name)
-{
-  cmCPackGeneratorFactory::t_GeneratorCreatorsMap::iterator it =
-    this->GeneratorCreators.find(name);
-  if (it == this->GeneratorCreators.end()) {
-    return nullptr;
-  }
-  return (it->second)();
-}
-
 void cmCPackGeneratorFactory::RegisterGenerator(
-  const std::string& name, const char* generatorDescription,
+  std::string const& name, char const* generatorDescription,
   CreateGeneratorCall* createGenerator)
 {
   if (!createGenerator) {

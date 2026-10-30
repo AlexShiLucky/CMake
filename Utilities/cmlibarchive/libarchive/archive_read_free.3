@@ -22,8 +22,6 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\" $FreeBSD$
-.\"
 .Dd February 2, 2012
 .Dt ARCHIVE_READ_FREE 3
 .Os
@@ -61,7 +59,7 @@ than 2013.
 .It Fn archive_read_free
 Invokes
 .Fn archive_read_close
-if it was not invoked manually, then release all resources.
+if it was not invoked manually, then releases all resources.
 Note: In libarchive 1.x, this function was declared to return
 .Ft void ,
 which made it impossible to detect certain errors when
@@ -83,11 +81,11 @@ and
 functions.
 .\"
 .Sh SEE ALSO
-.Xr libarchive 3 ,
-.Xr archive_read_new 3 ,
 .Xr archive_read_data 3 ,
 .Xr archive_read_filter 3 ,
 .Xr archive_read_format 3 ,
+.Xr archive_read_new 3 ,
 .Xr archive_read_open 3 ,
 .Xr archive_read_set_options 3 ,
-.Xr archive_util 3
+.Xr archive_util 3 ,
+.Xr libarchive 3

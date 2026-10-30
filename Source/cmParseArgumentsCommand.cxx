@@ -1,244 +1,286 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmParseArgumentsCommand.h"
 
 #include <map>
 #include <set>
-#include <sstream>
-#include <stddef.h>
 #include <utility>
 
-#include "cmAlgorithms.h"
+#include <cm/string_view>
+
+#include "cmArgumentParser.h"
+#include "cmArgumentParserTypes.h"
+#include "cmDiagnostics.h"
+#include "cmExecutionStatus.h"
+#include "cmList.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
+#include "cmPolicies.h"
+#include "cmRange.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
-#include "cmake.h"
+#include "cmValue.h"
 
-class cmExecutionStatus;
+namespace {
 
-static std::string escape_arg(const std::string& arg)
+std::string EscapeArg(std::string const& arg)
 {
   // replace ";" with "\;" so output argument lists will split correctly
   std::string escapedArg;
-  for (size_t i = 0; i < arg.size(); ++i) {
-    if (arg[i] == ';') {
+  for (char i : arg) {
+    if (i == ';') {
       escapedArg += '\\';
     }
-    escapedArg += arg[i];
+    escapedArg += i;
   }
   return escapedArg;
 }
 
-bool cmParseArgumentsCommand::InitialPass(std::vector<std::string> const& args,
-                                          cmExecutionStatus&)
+std::string JoinList(std::vector<std::string> const& arg, bool escape)
+{
+  return escape ? cmList::to_string(cmMakeRange(arg).transform(EscapeArg))
+                : cmList::to_string(cmMakeRange(arg));
+}
+
+using options_map = std::map<std::string, bool>;
+using single_map = std::map<std::string, std::string>;
+using multi_map =
+  std::map<std::string, ArgumentParser::NonEmpty<std::vector<std::string>>>;
+using options_set = std::set<cm::string_view>;
+
+struct UserArgumentParser : public cmArgumentParser<void>
+{
+  void BindKeywordsMissingValue(std::vector<cm::string_view>& ref)
+  {
+    this->cmArgumentParser<void>::BindKeywordMissingValue(
+      [&ref](Instance&, cm::string_view arg) { ref.emplace_back(arg); });
+  }
+
+  template <typename T, typename H>
+  void Bind(std::vector<std::string> const& names,
+            std::map<std::string, T>& ref, H duplicateKey)
+  {
+    for (std::string const& key : names) {
+      auto const it = ref.emplace(key, T{}).first;
+      bool const inserted = this->cmArgumentParser<void>::Bind(
+        cm::string_view(it->first), it->second);
+      if (!inserted) {
+        duplicateKey(key);
+      }
+    }
+  }
+};
+
+} // namespace
+
+static void PassParsedArguments(
+  std::string const& prefix, cmMakefile& makefile, options_map const& options,
+  single_map const& singleValArgs, multi_map const& multiValArgs,
+  std::vector<std::string> const& unparsed, options_set const& keywordsSeen,
+  options_set const& keywordsMissingValues, bool parseFromArgV)
+{
+  for (auto const& iter : options) {
+    makefile.AddDefinition(cmStrCat(prefix, iter.first),
+                           iter.second ? "TRUE" : "FALSE");
+  }
+
+  cmPolicies::PolicyStatus const cmp0174 =
+    makefile.GetPolicyStatus(cmPolicies::CMP0174);
+  for (auto const& iter : singleValArgs) {
+    if (keywordsSeen.find(iter.first) == keywordsSeen.end()) {
+      makefile.RemoveDefinition(cmStrCat(prefix, iter.first));
+    } else if ((parseFromArgV && cmp0174 == cmPolicies::NEW) ||
+               !iter.second.empty()) {
+      makefile.AddDefinition(cmStrCat(prefix, iter.first), iter.second);
+    } else {
+      // The OLD policy behavior doesn't define a variable for an empty or
+      // missing value, and we can't differentiate between those two cases.
+      if (parseFromArgV && (cmp0174 == cmPolicies::WARN)) {
+        makefile.IssueDiagnostic(
+          cmDiagnostics::CMD_AUTHOR,
+          cmStrCat("The ", iter.first,
+                   " keyword was followed by an empty string or no value at "
+                   "all. Policy CMP0174 is not set, so "
+                   "cmake_parse_arguments() will unset the ",
+                   prefix, iter.first,
+                   " variable rather than setting it to an empty string."));
+      }
+      makefile.RemoveDefinition(cmStrCat(prefix, iter.first));
+    }
+  }
+
+  for (auto const& iter : multiValArgs) {
+    if (!iter.second.empty()) {
+      makefile.AddDefinition(cmStrCat(prefix, iter.first),
+                             JoinList(iter.second, parseFromArgV));
+    } else {
+      makefile.RemoveDefinition(cmStrCat(prefix, iter.first));
+    }
+  }
+
+  if (!unparsed.empty()) {
+    makefile.AddDefinition(cmStrCat(prefix, "UNPARSED_ARGUMENTS"),
+                           JoinList(unparsed, parseFromArgV));
+  } else {
+    makefile.RemoveDefinition(cmStrCat(prefix, "UNPARSED_ARGUMENTS"));
+  }
+
+  if (!keywordsMissingValues.empty()) {
+    makefile.AddDefinition(
+      cmStrCat(prefix, "KEYWORDS_MISSING_VALUES"),
+      cmList::to_string(cmMakeRange(keywordsMissingValues)));
+  } else {
+    makefile.RemoveDefinition(cmStrCat(prefix, "KEYWORDS_MISSING_VALUES"));
+  }
+}
+
+bool cmParseArgumentsCommand(std::vector<std::string> const& args,
+                             cmExecutionStatus& status)
 {
   // cmake_parse_arguments(prefix options single multi <ARGN>)
   //                         1       2      3      4
   // or
   // cmake_parse_arguments(PARSE_ARGV N prefix options single multi)
+  // or
+  // cmake_parse_arguments(PARSE_ARGN prefix options single multi)
   if (args.size() < 4) {
-    this->SetError("must be called with at least 4 arguments.");
+    status.SetError("must be called with at least 4 arguments.");
     return false;
   }
 
-  std::vector<std::string>::const_iterator argIter = args.begin(),
-                                           argEnd = args.end();
-  bool parseFromArgV = false;
-  unsigned long argvStart = 0;
+  auto argIter = args.begin();
+  auto argEnd = args.end();
+  bool parseFromArg = false;
+  unsigned long argStart = 0;
+  unsigned long argnc = 0;
   if (*argIter == "PARSE_ARGV") {
     if (args.size() != 6) {
-      this->Makefile->IssueMessage(
-        cmake::FATAL_ERROR,
+      status.GetMakefile().IssueMessage(
+        MessageType::FATAL_ERROR,
         "PARSE_ARGV must be called with exactly 6 arguments.");
-      cmSystemTools::SetFatalErrorOccured();
+      cmSystemTools::SetFatalErrorOccurred();
       return true;
     }
-    parseFromArgV = true;
+    parseFromArg = true;
     argIter++; // move past PARSE_ARGV
-    if (!cmSystemTools::StringToULong(argIter->c_str(), &argvStart)) {
-      this->Makefile->IssueMessage(cmake::FATAL_ERROR, "PARSE_ARGV index '" +
-                                     *argIter +
-                                     "' is not an unsigned integer");
-      cmSystemTools::SetFatalErrorOccured();
+    if (!cmStrToULong(*argIter, &argStart)) {
+      status.GetMakefile().IssueMessage(
+        MessageType::FATAL_ERROR,
+        cmStrCat("PARSE_ARGV index '", *argIter,
+                 "' is not an unsigned integer"));
+      cmSystemTools::SetFatalErrorOccurred();
       return true;
     }
     argIter++; // move past N
+  } else if (*argIter == "PARSE_ARGN") {
+    if (args.size() != 5) {
+      status.GetMakefile().IssueMessage(
+        MessageType::FATAL_ERROR,
+        "PARSE_ARGN must be called with exactly 5 arguments.");
+      cmSystemTools::SetFatalErrorOccurred();
+      return true;
+    }
+    parseFromArg = true;
+    argIter++; // move past PARSE_ARGN
+    std::string argncStr = status.GetMakefile().GetSafeDefinition("ARGNC");
+    if (!cmStrToULong(argncStr, &argnc)) {
+      status.GetMakefile().IssueMessage(
+        MessageType::FATAL_ERROR,
+        cmStrCat("PARSE_ARGN called with ARGNC='", argncStr,
+                 "' that is not an unsigned integer"));
+      cmSystemTools::SetFatalErrorOccurred();
+      return true;
+    }
   }
   // the first argument is the prefix
-  const std::string prefix = (*argIter++) + "_";
+  std::string const prefix = (*argIter++) + "_";
+
+  UserArgumentParser parser;
 
   // define the result maps holding key/value pairs for
   // options, single values and multi values
-  typedef std::map<std::string, bool> options_map;
-  typedef std::map<std::string, std::string> single_map;
-  typedef std::map<std::string, std::vector<std::string>> multi_map;
   options_map options;
-  single_map single;
-  multi_map multi;
+  single_map singleValArgs;
+  multi_map multiValArgs;
 
   // anything else is put into a vector of unparsed strings
   std::vector<std::string> unparsed;
 
-  // remember already defined keywords
-  std::set<std::string> used_keywords;
-  const std::string dup_warning = "keyword defined more than once: ";
+  auto const duplicateKey = [&status](std::string const& key) {
+    status.GetMakefile().IssueMessage(
+      MessageType::WARNING, cmStrCat("keyword defined more than once: ", key));
+  };
 
   // the second argument is a (cmake) list of options without argument
-  std::vector<std::string> list;
-  cmSystemTools::ExpandListArgument(*argIter++, list);
-  for (std::vector<std::string>::const_iterator iter = list.begin(),
-                                                end = list.end();
-       iter != end; ++iter) {
-    if (!used_keywords.insert(*iter).second) {
-      this->GetMakefile()->IssueMessage(cmake::WARNING, dup_warning + *iter);
-    }
-    options[*iter]; // default initialize
-  }
+  cmList list{ *argIter++ };
+  parser.Bind(list, options, duplicateKey);
 
   // the third argument is a (cmake) list of single argument options
-  list.clear();
-  cmSystemTools::ExpandListArgument(*argIter++, list);
-  for (std::vector<std::string>::const_iterator iter = list.begin(),
-                                                end = list.end();
-       iter != end; ++iter) {
-    if (!used_keywords.insert(*iter).second) {
-      this->GetMakefile()->IssueMessage(cmake::WARNING, dup_warning + *iter);
-    }
-    single[*iter]; // default initialize
-  }
+  list.assign(*argIter++);
+  parser.Bind(list, singleValArgs, duplicateKey);
 
   // the fourth argument is a (cmake) list of multi argument options
-  list.clear();
-  cmSystemTools::ExpandListArgument(*argIter++, list);
-  for (std::vector<std::string>::const_iterator iter = list.begin(),
-                                                end = list.end();
-       iter != end; ++iter) {
-    if (!used_keywords.insert(*iter).second) {
-      this->GetMakefile()->IssueMessage(cmake::WARNING, dup_warning + *iter);
-    }
-    multi[*iter]; // default initialize
-  }
-
-  enum insideValues
-  {
-    NONE,
-    SINGLE,
-    MULTI
-  } insideValues = NONE;
-  std::string currentArgName;
+  list.assign(*argIter++);
+  parser.Bind(list, multiValArgs, duplicateKey);
 
   list.clear();
-  if (!parseFromArgV) {
+  if (!parseFromArg) {
     // Flatten ;-lists in the arguments into a single list as was done
     // by the original function(CMAKE_PARSE_ARGUMENTS).
     for (; argIter != argEnd; ++argIter) {
-      cmSystemTools::ExpandListArgument(*argIter, list);
+      list.append(*argIter);
     }
   } else {
-    // in the PARSE_ARGV move read the arguments from ARGC and ARGV#
-    std::string argc = this->Makefile->GetSafeDefinition("ARGC");
+    cm::string_view mode = *args.begin();
+    // in the PARSE_ARGV or PARSE_ARGN mode read the arguments from ARGC and
+    // ARGV#
+    std::string argc = status.GetMakefile().GetSafeDefinition("ARGC");
     unsigned long count;
-    if (!cmSystemTools::StringToULong(argc.c_str(), &count)) {
-      this->Makefile->IssueMessage(cmake::FATAL_ERROR,
-                                   "PARSE_ARGV called with ARGC='" + argc +
-                                     "' that is not an unsigned integer");
-      cmSystemTools::SetFatalErrorOccured();
+    if (!cmStrToULong(argc, &count)) {
+      status.GetMakefile().IssueMessage(
+        MessageType::FATAL_ERROR,
+        cmStrCat(mode, " called with ARGC='", argc,
+                 "' that is not an unsigned integer"));
+      cmSystemTools::SetFatalErrorOccurred();
       return true;
     }
-    for (unsigned long i = argvStart; i < count; ++i) {
-      std::ostringstream argName;
-      argName << "ARGV" << i;
-      const char* arg = this->Makefile->GetDefinition(argName.str());
+
+    if (mode == "PARSE_ARGN") {
+      argStart = count - argnc;
+    }
+
+    for (unsigned long i = argStart; i < count; ++i) {
+      std::string const argName{ cmStrCat("ARGV", i) };
+      cmValue arg = status.GetMakefile().GetDefinition(argName);
       if (!arg) {
-        this->Makefile->IssueMessage(cmake::FATAL_ERROR,
-                                     "PARSE_ARGV called with " +
-                                       argName.str() + " not set");
-        cmSystemTools::SetFatalErrorOccured();
+        status.GetMakefile().IssueMessage(
+          MessageType::FATAL_ERROR,
+          cmStrCat(mode, " called with ", argName, " not set"));
+        cmSystemTools::SetFatalErrorOccurred();
         return true;
       }
-      list.push_back(arg);
+      list.emplace_back(*arg);
     }
   }
 
-  // iterate over the arguments list and fill in the values where applicable
-  for (argIter = list.begin(), argEnd = list.end(); argIter != argEnd;
-       ++argIter) {
-    const options_map::iterator optIter = options.find(*argIter);
-    if (optIter != options.end()) {
-      insideValues = NONE;
-      optIter->second = true;
-      continue;
-    }
+  std::vector<cm::string_view> keywordsSeen;
+  parser.BindParsedKeywords(keywordsSeen);
 
-    const single_map::iterator singleIter = single.find(*argIter);
-    if (singleIter != single.end()) {
-      insideValues = SINGLE;
-      currentArgName = *argIter;
-      continue;
-    }
+  // For single-value keywords, only the last instance matters, since it
+  // determines the value stored. But if a keyword is repeated, it will be
+  // added to this vector if _any_ instance is missing a value. If one of the
+  // earlier instances is missing a value but the last one isn't, its presence
+  // in this vector will be misleading.
+  std::vector<cm::string_view> keywordsMissingValues;
+  parser.BindKeywordsMissingValue(keywordsMissingValues);
 
-    const multi_map::iterator multiIter = multi.find(*argIter);
-    if (multiIter != multi.end()) {
-      insideValues = MULTI;
-      currentArgName = *argIter;
-      continue;
-    }
+  parser.Parse(list, &unparsed);
 
-    switch (insideValues) {
-      case SINGLE:
-        single[currentArgName] = *argIter;
-        insideValues = NONE;
-        break;
-      case MULTI:
-        if (parseFromArgV) {
-          multi[currentArgName].push_back(escape_arg(*argIter));
-        } else {
-          multi[currentArgName].push_back(*argIter);
-        }
-        break;
-      default:
-        if (parseFromArgV) {
-          unparsed.push_back(escape_arg(*argIter));
-        } else {
-          unparsed.push_back(*argIter);
-        }
-        break;
-    }
-  }
-
-  // now iterate over the collected values and update their definition
-  // within the current scope. undefine if necessary.
-
-  for (options_map::const_iterator iter = options.begin(), end = options.end();
-       iter != end; ++iter) {
-    this->Makefile->AddDefinition(prefix + iter->first,
-                                  iter->second ? "TRUE" : "FALSE");
-  }
-  for (single_map::const_iterator iter = single.begin(), end = single.end();
-       iter != end; ++iter) {
-    if (!iter->second.empty()) {
-      this->Makefile->AddDefinition(prefix + iter->first,
-                                    iter->second.c_str());
-    } else {
-      this->Makefile->RemoveDefinition(prefix + iter->first);
-    }
-  }
-
-  for (multi_map::const_iterator iter = multi.begin(), end = multi.end();
-       iter != end; ++iter) {
-    if (!iter->second.empty()) {
-      this->Makefile->AddDefinition(
-        prefix + iter->first, cmJoin(cmMakeRange(iter->second), ";").c_str());
-    } else {
-      this->Makefile->RemoveDefinition(prefix + iter->first);
-    }
-  }
-
-  if (!unparsed.empty()) {
-    this->Makefile->AddDefinition(prefix + "UNPARSED_ARGUMENTS",
-                                  cmJoin(cmMakeRange(unparsed), ";").c_str());
-  } else {
-    this->Makefile->RemoveDefinition(prefix + "UNPARSED_ARGUMENTS");
-  }
+  PassParsedArguments(
+    prefix, status.GetMakefile(), options, singleValArgs, multiValArgs,
+    unparsed, options_set(keywordsSeen.begin(), keywordsSeen.end()),
+    options_set(keywordsMissingValues.begin(), keywordsMissingValues.end()),
+    parseFromArg);
 
   return true;
 }

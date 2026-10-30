@@ -2,7 +2,7 @@
 # options
 
 message("TSAN_OPTIONS = [$ENV{TSAN_OPTIONS}]")
-string(REGEX REPLACE ".*log_path=\'([^\']*)\'.*" "\\1" LOG_FILE "$ENV{TSAN_OPTIONS}")
+string(REGEX REPLACE ".*log_path='([^']*)'.*" "\\1" LOG_FILE "$ENV{TSAN_OPTIONS}")
 message("LOG_FILE=[${LOG_FILE}]")
 
 set(error_types
@@ -23,7 +23,7 @@ set(error_types
 # clear the log file
 file(REMOVE "${LOG_FILE}.2343")
 
-# create an error of each type of thread santizer
+# create an error of each type of thread sanitizer
 # these names come from tsan_report.cc in llvm
 foreach(error_type ${error_types} )
 

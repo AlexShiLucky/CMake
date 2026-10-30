@@ -1,6 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "RegexExplorer.h"
+
+#include "cmsys/String.h"
 
 RegexExplorer::RegexExplorer(QWidget* p)
   : QDialog(p)
@@ -8,7 +10,7 @@ RegexExplorer::RegexExplorer(QWidget* p)
 {
   this->setupUi(this);
 
-  for (int i = 1; i < cmsys::RegularExpression::NSUBEXP; ++i) {
+  for (int i = 1; i < cmsys::RegularExpressionMatch::NSUBEXP; ++i) {
     matchNumber->addItem(QString("Match %1").arg(QString::number(i)),
                          QVariant(i));
   }
@@ -20,11 +22,11 @@ void RegexExplorer::setStatusColor(QWidget* widget, bool successful)
   QColor color = successful ? QColor(0, 127, 0) : Qt::red;
 
   QPalette palette = widget->palette();
-  palette.setColor(QPalette::Foreground, color);
+  palette.setColor(QPalette::WindowText, color);
   widget->setPalette(palette);
 }
 
-void RegexExplorer::on_regularExpression_textChanged(const QString& text)
+void RegexExplorer::on_regularExpression_textChanged(QString const& text)
 {
 #ifdef QT_NO_STL
   m_regex = text.toAscii().constData();
@@ -67,7 +69,7 @@ void RegexExplorer::on_inputText_textChanged()
   std::string matchingText;
 
   if (matchAll->isChecked()) {
-    const char* p = m_text.c_str();
+    char const* p = m_text.c_str();
     while (m_regexParser.find(p)) {
       std::string::size_type l = m_regexParser.start();
       std::string::size_type r = m_regexParser.end();
@@ -105,7 +107,7 @@ void RegexExplorer::on_matchNumber_currentIndexChanged(int index)
   QVariant itemData = matchNumber->itemData(index);
   int idx = itemData.toInt();
 
-  if (idx < 1 || idx >= cmsys::RegularExpression::NSUBEXP) {
+  if (idx < 1 || idx >= cmsys::RegularExpressionMatch::NSUBEXP) {
     return;
   }
 
@@ -133,7 +135,7 @@ void RegexExplorer::clearMatch()
 
 bool RegexExplorer::stripEscapes(std::string& source)
 {
-  const char* in = source.c_str();
+  char const* in = source.c_str();
 
   std::string result;
   result.reserve(source.size());
@@ -147,10 +149,7 @@ bool RegexExplorer::stripEscapes(std::string& source)
       } else if (nextc == 'n') {
         result.append(1, '\n');
         in++;
-      } else if (nextc == 't') {
-        result.append(1, '\t');
-        in++;
-      } else if (isalnum(nextc) || nextc == '\0') {
+      } else if (cmsysString_isalnum(nextc) || nextc == '\0') {
         return false;
       } else {
         result.append(1, nextc);

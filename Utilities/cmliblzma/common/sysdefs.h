@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 /// \file       sysdefs.h
@@ -8,9 +10,6 @@
 //
 //  Author:     Lasse Collin
 //
-//  This file has been put into the public domain.
-//  You can do whatever you want with this file.
-//
 ///////////////////////////////////////////////////////////////////////////////
 
 #ifndef LZMA_SYSDEFS_H
@@ -18,6 +17,7 @@
 
 #if defined(_MSC_VER)
 # pragma warning(push,1)
+# pragma warning(disable: 4028) /* formal parameter different from decl */
 # pragma warning(disable: 4142) /* benign redefinition of type */
 # pragma warning(disable: 4761) /* integral size mismatch in argument */
 #endif
@@ -28,7 +28,15 @@
 
 #include "config.h"
 
-// Get standard-compliant stdio functions under MinGW and MinGW-w64.
+// This #define ensures that C99 and POSIX compliant stdio functions are
+// available with MinGW-w64 (both 32-bit and 64-bit). Modern MinGW-w64 adds
+// this automatically, for example, when the compiler is in C99 (or later)
+// mode when building against msvcrt.dll. It still doesn't hurt to be explicit
+// that we always want this and #define this unconditionally.
+//
+// With Universal CRT (UCRT) this is less important because UCRT contains
+// C99-compatible stdio functions. It's still nice to #define this as UCRT
+// doesn't support the POSIX thousand separator flag in printf (like "%'u").
 #ifdef __MINGW32__
 #	define __USE_MINGW_ANSI_STDIO 1
 #endif
@@ -48,9 +56,7 @@
 
 // Some pre-C99 systems have SIZE_MAX in limits.h instead of stdint.h. The
 // limits are also used to figure out some macros missing from pre-C99 systems.
-#ifdef HAVE_LIMITS_H
-#	include <limits.h>
-#endif
+#include <limits.h>
 
 
 #if defined(_MSC_VER) && (_MSC_VER < 1310)
@@ -124,9 +130,9 @@
 
 // The code currently assumes that size_t is either 32-bit or 64-bit.
 #ifndef SIZE_MAX
-#	if SIZE_OF_SIZE_T == 4
+#	if SIZEOF_SIZE_T == 4
 #		define SIZE_MAX UINT32_MAX
-#	elif SIZE_OF_SIZE_T == 8
+#	elif SIZEOF_SIZE_T == 8
 #		define SIZE_MAX UINT64_MAX
 #	else
 #		error size_t is not 32-bit or 64-bit
@@ -139,7 +145,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-// Pre-C99 systems lack stdbool.h. All the code in LZMA Utils must be written
+// Pre-C99 systems lack stdbool.h. All the code in XZ Utils must be written
 // so that it works with fake bool type, for example:
 //
 //    bool foo = (flags & 0x100) != 0;
@@ -161,20 +167,28 @@ typedef unsigned char _Bool;
 #	define __bool_true_false_are_defined 1
 #endif
 
-// string.h should be enough but let's include strings.h and memory.h too if
-// they exists, since that shouldn't do any harm, but may improve portability.
-#ifdef HAVE_STRING_H
-#	include <string.h>
-#endif
+#include <string.h>
 
-#ifdef HAVE_STRINGS_H
-#	include <strings.h>
+// Visual Studio 2013 update 2 supports only __inline, not inline.
+// MSVC v19.0 / VS 2015 and newer support both.
+//
+// MSVC v19.27 (VS 2019 version 16.7) added support for restrict.
+// Older ones support only __restrict.
+#ifdef _MSC_VER
+#	if _MSC_VER < 1900 && !defined(inline)
+#		define inline __inline
+#	endif
+#	if _MSC_VER < 1927 && !defined(restrict)
+#		define restrict __restrict
+#	endif
+#elif defined(__EDG__) && defined(__LCC__)
+#	ifndef inline
+#		define inline __inline
+#	endif
+#	ifndef restrict
+#		define restrict __restrict
+#	endif
 #endif
-
-#ifdef HAVE_MEMORY_H
-#	include <memory.h>
-#endif
-
 
 ////////////
 // Macros //
@@ -193,7 +207,8 @@ typedef unsigned char _Bool;
 #	define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #endif
 
-#if (__GNUC__ == 4 && __GNUC_MINOR__ >= 3) || __GNUC__ > 4
+#if defined(__GNUC__) \
+		&& ((__GNUC__ == 4 && __GNUC_MINOR__ >= 3) || __GNUC__ > 4)
 #	define lzma_attr_alloc_size(x) __attribute__((__alloc_size__(x)))
 #else
 #	define lzma_attr_alloc_size(x)

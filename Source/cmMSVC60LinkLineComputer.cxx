@@ -1,10 +1,10 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
 #include "cmMSVC60LinkLineComputer.h"
 
 #if defined(_WIN32) && !defined(__CYGWIN__)
-#include "cmSystemTools.h"
+#  include "cmSystemTools.h"
 #endif
 
 class cmOutputConverter;
@@ -36,5 +36,5 @@ std::string cmMSVC60LinkLineComputer::ConvertToLinkReference(
   }
 #endif
 
-  return cmLinkLineComputer::ConvertToLinkReference(lib);
+  return this->cmLinkLineComputer::ConvertToLinkReference(lib);
 }

@@ -1,9 +1,11 @@
 make_directory
 --------------
 
-Deprecated. Use the :command:`file(MAKE_DIRECTORY)` command instead.
+.. deprecated:: 3.0
 
-::
+  Use the :command:`file(MAKE_DIRECTORY)` command instead.
+
+.. code-block:: cmake
 
   make_directory(directory)
 

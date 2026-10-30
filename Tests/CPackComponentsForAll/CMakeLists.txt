@@ -5,9 +5,9 @@
 # which supports CPack components.
 #
 # Depending on the CPack generator and on some CPACK_xxx var values
-# the generator may produce a single (NSIS, PackageMaker)
+# the generator may produce a single (NSIS, productbuild)
 # or several package files (Archive Generators, RPM, DEB)
-cmake_minimum_required(VERSION 2.8.3.20101130 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 project(CPackComponentsForAll)
 
 # Use GNUInstallDirs in order to enforce lib64 if needed
@@ -149,7 +149,7 @@ set(CPACK_COMPONENT_GROUP_DEVELOPMENT_DESCRIPTION
 # depend on the libraries component.
 set(CPACK_COMPONENT_HEADERS_DEPENDS libraries)
 
-# Create two installation types with pre-selected components.
+# Create two installation types with preselected components.
 # The "Developer" installation has just the library and headers,
 # while the "Full" installation has everything.
 set(CPACK_ALL_INSTALL_TYPES Full Developer)
@@ -167,6 +167,18 @@ set(CPACK_RPM_RELOCATION_PATHS "${CMAKE_INSTALL_INCLUDEDIR}"
 
 # set CPACK_DEBIAN_FILE_NAME to use default package name format
 set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+
+# set some tags for NuGet packages
+# 1. all in one package
+set(CPACK_NUGET_PACKAGE_TAGS "nuget" "unit" "test" "all-in-one")
+# 2. per component packages
+set(CPACK_NUGET_APPLICATIONS_PACKAGE_TAGS "nuget" "unit" "test" "applications")
+set(CPACK_NUGET_LIBRARIES_PACKAGE_TAGS "nuget" "unit" "test" "libraries")
+set(CPACK_NUGET_HEADERS_PACKAGE_TAGS "nuget" "unit" "test" "headers")
+set(CPACK_NUGET_UNSPECIFIED_PACKAGE_TAGS "nuget" "unit" "test" "uNsP3c1FiEd")
+# 3. per group packages
+set(CPACK_NUGET_RUNTIME_PACKAGE_TAGS "nuget" "unit" "test" "run-time")
+set(CPACK_NUGET_DEVELOPMENT_PACKAGE_TAGS "nuget" "unit" "test" "development")
 
 # We may use the CPack specific config file in order
 # to tailor CPack behavior on a CPack generator specific way

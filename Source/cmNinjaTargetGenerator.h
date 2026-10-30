@@ -1,20 +1,26 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmNinjaTargetGenerator_h
-#define cmNinjaTargetGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <cm/string_view>
+
+#include <cm3p/json/value.h>
+
 #include "cmCommonTargetGenerator.h"
 #include "cmGlobalNinjaGenerator.h"
+#include "cmImportedCxxModuleInfo.h"
 #include "cmNinjaTypes.h"
 #include "cmOSXBundleGenerator.h"
 
-#include <set>
-#include <string>
-#include <vector>
-
-class cmCustomCommand;
 class cmGeneratedFileStream;
 class cmGeneratorTarget;
 class cmLocalNinjaGenerator;
@@ -25,24 +31,29 @@ class cmNinjaTargetGenerator : public cmCommonTargetGenerator
 {
 public:
   /// Create a cmNinjaTargetGenerator according to the @a target's type.
-  static cmNinjaTargetGenerator* New(cmGeneratorTarget* target);
+  static std::unique_ptr<cmNinjaTargetGenerator> New(
+    cmGeneratorTarget* target);
 
   /// Build a NinjaTargetGenerator.
   cmNinjaTargetGenerator(cmGeneratorTarget* target);
 
   /// Destructor.
-  ~cmNinjaTargetGenerator() CM_OVERRIDE;
+  ~cmNinjaTargetGenerator() override;
 
-  virtual void Generate() = 0;
+  virtual void Generate(std::string const& config) = 0;
 
   std::string GetTargetName() const;
 
-  bool NeedDepTypeMSVC(const std::string& lang) const;
+  std::string ConvertToOutputFormatForShell(cm::string_view path) const;
+
+  void AddDepfileBinding(cmNinjaVars& vars, std::string depfile) const;
+  void RemoveDepfileBinding(cmNinjaVars& vars) const;
 
 protected:
-  bool SetMsvcTargetPdbVariable(cmNinjaVars&) const;
+  bool SetMsvcTargetPdbVariable(cmNinjaVars&, std::string const& config) const;
 
-  cmGeneratedFileStream& GetBuildFileStream() const;
+  cmGeneratedFileStream& GetImplFileStream(std::string const& config) const;
+  cmGeneratedFileStream& GetCommonFileStream() const;
   cmGeneratedFileStream& GetRulesFileStream() const;
 
   cmGeneratorTarget* GetGeneratorTarget() const
@@ -59,13 +70,25 @@ protected:
 
   cmMakefile* GetMakefile() const { return this->Makefile; }
 
-  std::string LanguageCompilerRule(const std::string& lang) const;
-  std::string LanguagePreprocessRule(std::string const& lang) const;
+  enum class WithScanning
+  {
+    No,
+    Yes,
+  };
+  std::string LanguageCompilerRule(std::string const& lang,
+                                   std::string const& config,
+                                   WithScanning withScanning) const;
+  std::string LanguagePreprocessAndScanRule(std::string const& lang,
+                                            std::string const& config) const;
+  std::string LanguageScanRule(std::string const& lang,
+                               std::string const& config) const;
+  std::string LanguageDyndepRule(std::string const& lang,
+                                 std::string const& config) const;
   bool NeedExplicitPreprocessing(std::string const& lang) const;
-  std::string LanguageDyndepRule(std::string const& lang) const;
-  bool NeedDyndep(std::string const& lang) const;
+  bool CompileWithDefines(std::string const& lang) const;
 
-  std::string OrderDependsTargetForTarget();
+  std::string OrderDependsTargetForTarget(std::string const& config);
+  std::string OrderDependsTargetForTargetPrivate(std::string const& config);
 
   std::string ComputeOrderDependsForTarget();
 
@@ -75,15 +98,22 @@ protected:
    *       by LanguageFlagsVarName().
    */
   std::string ComputeFlagsForObject(cmSourceFile const* source,
-                                    const std::string& language);
+                                    std::string const& language,
+                                    std::string const& config,
+                                    std::string const& objectFileName);
 
-  void AddIncludeFlags(std::string& flags,
-                       std::string const& lang) CM_OVERRIDE;
+  void AddIncludeFlags(std::string& flags, std::string const& lang,
+                       std::string const& config) override;
 
   std::string ComputeDefines(cmSourceFile const* source,
-                             const std::string& language);
+                             std::string const& language,
+                             std::string const& config);
 
-  std::string ConvertToNinjaPath(const std::string& path) const
+  std::string ComputeIncludes(cmSourceFile const* source,
+                              std::string const& language,
+                              std::string const& config);
+
+  std::string const& ConvertToNinjaPath(std::string const& path) const
   {
     return this->GetGlobalGenerator()->ConvertToNinjaPath(path);
   }
@@ -92,81 +122,168 @@ protected:
     return this->GetGlobalGenerator()->MapToNinjaPath();
   }
 
+  std::string ConvertToNinjaAbsPath(std::string path) const
+  {
+    return this->GetGlobalGenerator()->ConvertToNinjaAbsPath(std::move(path));
+  }
+
   /// @return the list of link dependency for the given target @a target.
-  cmNinjaDeps ComputeLinkDeps() const;
+  cmNinjaDeps ComputeLinkDeps(std::string const& linkLanguage,
+                              std::string const& config,
+                              bool ignoreType = false) const;
 
   /// @return the source file path for the given @a source.
-  std::string GetSourceFilePath(cmSourceFile const* source) const;
+  std::string GetCompiledSourceNinjaPath(cmSourceFile const* source) const;
 
+  std::string GetObjectFileDir(std::string const& config) const;
   /// @return the object file path for the given @a source.
-  std::string GetObjectFilePath(cmSourceFile const* source) const;
+  std::string GetObjectFilePath(cmSourceFile const* source,
+                                std::string const& config) const;
+  std::string GetBmiFilePath(cmSourceFile const* source,
+                             std::string const& config) const;
 
   /// @return the preprocessed source file path for the given @a source.
-  std::string GetPreprocessedFilePath(cmSourceFile const* source) const;
+  std::string GetPreprocessedFilePath(cmSourceFile const* source,
+                                      std::string const& config) const;
+
+  /// @return the clang-tidy replacements file path for the given @a source.
+  std::string GetClangTidyReplacementsFilePath(
+    std::string const& directory, cmSourceFile const& source,
+    std::string const& config) const override;
 
   /// @return the dyndep file path for this target.
-  std::string GetDyndepFilePath(std::string const& lang) const;
+  std::string GetDyndepFilePath(std::string const& lang,
+                                std::string const& config) const;
+
+  /// Whether a C++ module collation rule is generated for this configuration.
+  bool HasCxxModuleDyndep(std::string const& config) const;
 
   /// @return the target dependency scanner info file path
-  std::string GetTargetDependInfoPath(std::string const& lang) const;
+  std::string GetTargetDependInfoPath(std::string const& lang,
+                                      std::string const& config) const;
 
   /// @return the file path where the target named @a name is generated.
-  std::string GetTargetFilePath(const std::string& name) const;
+  std::string GetTargetFilePath(std::string const& name,
+                                std::string const& config) const;
 
   /// @return the output path for the target.
-  virtual std::string GetTargetOutputDir() const;
+  virtual std::string GetTargetOutputDir(std::string const& config) const;
 
-  void WriteLanguageRules(const std::string& language);
-  void WriteCompileRule(const std::string& language);
-  void WriteObjectBuildStatements();
-  void WriteObjectBuildStatement(cmSourceFile const* source);
-  void WriteTargetDependInfo(std::string const& lang);
+  void WriteLanguageRules(std::string const& language,
+                          std::string const& config);
+  std::string GetCompileTemplateVar(std::string const& lang) const;
+  void WriteCompileRule(std::string const& language,
+                        std::string const& config);
+  void WriteCompileRule(std::string const& language, std::string const& config,
+                        WithScanning withScanning);
+  void WriteObjectBuildStatements(std::string const& config,
+                                  std::string const& fileConfig,
+                                  bool firstForConfig);
+  void WriteCxxModuleBmiBuildStatement(cmSourceFile const* source,
+                                       std::string const& config,
+                                       std::string const& fileConfig,
+                                       bool firstForConfig);
+  void WriteSwiftObjectBuildStatement(
+    std::vector<cmSourceFile const*> const& sources, std::string const& config,
+    std::string const& fileConfig, bool firstForConfig);
+  void WriteObjectBuildStatement(cmSourceFile const* source,
+                                 std::string const& config,
+                                 std::string const& fileConfig,
+                                 bool firstForConfig);
+  void WriteTargetDependInfo(std::string const& lang,
+                             std::string const& config);
+
+  void EmitSwiftDependencyInfo(cmSourceFile const* source,
+                               std::string const& config);
+
+  void GenerateSwiftOutputFileMap(std::string const& config,
+                                  std::string& flags);
 
   void ExportObjectCompileCommand(
     std::string const& language, std::string const& sourceFileName,
-    std::string const& objectDir, std::string const& objectFileName,
-    std::string const& objectFileDir, std::string const& flags,
-    std::string const& defines, std::string const& includes);
+    std::string const& objectDir, std::string const& targetSupportDir,
+    std::string const& objectFileName, std::string const& objectFileDir,
+    std::string const& flags, std::string const& defines,
+    std::string const& includes, std::string const& targetCompilePdb,
+    std::string const& targetPdb, std::string const& outputConfig,
+    WithScanning withScanning);
 
-  cmNinjaDeps GetObjects() const { return this->Objects; }
+  void ExportSwiftObjectCompileCommand(
+    std::vector<cmSourceFile const*> const& moduleSourceFiles,
+    std::string const& moduleObjectFilename, std::string const& flags,
+    std::string const& defines, std::string const& includes,
+    std::string const& outputConfig, bool singleOutput);
 
-  void EnsureDirectoryExists(const std::string& dir) const;
-  void EnsureParentDirectoryExists(const std::string& path) const;
+  void AdditionalCleanFiles(std::string const& config);
 
-  // write rules for Mac OS X Application Bundle content.
+  cmNinjaDeps GetObjects(std::string const& config) const;
+  std::string GetSwiftModuleOutput(std::string const& config) const;
+
+  void EnsureDirectoryExists(std::string const& dir) const;
+  void EnsureParentDirectoryExists(std::string const& path) const;
+
+  // write rules for macOS Application Bundle content.
   struct MacOSXContentGeneratorType
     : cmOSXBundleGenerator::MacOSXContentGeneratorType
   {
-    MacOSXContentGeneratorType(cmNinjaTargetGenerator* g)
+    MacOSXContentGeneratorType(cmNinjaTargetGenerator* g,
+                               std::string fileConfig)
       : Generator(g)
+      , FileConfig(std::move(fileConfig))
     {
     }
 
-    void operator()(cmSourceFile const& source,
-                    const char* pkgloc) CM_OVERRIDE;
+    void operator()(cmSourceFile const& source, char const* pkgloc,
+                    std::string const& config) override;
 
   private:
     cmNinjaTargetGenerator* Generator;
+    std::string FileConfig;
   };
   friend struct MacOSXContentGeneratorType;
 
-  MacOSXContentGeneratorType* MacOSXContentGenerator;
   // Properly initialized by sub-classes.
-  cmOSXBundleGenerator* OSXBundleGenerator;
+  std::unique_ptr<cmOSXBundleGenerator> OSXBundleGenerator;
   std::set<std::string> MacContentFolders;
 
-  void addPoolNinjaVariable(const std::string& pool_property,
-                            cmGeneratorTarget* target, cmNinjaVars& vars);
+  /// @param source may be nullptr.
+  void addPoolNinjaVariable(std::string const& pool_property,
+                            std::string const& config,
+                            cmGeneratorTarget* target,
+                            cmSourceFile const* source, cmNinjaVars& vars);
 
   bool ForceResponseFile();
 
 private:
   cmLocalNinjaGenerator* LocalGenerator;
-  /// List of object files for this target.
-  cmNinjaDeps Objects;
-  cmNinjaDeps DDIFiles; // TODO: Make per-language.
-  std::vector<cmCustomCommand const*> CustomCommands;
-  cmNinjaDeps ExtraFiles;
-};
+  bool HasPrivateGeneratedSources = false;
 
-#endif // ! cmNinjaTargetGenerator_h
+  struct ScanningFiles
+  {
+    bool IsEmpty() const
+    {
+      return this->ScanningOutput.empty() && this->ModuleMapFile.empty();
+    }
+
+    std::string ScanningOutput;
+    std::string ModuleMapFile;
+  };
+
+  struct ByConfig
+  {
+    /// List of object files for this target.
+    cmNinjaDeps Objects;
+    // Dyndep Support
+    std::map<std::string, std::vector<ScanningFiles>> ScanningInfo;
+    // Imported C++ module info.
+    mutable ImportedCxxModuleLookup ImportedCxxModules;
+    // Swift Support
+    Json::Value SwiftOutputMap;
+    cmNinjaDeps ExtraFiles;
+    std::unique_ptr<MacOSXContentGeneratorType> MacOSXContentGenerator;
+    // Path declared as the .swiftmodule output (compile or emit-module edge).
+    std::string SwiftModuleOutput;
+  };
+
+  std::map<std::string, ByConfig> Configs;
+};

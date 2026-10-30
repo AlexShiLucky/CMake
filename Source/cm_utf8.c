@@ -1,6 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cm_utf8.h"
+
+#include <string.h>
 
 /*
   RFC 3629
@@ -37,9 +39,14 @@ static unsigned int const cm_utf8_min[7] = {
   0, 0, 1u << 7, 1u << 11, 1u << 16, 1u << 21, 1u << 26 /*, 1u<<31 */
 };
 
-const char* cm_utf8_decode_character(const char* first, const char* last,
+char const* cm_utf8_decode_character(char const* first, char const* last,
                                      unsigned int* pc)
 {
+  /* We need at least one byte.  */
+  if (first == last) {
+    return 0;
+  }
+
   /* Count leading ones in the first byte.  */
   unsigned char c = (unsigned char)*first++;
   unsigned char const ones = cm_utf8_ones[c];
@@ -71,7 +78,34 @@ const char* cm_utf8_decode_character(const char* first, const char* last,
       return 0;
     }
 
+    /* UTF-16 surrogate halves. */
+    if (0xD800 <= uc && uc <= 0xDFFF) {
+      return 0;
+    }
+
+    /* Invalid codepoints. */
+    if (0x10FFFF < uc) {
+      return 0;
+    }
+
     *pc = uc;
     return first;
   }
+}
+
+int cm_utf8_is_valid(char const* s)
+{
+  if (!s) {
+    return 0;
+  }
+
+  char const* last = s + strlen(s);
+  char const* pos = s;
+  unsigned int pc;
+
+  while (pos != last && (pos = cm_utf8_decode_character(pos, last, &pc))) {
+    /* Nothing to do. */
+  }
+
+  return pos == last;
 }

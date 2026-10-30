@@ -1,11 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmProperty_h
-#define cmProperty_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include <string>
 
 class cmProperty
 {
@@ -20,24 +17,8 @@ public:
     TEST,
     VARIABLE,
     CACHED_VARIABLE,
-    INSTALL
+    INSTALL,
+    FILE_SET,
+    RULE
   };
-
-  // set this property
-  void Set(const char* value);
-
-  // append to this property
-  void Append(const char* value, bool asString = false);
-
-  // get the value
-  const char* GetValue() const;
-
-  // construct with the value not set
-  cmProperty() { this->ValueHasBeenSet = false; }
-
-protected:
-  std::string Value;
-  bool ValueHasBeenSet;
 };
-
-#endif

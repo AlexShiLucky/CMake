@@ -1,11 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCryptoHash.h"
 
-#include "cm_kwiml.h"
-#include "cm_rhash.h"
+#include <cm/memory>
+
+#include <cm3p/kwiml/int.h>
+#include <cm3p/rhash.h>
+
 #include "cmsys/FStream.hxx"
-#include <string.h>
+
+#include "cmUnreachable.h"
 
 static unsigned int const cmCryptoHashAlgoToId[] = {
   /* clang-format needs this comment to break after the opening brace */
@@ -34,7 +38,7 @@ static rhash cmCryptoHash_rhash_init(unsigned int id)
 
 cmCryptoHash::cmCryptoHash(Algo algo)
   : Id(cmCryptoHashAlgoToId[algo])
-  , CTX(cmCryptoHash_rhash_init(Id))
+  , CTX(cmCryptoHash_rhash_init(this->Id))
 {
 }
 
@@ -43,87 +47,115 @@ cmCryptoHash::~cmCryptoHash()
   rhash_free(this->CTX);
 }
 
-CM_AUTO_PTR<cmCryptoHash> cmCryptoHash::New(const char* algo)
+std::unique_ptr<cmCryptoHash> cmCryptoHash::New(cm::string_view algo)
 {
-  if (strcmp(algo, "MD5") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoMD5));
+  if (algo == "MD5") {
+    return cm::make_unique<cmCryptoHash>(AlgoMD5);
   }
-  if (strcmp(algo, "SHA1") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA1));
+  if (algo == "SHA1") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA1);
   }
-  if (strcmp(algo, "SHA224") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA224));
+  if (algo == "SHA224") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA224);
   }
-  if (strcmp(algo, "SHA256") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA256));
+  if (algo == "SHA256") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA256);
   }
-  if (strcmp(algo, "SHA384") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA384));
+  if (algo == "SHA384") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA384);
   }
-  if (strcmp(algo, "SHA512") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA512));
+  if (algo == "SHA512") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA512);
   }
-  if (strcmp(algo, "SHA3_224") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA3_224));
+  if (algo == "SHA3_224") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA3_224);
   }
-  if (strcmp(algo, "SHA3_256") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA3_256));
+  if (algo == "SHA3_256") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA3_256);
   }
-  if (strcmp(algo, "SHA3_384") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA3_384));
+  if (algo == "SHA3_384") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA3_384);
   }
-  if (strcmp(algo, "SHA3_512") == 0) {
-    return CM_AUTO_PTR<cmCryptoHash>(new cmCryptoHash(AlgoSHA3_512));
+  if (algo == "SHA3_512") {
+    return cm::make_unique<cmCryptoHash>(AlgoSHA3_512);
   }
-  return CM_AUTO_PTR<cmCryptoHash>(nullptr);
+  return std::unique_ptr<cmCryptoHash>();
+}
+
+std::string cmCryptoHash::GetHashAlgoName() const
+{
+#ifndef CMAKE_USE_SYSTEM_LIBRHASH
+  static_assert(RHASH_HASH_COUNT == 10, "Update switch statement!");
+#endif
+  switch (this->Id) {
+    case RHASH_MD5:
+      return "MD5";
+    case RHASH_SHA1:
+      return "SHA1";
+    case RHASH_SHA224:
+      return "SHA224";
+    case RHASH_SHA256:
+      return "SHA256";
+    case RHASH_SHA384:
+      return "SHA384";
+    case RHASH_SHA512:
+      return "SHA512";
+    case RHASH_SHA3_224:
+      return "SHA3_224";
+    case RHASH_SHA3_256:
+      return "SHA3_256";
+    case RHASH_SHA3_384:
+      return "SHA3_384";
+    case RHASH_SHA3_512:
+      return "SHA3_512";
+  }
+  CM_UNREACHABLE;
+  return "UNKNOWN";
 }
 
 bool cmCryptoHash::IntFromHexDigit(char input, char& output)
 {
   if (input >= '0' && input <= '9') {
-    output = char(input - '0');
+    output = static_cast<char>(input - '0');
     return true;
   }
   if (input >= 'a' && input <= 'f') {
-    output = char(input - 'a' + 0xA);
+    output = static_cast<char>(input - 'a' + 0xA);
     return true;
   }
   if (input >= 'A' && input <= 'F') {
-    output = char(input - 'A' + 0xA);
+    output = static_cast<char>(input - 'A' + 0xA);
     return true;
   }
   return false;
 }
 
 std::string cmCryptoHash::ByteHashToString(
-  const std::vector<unsigned char>& hash)
+  std::vector<unsigned char> const& hash)
 {
   // Map from 4-bit index to hexadecimal representation.
   static char const hex[16] = { '0', '1', '2', '3', '4', '5', '6', '7',
                                 '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
 
   std::string res;
-  for (std::vector<unsigned char>::const_iterator vit = hash.begin();
-       vit != hash.end(); ++vit) {
-    res.push_back(hex[(*vit) >> 4]);
-    res.push_back(hex[(*vit) & 0xF]);
+  res.reserve(hash.size() * 2);
+  for (unsigned char v : hash) {
+    res.push_back(hex[v >> 4]);
+    res.push_back(hex[v & 0xF]);
   }
   return res;
 }
 
-std::vector<unsigned char> cmCryptoHash::ByteHashString(
-  const std::string& input)
+std::vector<unsigned char> cmCryptoHash::ByteHashString(cm::string_view input)
 {
   this->Initialize();
-  this->Append(reinterpret_cast<unsigned char const*>(input.c_str()),
-               static_cast<int>(input.size()));
+  this->Append(input);
   return this->Finalize();
 }
 
-std::vector<unsigned char> cmCryptoHash::ByteHashFile(const std::string& file)
+std::vector<unsigned char> cmCryptoHash::ByteHashStream(std::istream& sin)
 {
-  cmsys::ifstream fin(file.c_str(), std::ios::in | std::ios::binary);
-  if (fin) {
+  if (sin) {
     this->Initialize();
     {
       // Should be efficient enough on most system:
@@ -136,14 +168,14 @@ std::vector<unsigned char> cmCryptoHash::ByteHashFile(const std::string& file)
       // incorrect to not check the error condition on the fin.read()
       // before using the data, but the fin.gcount() will be zero if an
       // error occurred.  Therefore, the loop should be safe everywhere.
-      while (fin) {
-        fin.read(buffer_c, sizeof(buffer));
-        if (int gcount = static_cast<int>(fin.gcount())) {
+      while (sin) {
+        sin.read(buffer_c, sizeof(buffer));
+        if (int gcount = static_cast<int>(sin.gcount())) {
           this->Append(buffer_uc, gcount);
         }
       }
     }
-    if (fin.eof()) {
+    if (sin.eof()) {
       // Success
       return this->Finalize();
     }
@@ -154,12 +186,23 @@ std::vector<unsigned char> cmCryptoHash::ByteHashFile(const std::string& file)
   return std::vector<unsigned char>();
 }
 
-std::string cmCryptoHash::HashString(const std::string& input)
+std::vector<unsigned char> cmCryptoHash::ByteHashFile(std::string const& file)
+{
+  cmsys::ifstream fin(file.c_str(), std::ios::in | std::ios::binary);
+  return this->ByteHashStream(fin);
+}
+
+std::string cmCryptoHash::HashString(cm::string_view input)
 {
   return ByteHashToString(this->ByteHashString(input));
 }
 
-std::string cmCryptoHash::HashFile(const std::string& file)
+std::string cmCryptoHash::HashStream(std::istream& sin)
+{
+  return ByteHashToString(this->ByteHashStream(sin));
+}
+
+std::string cmCryptoHash::HashFile(std::string const& file)
 {
   return ByteHashToString(this->ByteHashFile(file));
 }
@@ -174,15 +217,15 @@ void cmCryptoHash::Append(void const* buf, size_t sz)
   rhash_update(this->CTX, buf, sz);
 }
 
-void cmCryptoHash::Append(std::string const& str)
+void cmCryptoHash::Append(cm::string_view input)
 {
-  this->Append(str.c_str(), str.size());
+  rhash_update(this->CTX, input.data(), input.size());
 }
 
 std::vector<unsigned char> cmCryptoHash::Finalize()
 {
   std::vector<unsigned char> hash(rhash_get_digest_size(this->Id), 0);
-  rhash_final(this->CTX, &hash[0]);
+  rhash_final(this->CTX, hash.data());
   return hash;
 }
 

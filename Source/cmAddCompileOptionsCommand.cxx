@@ -1,21 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmAddCompileOptionsCommand.h"
 
+#include "cmDiagnostics.h"
+#include "cmExecutionStatus.h"
 #include "cmMakefile.h"
 
-class cmExecutionStatus;
-
-bool cmAddCompileOptionsCommand::InitialPass(
-  std::vector<std::string> const& args, cmExecutionStatus&)
+bool cmAddCompileOptionsCommand(std::vector<std::string> const& args,
+                                cmExecutionStatus& status)
 {
-  if (args.empty()) {
-    return true;
+  cmMakefile& mf = status.GetMakefile();
+
+  mf.IssueDiagnostic(cmDiagnostics::CMD_NON_TARGET_DIRECTIVE,
+                     "Use of non-target directives is not recommended. "
+                     "Consider target_compile_options instead.");
+
+  for (std::string const& i : args) {
+    mf.AddCompileOption(i);
   }
 
-  for (std::vector<std::string>::const_iterator i = args.begin();
-       i != args.end(); ++i) {
-    this->Makefile->AddCompileOption(i->c_str());
-  }
   return true;
 }

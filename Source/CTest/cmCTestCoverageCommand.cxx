@@ -1,61 +1,52 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCTestCoverageCommand.h"
 
+#include <set>
+#include <utility>
+
+#include <cm/memory>
+#include <cmext/string_view>
+
+#include "cmArgumentParser.h"
 #include "cmCTest.h"
 #include "cmCTestCoverageHandler.h"
+#include "cmCTestGenericHandler.h"
+#include "cmExecutionStatus.h"
 
-class cmCTestGenericHandler;
+class cmMakefile;
 
-cmCTestCoverageCommand::cmCTestCoverageCommand()
+std::unique_ptr<cmCTestGenericHandler>
+cmCTestCoverageCommand::InitializeHandler(HandlerArguments& arguments,
+                                          cmExecutionStatus& status) const
 {
-  this->LabelsMentioned = false;
-}
-
-cmCTestGenericHandler* cmCTestCoverageCommand::InitializeHandler()
-{
+  cmMakefile& mf = status.GetMakefile();
+  auto& args = static_cast<CoverageArguments&>(arguments);
   this->CTest->SetCTestConfigurationFromCMakeVariable(
-    this->Makefile, "CoverageCommand", "CTEST_COVERAGE_COMMAND", this->Quiet);
+    &mf, "CoverageCommand", "CTEST_COVERAGE_COMMAND", args.Quiet);
   this->CTest->SetCTestConfigurationFromCMakeVariable(
-    this->Makefile, "CoverageExtraFlags", "CTEST_COVERAGE_EXTRA_FLAGS",
-    this->Quiet);
-  cmCTestCoverageHandler* handler = static_cast<cmCTestCoverageHandler*>(
-    this->CTest->GetInitializedHandler("coverage"));
-  if (!handler) {
-    this->SetError("internal CTest error. Cannot instantiate test handler");
-    return nullptr;
-  }
+    &mf, "CoverageExtraFlags", "CTEST_COVERAGE_EXTRA_FLAGS", args.Quiet);
+  auto handler = cm::make_unique<cmCTestCoverageHandler>(this->CTest);
 
   // If a LABELS option was given, select only files with the labels.
-  if (this->LabelsMentioned) {
-    handler->SetLabelFilter(this->Labels);
+  if (args.Labels) {
+    handler->SetLabelFilter(
+      std::set<std::string>(args.Labels->begin(), args.Labels->end()));
   }
 
-  handler->SetQuiet(this->Quiet);
-  return handler;
+  handler->SetQuiet(args.Quiet);
+  return std::unique_ptr<cmCTestGenericHandler>(std::move(handler));
 }
 
-bool cmCTestCoverageCommand::CheckArgumentKeyword(std::string const& arg)
+bool cmCTestCoverageCommand::InitialPass(std::vector<std::string> const& args,
+                                         cmExecutionStatus& status) const
 {
-  // Look for arguments specific to this command.
-  if (arg == "LABELS") {
-    this->ArgumentDoing = ArgumentDoingLabels;
-    this->LabelsMentioned = true;
-    return true;
-  }
+  using Args = CoverageArguments;
+  static auto const parser =
+    cmArgumentParser<Args>{ MakeHandlerParser<Args>() } //
+      .Bind("LABELS"_s, &CoverageArguments::Labels);
 
-  // Look for other arguments.
-  return this->Superclass::CheckArgumentKeyword(arg);
-}
-
-bool cmCTestCoverageCommand::CheckArgumentValue(std::string const& arg)
-{
-  // Handle states specific to this command.
-  if (this->ArgumentDoing == ArgumentDoingLabels) {
-    this->Labels.insert(arg);
-    return true;
-  }
-
-  // Look for other arguments.
-  return this->Superclass::CheckArgumentValue(arg);
+  return this->Invoke(parser, args, status, [&](CoverageArguments& a) {
+    return this->ExecuteHandlerCommand(a, status);
+  });
 }

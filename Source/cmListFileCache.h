@@ -1,15 +1,22 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmListFileCache_h
-#define cmListFileCache_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
+#include <memory>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "cmStateSnapshot.h"
+#include <cm/optional>
+#include <cm/string_view>
+
+#include "cmConstStack.h"
+#include "cmList.h"
+#include "cmSystemTools.h"
 
 /** \class cmListFileCache
  * \brief A class to cache list file contents.
@@ -18,18 +25,7 @@
  * cmake list files.
  */
 
-class cmMessenger;
-
-struct cmCommandContext
-{
-  std::string Name;
-  long Line;
-  cmCommandContext()
-    : Name()
-    , Line(0)
-  {
-  }
-};
+class cmMakefile;
 
 struct cmListFileArgument
 {
@@ -39,26 +35,72 @@ struct cmListFileArgument
     Quoted,
     Bracket
   };
-  cmListFileArgument()
-    : Value()
-    , Delim(Unquoted)
-    , Line(0)
-  {
-  }
-  cmListFileArgument(const std::string& v, Delimiter d, long line)
-    : Value(v)
+  cmListFileArgument() = default;
+  cmListFileArgument(cm::string_view v, Delimiter d, long line)
+    : Value(v.data(), v.size())
     , Delim(d)
     , Line(line)
   {
   }
-  bool operator==(const cmListFileArgument& r) const
+  bool operator==(cmListFileArgument const& r) const
   {
     return (this->Value == r.Value) && (this->Delim == r.Delim);
   }
-  bool operator!=(const cmListFileArgument& r) const { return !(*this == r); }
+  bool operator!=(cmListFileArgument const& r) const { return !(*this == r); }
   std::string Value;
-  Delimiter Delim;
-  long Line;
+  Delimiter Delim = Unquoted;
+  long Line = 0;
+};
+
+class cmListFileFunction
+{
+public:
+  cmListFileFunction(std::string name, long line, long lineEnd,
+                     std::vector<cmListFileArgument> args)
+    : Impl{ std::make_shared<Implementation>(std::move(name), line, lineEnd,
+                                             std::move(args)) }
+  {
+  }
+
+  std::string const& OriginalName() const noexcept
+  {
+    return this->Impl->OriginalName;
+  }
+
+  std::string const& LowerCaseName() const noexcept
+  {
+    return this->Impl->LowerCaseName;
+  }
+
+  long Line() const noexcept { return this->Impl->Line; }
+  long LineEnd() const noexcept { return this->Impl->LineEnd; }
+
+  std::vector<cmListFileArgument> const& Arguments() const noexcept
+  {
+    return this->Impl->Arguments;
+  }
+
+private:
+  struct Implementation
+  {
+    Implementation(std::string name, long line, long lineEnd,
+                   std::vector<cmListFileArgument> args)
+      : OriginalName{ std::move(name) }
+      , LowerCaseName{ cmSystemTools::LowerCase(this->OriginalName) }
+      , Line{ line }
+      , LineEnd{ lineEnd }
+      , Arguments{ std::move(args) }
+    {
+    }
+
+    std::string OriginalName;
+    std::string LowerCaseName;
+    long Line = 0;
+    long LineEnd = 0;
+    std::vector<cmListFileArgument> Arguments;
+  };
+
+  std::shared_ptr<Implementation const> Impl;
 };
 
 class cmListFileContext
@@ -66,94 +108,173 @@ class cmListFileContext
 public:
   std::string Name;
   std::string FilePath;
-  long Line;
-  cmListFileContext()
-    : Name()
-    , FilePath()
-    , Line(0)
+  long Line = 0;
+  static long const DeferPlaceholderLine = -1;
+  cm::optional<std::string> DeferId;
+
+  cmListFileContext() = default;
+  // This move constructor is marked `noexcept` yet `clang-tidy` 14 reports it
+  // as being able to throw an exception. Suppress the warning as there doesn't
+  // seem to be any way for this to happen given the member types.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
+  cmListFileContext(cmListFileContext&& /*other*/) noexcept = default;
+  cmListFileContext(cmListFileContext const& /*other*/) = default;
+  cmListFileContext& operator=(cmListFileContext const& /*other*/) = default;
+#if __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+  cmListFileContext& operator=(cmListFileContext&& /*other*/) noexcept =
+    default;
+#else
+  // The move assignment operators for several STL classes did not become
+  // noexcept until C++17, which causes some tools to warn about this move
+  // assignment operator throwing an exception when it shouldn't.
+  cmListFileContext& operator=(cmListFileContext&& /*other*/) noexcept =
+    delete;
+#endif
+
+  cmListFileContext(std::string name, std::string filePath, long line)
+    : Name(std::move(name))
+    , FilePath(std::move(filePath))
+    , Line(line)
   {
   }
 
-  static cmListFileContext FromCommandContext(cmCommandContext const& lfcc,
-                                              std::string const& fileName)
+  static cmListFileContext FromListFilePath(std::string const& filePath)
+  {
+    // We are entering a file-level scope but have not yet reached any specific
+    // line or command invocation within it.  This context is useful to print
+    // when it is at the top, but otherwise can be skipped during call stack
+    // printing if preceded by a more specific entry.
+    cmListFileContext lfc;
+    lfc.FilePath = filePath;
+    return lfc;
+  }
+
+  static cmListFileContext FromListFileFunction(
+    cmListFileFunction const& lff, std::string const& fileName,
+    cm::optional<std::string> deferId = {})
   {
     cmListFileContext lfc;
     lfc.FilePath = fileName;
-    lfc.Line = lfcc.Line;
-    lfc.Name = lfcc.Name;
+    lfc.Line = lff.Line();
+    lfc.Name = lff.OriginalName();
+    lfc.DeferId = std::move(deferId);
     return lfc;
   }
 };
 
 std::ostream& operator<<(std::ostream&, cmListFileContext const&);
-bool operator<(const cmListFileContext& lhs, const cmListFileContext& rhs);
+bool operator<(cmListFileContext const& lhs, cmListFileContext const& rhs);
 bool operator==(cmListFileContext const& lhs, cmListFileContext const& rhs);
 bool operator!=(cmListFileContext const& lhs, cmListFileContext const& rhs);
 
-struct cmListFileFunction : public cmCommandContext
-{
-  std::vector<cmListFileArgument> Arguments;
-};
-
-// Represent a backtrace (call stack).  Provide value semantics
-// but use efficient reference-counting underneath to avoid copies.
+// Represent a backtrace (call stack) with efficient value semantics.
 class cmListFileBacktrace
+  : public cmConstStack<cmListFileContext, cmListFileBacktrace>
+{
+  using cmConstStack::cmConstStack;
+  friend class cmConstStack<cmListFileContext, cmListFileBacktrace>;
+};
+#ifndef cmListFileCache_cxx
+extern template class cmConstStack<cmListFileContext, cmListFileBacktrace>;
+#endif
+
+// Wrap type T as a value with a backtrace.  For purposes of
+// ordering and equality comparison, only the original value is
+// used.  The backtrace is considered incidental.
+template <typename T>
+class BT
 {
 public:
-  // Default-constructed backtrace may not be used until after
-  // set via assignment from a backtrace constructed with a
-  // valid snapshot.
-  cmListFileBacktrace();
-
-  // Construct an empty backtrace whose bottom sits in the directory
-  // indicated by the given valid snapshot.
-  cmListFileBacktrace(cmStateSnapshot const& snapshot);
-
-  // Backtraces may be copied and assigned as values.
-  cmListFileBacktrace(cmListFileBacktrace const& r);
-  cmListFileBacktrace& operator=(cmListFileBacktrace const& r);
-  ~cmListFileBacktrace();
-
-  cmStateSnapshot GetBottom() const { return this->Bottom; }
-
-  // Get a backtrace with the given file scope added to the top.
-  // May not be called until after construction with a valid snapshot.
-  cmListFileBacktrace Push(std::string const& file) const;
-
-  // Get a backtrace with the given call context added to the top.
-  // May not be called until after construction with a valid snapshot.
-  cmListFileBacktrace Push(cmListFileContext const& lfc) const;
-
-  // Get a backtrace with the top level removed.
-  // May not be called until after a matching Push.
-  cmListFileBacktrace Pop() const;
-
-  // Get the context at the top of the backtrace.
-  // Returns an empty context if the backtrace is empty.
-  cmListFileContext const& Top() const;
-
-  // Print the top of the backtrace.
-  void PrintTitle(std::ostream& out) const;
-
-  // Print the call stack below the top of the backtrace.
-  void PrintCallStack(std::ostream& out) const;
-
-private:
-  struct Entry;
-
-  cmStateSnapshot Bottom;
-  Entry* Cur;
-  cmListFileBacktrace(cmStateSnapshot const& bottom, Entry* up,
-                      cmListFileContext const& lfc);
-  cmListFileBacktrace(cmStateSnapshot const& bottom, Entry* cur);
+  BT(T v = T(), cmListFileBacktrace bt = cmListFileBacktrace())
+    : Value(std::move(v))
+    , Backtrace(std::move(bt))
+  {
+  }
+  T Value;
+  cmListFileBacktrace Backtrace;
+  friend bool operator==(BT<T> const& l, BT<T> const& r)
+  {
+    return l.Value == r.Value;
+  }
+  friend bool operator<(BT<T> const& l, BT<T> const& r)
+  {
+    return l.Value < r.Value;
+  }
+  friend bool operator==(BT<T> const& l, T const& r) { return l.Value == r; }
+  friend bool operator==(T const& l, BT<T> const& r) { return l == r.Value; }
 };
+
+std::ostream& operator<<(std::ostream& os, BT<std::string> const& s);
+
+namespace cm {
+// Helpers for basic type retrieval
+template <typename T>
+T remove_BT(BT<T> const& bt)
+{
+  return bt.Value;
+}
+
+template <typename T>
+std::vector<T> remove_BT(std::vector<BT<T>> const& container)
+{
+  std::vector<T> result;
+  result.reserve(container.size());
+  for (auto const& entry : container) {
+    result.emplace_back(entry.Value);
+  }
+
+  return result;
+}
+template <typename T>
+std::set<T> remove_BT(std::set<BT<T>> const& container)
+{
+  std::set<T> result;
+  for (auto const& entry : container) {
+    result.emplace(entry.Value);
+  }
+
+  return result;
+}
+}
+
+// Wrap type T as a value with potentially multiple backtraces.  For purposes
+// of ordering and equality comparison, only the original value is used.  The
+// backtrace is considered incidental.
+template <typename T>
+class BTs
+{
+public:
+  BTs(T v = T(), cmListFileBacktrace bt = cmListFileBacktrace())
+    : Value(std::move(v))
+  {
+    this->Backtraces.emplace_back(std::move(bt));
+  }
+  T Value;
+  std::vector<cmListFileBacktrace> Backtraces;
+  friend bool operator==(BTs<T> const& l, BTs<T> const& r)
+  {
+    return l.Value == r.Value;
+  }
+  friend bool operator<(BTs<T> const& l, BTs<T> const& r)
+  {
+    return l.Value < r.Value;
+  }
+  friend bool operator==(BTs<T> const& l, T const& r) { return l.Value == r; }
+  friend bool operator==(T const& l, BTs<T> const& r) { return l == r.Value; }
+};
+
+std::vector<BT<std::string>> cmExpandListWithBacktrace(
+  std::string const& list,
+  cmListFileBacktrace const& bt = cmListFileBacktrace(),
+  cmList::EmptyElements emptyArgs = cmList::EmptyElements::No);
 
 struct cmListFile
 {
-  bool ParseFile(const char* path, cmMessenger* messenger,
+  bool ParseFile(std::string const& path, cmMakefile const* mf,
                  cmListFileBacktrace const& lfbt);
+
+  bool ParseString(cm::string_view str, std::string const& virtual_filename,
+                   cmMakefile const* mf, cmListFileBacktrace const& lfbt);
 
   std::vector<cmListFileFunction> Functions;
 };
-
-#endif

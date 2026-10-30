@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_read_open_filename.c 201093 2009-12-28 02:28:44Z kientzle $");
 
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
@@ -40,6 +39,9 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_read_open_filename.c 201093 2009
 #endif
 #ifdef HAVE_IO_H
 #include <io.h>
+#endif
+#ifdef HAVE_LIMITS_H
+#include <limits.h>
 #endif
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -60,6 +62,7 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_read_open_filename.c 201093 2009
 #endif
 
 #include "archive.h"
+#include "archive_platform_stat.h"
 #include "archive_private.h"
 #include "archive_string.h"
 
@@ -75,6 +78,7 @@ struct read_file_data {
 	size_t	 block_size;
 	void	*buffer;
 	mode_t	 st_mode;  /* Mode bits for opened file. */
+	int64_t	 size;
 	char	 use_lseek;
 	enum fnt_e { FNT_STDIN, FNT_MBS, FNT_WCS } filename_type;
 	union {
@@ -121,13 +125,14 @@ archive_read_open_filenames(struct archive *a, const char **filenames,
 	archive_clear_error(a);
 	do
 	{
+		size_t len;
 		if (filename == NULL)
 			filename = "";
-		mine = (struct read_file_data *)calloc(1,
-			sizeof(*mine) + strlen(filename));
+		len = strlen(filename);
+		mine = calloc(1, sizeof(*mine) + len);
 		if (mine == NULL)
 			goto no_memory;
-		strcpy(mine->filename.m, filename);
+		memcpy(mine->filename.m, filename, len + 1);
 		mine->block_size = block_size;
 		mine->fd = -1;
 		mine->buffer = NULL;
@@ -136,8 +141,10 @@ archive_read_open_filenames(struct archive *a, const char **filenames,
 			mine->filename_type = FNT_STDIN;
 		} else
 			mine->filename_type = FNT_MBS;
-		if (archive_read_append_callback_data(a, mine) != (ARCHIVE_OK))
+		if (archive_read_append_callback_data(a, mine) != (ARCHIVE_OK)) {
+			free(mine);
 			return (ARCHIVE_FATAL);
+		}
 		if (filenames == NULL)
 			break;
 		filename = *(filenames++);
@@ -155,55 +162,75 @@ no_memory:
 	return (ARCHIVE_FATAL);
 }
 
+/*
+ * This function is an implementation detail of archive_read_open_filename_w,
+ * which is exposed as a separate API on Windows.
+ */
+#if !defined(_WIN32) || defined(__CYGWIN__)
+static
+#endif
 int
-archive_read_open_filename_w(struct archive *a, const wchar_t *wfilename,
+archive_read_open_filenames_w(struct archive *a, const wchar_t **wfilenames,
     size_t block_size)
 {
-	struct read_file_data *mine = (struct read_file_data *)calloc(1,
-		sizeof(*mine) + wcslen(wfilename) * sizeof(wchar_t));
-	if (!mine)
+	struct read_file_data *mine;
+	const wchar_t *wfilename = NULL;
+	if (wfilenames)
+		wfilename = *(wfilenames++);
+
+	archive_clear_error(a);
+	do
 	{
-		archive_set_error(a, ENOMEM, "No memory");
-		return (ARCHIVE_FATAL);
-	}
-	mine->fd = -1;
-	mine->block_size = block_size;
+		if (wfilename == NULL)
+			wfilename = L"";
+		mine = calloc(1,
+			sizeof(*mine) + wcslen(wfilename) * MB_LEN_MAX);
+		if (mine == NULL)
+			goto no_memory;
+		mine->block_size = block_size;
+		mine->fd = -1;
 
-	if (wfilename == NULL || wfilename[0] == L'\0') {
-		mine->filename_type = FNT_STDIN;
-	} else {
+		if (wfilename == NULL || wfilename[0] == L'\0') {
+			mine->filename_type = FNT_STDIN;
+		} else {
 #if defined(_WIN32) && !defined(__CYGWIN__)
-		mine->filename_type = FNT_WCS;
-		wcscpy(mine->filename.w, wfilename);
+			mine->filename_type = FNT_WCS;
+			wcscpy(mine->filename.w, wfilename);
 #else
-		/*
-		 * POSIX system does not support a wchar_t interface for
-		 * open() system call, so we have to translate a wchar_t
-		 * filename to multi-byte one and use it.
-		 */
-		struct archive_string fn;
+			/*
+			 * POSIX system does not support a wchar_t interface for
+			 * open() system call, so we have to translate a wchar_t
+			 * filename to multi-byte one and use it.
+			 */
+			struct archive_string fn;
 
-		archive_string_init(&fn);
-		if (archive_string_append_from_wcs(&fn, wfilename,
-		    wcslen(wfilename)) != 0) {
-			if (errno == ENOMEM)
-				archive_set_error(a, errno,
-				    "Can't allocate memory");
-			else
-				archive_set_error(a, EINVAL,
-				    "Failed to convert a wide-character"
-				    " filename to a multi-byte filename");
+			archive_string_init(&fn);
+			if (archive_string_append_from_wcs(&fn, wfilename,
+			    wcslen(wfilename)) != 0) {
+				if (errno == ENOMEM)
+					archive_set_error(a, errno,
+					    "Can't allocate memory");
+				else
+					archive_set_error(a, EINVAL,
+					    "Failed to convert a wide-character"
+					    " filename to a multi-byte filename");
+				archive_string_free(&fn);
+				free(mine);
+				return (ARCHIVE_FATAL);
+			}
+			mine->filename_type = FNT_MBS;
+			strcpy(mine->filename.m, fn.s);
 			archive_string_free(&fn);
+#endif
+		}
+		if (archive_read_append_callback_data(a, mine) != (ARCHIVE_OK)) {
 			free(mine);
 			return (ARCHIVE_FATAL);
 		}
-		mine->filename_type = FNT_MBS;
-		strcpy(mine->filename.m, fn.s);
-		archive_string_free(&fn);
-#endif
-	}
-	if (archive_read_append_callback_data(a, mine) != (ARCHIVE_OK))
-		return (ARCHIVE_FATAL);
+		if (wfilenames == NULL)
+			break;
+		wfilename = *(wfilenames++);
+	} while (wfilename != NULL && wfilename[0] != '\0');
 	archive_read_set_open_callback(a, file_open);
 	archive_read_set_read_callback(a, file_read);
 	archive_read_set_skip_callback(a, file_skip);
@@ -212,16 +239,31 @@ archive_read_open_filename_w(struct archive *a, const wchar_t *wfilename,
 	archive_read_set_seek_callback(a, file_seek);
 
 	return (archive_read_open1(a));
+no_memory:
+	archive_set_error(a, ENOMEM, "No memory");
+	return (ARCHIVE_FATAL);
+}
+
+int
+archive_read_open_filename_w(struct archive *a, const wchar_t *wfilename,
+    size_t block_size)
+{
+	const wchar_t *wfilenames[2];
+	wfilenames[0] = wfilename;
+	wfilenames[1] = NULL;
+	return archive_read_open_filenames_w(a, wfilenames, block_size);
 }
 
 static int
 file_open(struct archive *a, void *client_data)
 {
-	struct stat st;
+	la_seek_stat_t st;
 	struct read_file_data *mine = (struct read_file_data *)client_data;
 	void *buffer;
 	const char *filename = NULL;
+#if defined(_WIN32) && !defined(__CYGWIN__)
 	const wchar_t *wfilename = NULL;
+#endif
 	int fd = -1;
 	int is_disk_like = 0;
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
@@ -271,20 +313,22 @@ file_open(struct archive *a, void *client_data)
 		}
 		if (fd < 0) {
 			archive_set_error(a, errno,
-			    "Failed to open '%S'", wfilename);
+			    "Failed to open '%ls'", wfilename);
 			return (ARCHIVE_FATAL);
 		}
 #else
 		archive_set_error(a, ARCHIVE_ERRNO_MISC,
-		    "Unexpedted operation in archive_read_open_filename");
+		    "Unexpected operation in archive_read_open_filename");
 		goto fail;
 #endif
 	}
-	if (fstat(fd, &st) != 0) {
+	if (la_seek_fstat(fd, &st) != 0) {
+#if defined(_WIN32) && !defined(__CYGWIN__)
 		if (mine->filename_type == FNT_WCS)
-			archive_set_error(a, errno, "Can't stat '%S'",
+			archive_set_error(a, errno, "Can't stat '%ls'",
 			    wfilename);
 		else
+#endif
 			archive_set_error(a, errno, "Can't stat '%s'",
 			    filename);
 		goto fail;
@@ -366,8 +410,10 @@ file_open(struct archive *a, void *client_data)
 	mine->st_mode = st.st_mode;
 
 	/* Disk-like inputs can use lseek(). */
-	if (is_disk_like)
+	if (is_disk_like) {
 		mine->use_lseek = 1;
+		mine->size = st.st_size;
+	}
 
 	return (ARCHIVE_OK);
 fail:
@@ -413,7 +459,7 @@ file_read(struct archive *a, void *client_data, const void **buff)
 				    "Error reading '%s'", mine->filename.m);
 			else
 				archive_set_error(a, errno,
-				    "Error reading '%S'", mine->filename.w);
+				    "Error reading '%ls'", mine->filename.w);
 		}
 		return (bytes_read);
 	}
@@ -449,17 +495,27 @@ file_skip_lseek(struct archive *a, void *client_data, int64_t request)
 #else
 	off_t old_offset, new_offset;
 #endif
+	la_seek_t skip = (la_seek_t)request;
+	int skip_bits = sizeof(skip) * 8 - 1;
 
 	/* We use off_t here because lseek() is declared that way. */
 
-	/* TODO: Deal with case where off_t isn't 64 bits.
-	 * This shouldn't be a problem on Linux or other POSIX
-	 * systems, since the configuration logic for libarchive
-	 * tries to obtain a 64-bit off_t.
-	 */
-	if ((old_offset = lseek(mine->fd, 0, SEEK_CUR)) >= 0 &&
-	    (new_offset = lseek(mine->fd, request, SEEK_CUR)) >= 0)
-		return (new_offset - old_offset);
+	/* Reduce a request that would overflow the 'skip' variable. */
+	if (sizeof(request) > sizeof(skip)) {
+		const int64_t max_skip =
+		    (((int64_t)1 << (skip_bits - 1)) - 1) * 2 + 1;
+		if (request > max_skip)
+			skip = max_skip;
+	}
+
+	if ((old_offset = lseek(mine->fd, 0, SEEK_CUR)) >= 0) {
+		if (old_offset >= mine->size ||
+		    skip > mine->size - old_offset) {
+			/* Do not seek past end of file. */
+			errno = ESPIPE;
+		} else if ((new_offset = lseek(mine->fd, skip, SEEK_CUR)) >= 0)
+			return (new_offset - old_offset);
+	}
 
 	/* If lseek() fails, don't bother trying again. */
 	mine->use_lseek = 0;
@@ -475,7 +531,7 @@ file_skip_lseek(struct archive *a, void *client_data, int64_t request)
 		archive_set_error(a, errno, "Error seeking in '%s'",
 		    mine->filename.m);
 	else
-		archive_set_error(a, errno, "Error seeking in '%S'",
+		archive_set_error(a, errno, "Error seeking in '%ls'",
 		    mine->filename.w);
 	return (-1);
 }
@@ -506,22 +562,36 @@ static int64_t
 file_seek(struct archive *a, void *client_data, int64_t request, int whence)
 {
 	struct read_file_data *mine = (struct read_file_data *)client_data;
+	la_seek_t seek = (la_seek_t)request;
 	int64_t r;
+	int seek_bits = sizeof(seek) * 8 - 1;
 
 	/* We use off_t here because lseek() is declared that way. */
-	/* See above for notes about when off_t is less than 64 bits. */
-	r = lseek(mine->fd, request, whence);
+
+	/* Do not perform a seek which cannot be fulfilled. */
+	if (sizeof(request) > sizeof(seek)) {
+		const int64_t max_seek =
+		    (((int64_t)1 << (seek_bits - 1)) - 1) * 2 + 1;
+		const int64_t min_seek = ~max_seek;
+		if (request < min_seek || request > max_seek) {
+			errno = EOVERFLOW;
+			goto err;
+		}
+	}
+
+	r = lseek(mine->fd, seek, whence);
 	if (r >= 0)
 		return r;
 
 	/* If the input is corrupted or truncated, fail. */
+err:
 	if (mine->filename_type == FNT_STDIN)
 		archive_set_error(a, errno, "Error seeking in stdin");
 	else if (mine->filename_type == FNT_MBS)
 		archive_set_error(a, errno, "Error seeking in '%s'",
 		    mine->filename.m);
 	else
-		archive_set_error(a, errno, "Error seeking in '%S'",
+		archive_set_error(a, errno, "Error seeking in '%ls'",
 		    mine->filename.w);
 	return (ARCHIVE_FATAL);
 }

@@ -1,11 +1,11 @@
 build_name
 ----------
 
-Disallowed.  See CMake Policy :policy:`CMP0036`.
+Disallowed since version 3.0.  See CMake Policy :policy:`CMP0036`.
 
 Use ``${CMAKE_SYSTEM}`` and ``${CMAKE_CXX_COMPILER}`` instead.
 
-::
+.. code-block:: cmake
 
   build_name(variable)
 

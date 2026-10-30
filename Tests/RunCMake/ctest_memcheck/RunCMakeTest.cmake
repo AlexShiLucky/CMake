@@ -4,8 +4,6 @@ set(SITE test-site)
 set(BUILDNAME test-build)
 set(COVERAGE_COMMAND "")
 
-unset(ENV{CTEST_PARALLEL_LEVEL})
-
 function(run_mc_test CASE_NAME CHECKER_COMMAND)
   run_ctest(${CASE_NAME} ${ARGN})
 endfunction()
@@ -95,6 +93,19 @@ unset(CMAKELISTS_EXTRA_CODE)
 unset(CTEST_EXTRA_CODE)
 
 #-----------------------------------------------------------------------------
+# add output test
+set(CTEST_EXTRA_CODE
+"set(CTEST_MEMORYCHECK_SANITIZER_OPTIONS \"simulate_sanitizer=1\")
+")
+set(CMAKELISTS_EXTRA_CODE
+"add_test(NAME TestSan COMMAND \"\${CMAKE_COMMAND}\"
+-P \"${RunCMake_SOURCE_DIR}/testUndefinedBehaviorSanitizer.cmake\")
+")
+run_mc_test(ExpectedOutputs "" -DMEMCHECK_TYPE=UndefinedBehaviorSanitizer)
+unset(CMAKELISTS_EXTRA_CODE)
+unset(CTEST_EXTRA_CODE)
+
+#-----------------------------------------------------------------------------
 set(CTEST_EXTRA_CODE "string(REPLACE \" \" \"\\\\ \" PRE_POST_COMMAND \"\${CTEST_MEMORYCHECK_COMMAND}\")
 
 set(CTEST_CUSTOM_PRE_MEMCHECK \"\${PRE_POST_COMMAND} pre command\")
@@ -175,3 +186,78 @@ unset(CMAKELISTS_EXTRA_CODE)
 unset(CTEST_EXTRA_CODE)
 unset(CTEST_MEMCHECK_ARGS)
 unset(CTEST_SUFFIX_CODE)
+
+#-----------------------------------------------------------------------------
+set(CMAKELISTS_EXTRA_CODE
+"add_test(NAME TestSan COMMAND \"${CMAKE_COMMAND}\"
+-P \"${RunCMake_SOURCE_DIR}/testCudaSanitizer.cmake\")
+")
+set(CTEST_SUFFIX_CODE "message(\"Defect count: \${defect_count}\")")
+set(CTEST_MEMCHECK_ARGS "DEFECT_COUNT defect_count")
+run_mc_test(DummyCudaSanitizer "${PSEUDO_CUDA_SANITIZER}")
+unset(CTEST_MEMCHECK_ARGS)
+unset(CTEST_SUFFIX_CODE)
+unset(CTEST_EXTRA_CODE)
+
+#-----------------------------------------------------------------------------
+block()
+  set(RunCMake_TEST_SOURCE_DIR "${RunCMake_BINARY_DIR}/TestPresetInclude")
+  set(CMAKELISTS_EXTRA_CODE [[
+foreach(i RANGE 1 3)
+  add_test(NAME test${i} COMMAND ${CMAKE_COMMAND} -E true)
+endforeach()
+]])
+  configure_file(
+    "${RunCMake_SOURCE_DIR}/CMakePresets.json.in"
+    "${RunCMake_TEST_SOURCE_DIR}/CMakePresets.json"
+    @ONLY)
+  set(CTEST_MEMCHECK_ARGS "PRESET my-include-preset")
+  run_mc_test(TestPresetInclude "${PSEUDO_VALGRIND}")
+endblock()
+
+block()
+  set(RunCMake_TEST_SOURCE_DIR "${RunCMake_BINARY_DIR}/TestPresetFromFile")
+  set(custom_presets_file
+    "${RunCMake_BINARY_DIR}/TestPresetFromFile/custom-presets.json")
+  set(CMAKELISTS_EXTRA_CODE [[
+foreach(i RANGE 1 3)
+  add_test(NAME test${i} COMMAND ${CMAKE_COMMAND} -E true)
+endforeach()
+]])
+  configure_file(
+    "${RunCMake_SOURCE_DIR}/CMakePresets.json.in"
+    "${custom_presets_file}"
+    @ONLY)
+  set(CTEST_MEMCHECK_ARGS
+    "PRESET my-include-preset PRESETS_FILE \"${custom_presets_file}\"")
+  run_mc_test(TestPresetFromFile "${PSEUDO_VALGRIND}")
+endblock()
+
+block()
+  set(CTEST_MEMCHECK_ARGS
+    "PRESET my-include-preset PRESETS_FILE /nonexistent/path/presets.json")
+  run_mc_test(TestPresetBadFile "${PSEUDO_VALGRIND}")
+endblock()
+
+#-----------------------------------------------------------------------------
+# Verify that INCLUDE_LABEL / EXCLUDE_LABEL accept more than one value that
+# form an AND relationship, and that the change propagates to ctest_memcheck().
+block()
+  set(CMAKELISTS_EXTRA_CODE [[
+add_test(NAME test1 COMMAND ${CMAKE_COMMAND} -E true)
+set_property(TEST test1 PROPERTY LABELS foo)
+add_test(NAME test2 COMMAND ${CMAKE_COMMAND} -E true)
+set_property(TEST test2 PROPERTY LABELS bar)
+add_test(NAME test3 COMMAND ${CMAKE_COMMAND} -E true)
+set_property(TEST test3 PROPERTY LABELS foo bar)
+]])
+  set(CTEST_MEMCHECK_ARGS "INCLUDE_LABEL foo bar")
+  run_mc_test(LabelAndInclude "${PSEUDO_VALGRIND}")
+
+  set(CTEST_MEMCHECK_ARGS "EXCLUDE_LABEL foo bar")
+  run_mc_test(LabelAndExclude "${PSEUDO_VALGRIND}")
+
+  set(CTEST_MEMCHECK_ARGS "INCLUDE_LABEL foo")
+  run_mc_test(LabelAndIncludeSingle "${PSEUDO_VALGRIND}")
+  unset(CTEST_MEMCHECK_ARGS)
+endblock()

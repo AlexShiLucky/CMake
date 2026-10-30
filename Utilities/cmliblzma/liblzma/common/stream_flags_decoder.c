@@ -1,12 +1,11 @@
+// SPDX-License-Identifier: 0BSD
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 /// \file       stream_flags_decoder.c
 /// \brief      Decodes Stream Header and Stream Footer from .xz files
 //
 //  Author:     Lasse Collin
-//
-//  This file has been put into the public domain.
-//  You can do whatever you want with this file.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -30,19 +29,20 @@ stream_flags_decode(lzma_stream_flags *options, const uint8_t *in)
 extern LZMA_API(lzma_ret)
 lzma_stream_header_decode(lzma_stream_flags *options, const uint8_t *in)
 {
-	uint32_t crc;
-
 	// Magic
 	if (memcmp(in, lzma_header_magic, sizeof(lzma_header_magic)) != 0)
 		return LZMA_FORMAT_ERROR;
 
 	// Verify the CRC32 so we can distinguish between corrupt
 	// and unsupported files.
-	crc = lzma_crc32(in + sizeof(lzma_header_magic),
+	const uint32_t crc = lzma_crc32(in + sizeof(lzma_header_magic),
 			LZMA_STREAM_FLAGS_SIZE, 0);
-	if (crc != unaligned_read32le(in + sizeof(lzma_header_magic)
-			+ LZMA_STREAM_FLAGS_SIZE))
+	if (crc != read32le(in + sizeof(lzma_header_magic)
+			+ LZMA_STREAM_FLAGS_SIZE)) {
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 		return LZMA_DATA_ERROR;
+#endif
+	}
 
 	// Stream Flags
 	if (stream_flags_decode(options, in + sizeof(lzma_header_magic)))
@@ -61,25 +61,26 @@ lzma_stream_header_decode(lzma_stream_flags *options, const uint8_t *in)
 extern LZMA_API(lzma_ret)
 lzma_stream_footer_decode(lzma_stream_flags *options, const uint8_t *in)
 {
-	uint32_t crc;
-
 	// Magic
 	if (memcmp(in + sizeof(uint32_t) * 2 + LZMA_STREAM_FLAGS_SIZE,
 			lzma_footer_magic, sizeof(lzma_footer_magic)) != 0)
 		return LZMA_FORMAT_ERROR;
 
 	// CRC32
-	crc = lzma_crc32(in + sizeof(uint32_t),
+	const uint32_t crc = lzma_crc32(in + sizeof(uint32_t),
 			sizeof(uint32_t) + LZMA_STREAM_FLAGS_SIZE, 0);
-	if (crc != unaligned_read32le(in))
+	if (crc != read32le(in)) {
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 		return LZMA_DATA_ERROR;
+#endif
+	}
 
 	// Stream Flags
 	if (stream_flags_decode(options, in + sizeof(uint32_t) * 2))
 		return LZMA_OPTIONS_ERROR;
 
 	// Backward Size
-	options->backward_size = unaligned_read32le(in + sizeof(uint32_t));
+	options->backward_size = read32le(in + sizeof(uint32_t));
 	options->backward_size = (options->backward_size + 1) * 4;
 
 	return LZMA_OK;

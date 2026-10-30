@@ -1,9 +1,11 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmHexFileConverter.h"
 
-#include <stdio.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
+
+#include "cmsys/String.h"
 
 #include "cmSystemTools.h"
 
@@ -12,16 +14,9 @@
 #define MOTOROLA_SREC_MIN_LINE_LENGTH (2 + 2 + 4 + 2)
 #define MOTOROLA_SREC_MAX_LINE_LENGTH (2 + 2 + 8 + (256 * 2) + 2)
 
-// might go to SystemTools ?
-static bool cm_IsHexChar(char c)
+static unsigned int ChompStrlen(char const* line)
 {
-  return (((c >= '0') && (c <= '9')) || ((c >= 'a') && (c <= 'f')) ||
-          ((c >= 'A') && (c <= 'F')));
-}
-
-static unsigned int ChompStrlen(const char* line)
-{
-  if (line == nullptr) {
+  if (!line) {
     return 0;
   }
   unsigned int length = static_cast<unsigned int>(strlen(line));
@@ -34,7 +29,7 @@ static unsigned int ChompStrlen(const char* line)
   return length;
 }
 
-static bool OutputBin(FILE* file, const char* buf, unsigned int startIndex,
+static bool OutputBin(FILE* file, char const* buf, unsigned int startIndex,
                       unsigned int stopIndex)
 {
   bool success = true;
@@ -50,6 +45,10 @@ static bool OutputBin(FILE* file, const char* buf, unsigned int startIndex,
       success = false;
       break;
     }
+    if (outBufCount >= sizeof(outBuf)) {
+      success = false;
+      break;
+    }
     outBuf[outBufCount] = static_cast<char>(convertedByte & 0xff);
     outBufCount++;
   }
@@ -60,7 +59,7 @@ static bool OutputBin(FILE* file, const char* buf, unsigned int startIndex,
 }
 
 // see http://www.die.net/doc/linux/man/man5/srec.5.html
-static bool ConvertMotorolaSrecLine(const char* buf, FILE* outFile)
+static bool ConvertMotorolaSrecLine(char const* buf, FILE* outFile)
 {
   unsigned int slen = ChompStrlen(buf);
   if ((slen < MOTOROLA_SREC_MIN_LINE_LENGTH) ||
@@ -99,7 +98,7 @@ static bool ConvertMotorolaSrecLine(const char* buf, FILE* outFile)
 }
 
 // see http://en.wikipedia.org/wiki/Intel_hex
-static bool ConvertIntelHexLine(const char* buf, FILE* outFile)
+static bool ConvertIntelHexLine(char const* buf, FILE* outFile)
 {
   unsigned int slen = ChompStrlen(buf);
   if ((slen < INTEL_HEX_MIN_LINE_LENGTH) ||
@@ -134,11 +133,11 @@ static bool ConvertIntelHexLine(const char* buf, FILE* outFile)
 }
 
 cmHexFileConverter::FileType cmHexFileConverter::DetermineFileType(
-  const char* inFileName)
+  std::string const& inFileName)
 {
   char buf[1024];
   FILE* inFile = cmsys::SystemTools::Fopen(inFileName, "rb");
-  if (inFile == nullptr) {
+  if (!inFile) {
     return Binary;
   }
 
@@ -169,15 +168,15 @@ cmHexFileConverter::FileType cmHexFileConverter::DetermineFileType(
   }
 
   for (unsigned int i = 1; i < slen; i++) {
-    if (!cm_IsHexChar(buf[i])) {
+    if (!cmsysString_isxdigit(buf[i])) {
       return Binary;
     }
   }
   return type;
 }
 
-bool cmHexFileConverter::TryConvert(const char* inFileName,
-                                    const char* outFileName)
+bool cmHexFileConverter::TryConvert(std::string const& inFileName,
+                                    std::string const& outFileName)
 {
   FileType type = DetermineFileType(inFileName);
   if (type == Binary) {
@@ -187,11 +186,11 @@ bool cmHexFileConverter::TryConvert(const char* inFileName,
   // try to open the file
   FILE* inFile = cmsys::SystemTools::Fopen(inFileName, "rb");
   FILE* outFile = cmsys::SystemTools::Fopen(outFileName, "wb");
-  if ((inFile == nullptr) || (outFile == nullptr)) {
-    if (inFile != nullptr) {
+  if (!inFile || !outFile) {
+    if (inFile) {
       fclose(inFile);
     }
-    if (outFile != nullptr) {
+    if (outFile) {
       fclose(outFile);
     }
     return false;
@@ -200,7 +199,7 @@ bool cmHexFileConverter::TryConvert(const char* inFileName,
   // convert them line by line
   bool success = false;
   char buf[1024];
-  while (fgets(buf, 1024, inFile) != nullptr) {
+  while (fgets(buf, 1024, inFile)) {
     if (type == MotorolaSrec) {
       success = ConvertMotorolaSrecLine(buf, outFile);
     } else if (type == IntelHex) {

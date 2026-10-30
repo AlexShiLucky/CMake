@@ -7,8 +7,8 @@
 /* Work-around CMake dependency scanning limitation.  This must
    duplicate the above list of headers.  */
 #if 0
-#include "Encoding.h.in"
-#include "Process.h.in"
+#  include "Encoding.h.in"
+#  include "Process.h.in"
 #endif
 
 /*
@@ -22,35 +22,28 @@ a UNIX-style select system call.
 */
 
 #ifdef _MSC_VER
-#pragma warning(push, 1)
+#  pragma warning(push, 1)
 #endif
 #include <windows.h> /* Windows API */
 #if defined(_MSC_VER) && _MSC_VER >= 1800
-#define KWSYS_WINDOWS_DEPRECATED_GetVersionEx
+#  define KWSYS_WINDOWS_DEPRECATED_GetVersionEx
 #endif
 #include <io.h>     /* _unlink */
-#include <stdio.h>  /* sprintf */
+#include <stdio.h>  /* snprintf */
+#include <stdlib.h> /* malloc */
 #include <string.h> /* strlen, strdup */
-#ifdef __WATCOMC__
-#define _unlink unlink
-#endif
 
 #ifndef _MAX_FNAME
-#define _MAX_FNAME 4096
+#  define _MAX_FNAME 4096
 #endif
 #ifndef _MAX_PATH
-#define _MAX_PATH 4096
+#  define _MAX_PATH 4096
 #endif
 
 #ifdef _MSC_VER
-#pragma warning(pop)
-#pragma warning(disable : 4514)
-#pragma warning(disable : 4706)
-#endif
-
-#if defined(__BORLANDC__)
-#pragma warn - 8004 /* assigned a value that is never used  */
-#pragma warn - 8060 /* Assignment inside if() condition.  */
+#  pragma warning(pop)
+#  pragma warning(disable : 4514)
+#  pragma warning(disable : 4706)
 #endif
 
 /* There are pipes for the process pipeline's stdout and stderr.  */
@@ -63,14 +56,14 @@ a UNIX-style select system call.
 
 /* Debug output macro.  */
 #if 0
-#define KWSYSPE_DEBUG(x)                                                      \
-  ((void*)cp == (void*)0x00226DE0                                             \
-     ? (fprintf(stderr, "%d/%p/%d ", (int)GetCurrentProcessId(), cp,          \
-                __LINE__),                                                    \
-        fprintf x, fflush(stderr), 1)                                         \
-     : (1))
+#  define KWSYSPE_DEBUG(x)                                                    \
+    ((void*)cp == (void*)0x00226DE0                                           \
+       ? (fprintf(stderr, "%d/%p/%d ", (int)GetCurrentProcessId(), cp,        \
+                  __LINE__),                                                  \
+          fprintf x, fflush(stderr), 1)                                       \
+       : (1))
 #else
-#define KWSYSPE_DEBUG(x) (void)1
+#  define KWSYSPE_DEBUG(x) (void)1
 #endif
 
 typedef LARGE_INTEGER kwsysProcessTime;
@@ -97,7 +90,7 @@ static int kwsysProcessInitialize(kwsysProcess* cp);
 static DWORD kwsysProcessCreate(kwsysProcess* cp, int index,
                                 kwsysProcessCreateInformation* si);
 static void kwsysProcessDestroy(kwsysProcess* cp, int event);
-static DWORD kwsysProcessSetupOutputPipeFile(PHANDLE handle, const char* name);
+static DWORD kwsysProcessSetupOutputPipeFile(PHANDLE handle, char const* name);
 static void kwsysProcessSetupSharedPipe(DWORD nStdHandle, PHANDLE handle);
 static void kwsysProcessSetupPipeNative(HANDLE native, PHANDLE handle);
 static void kwsysProcessCleanupHandle(PHANDLE h);
@@ -117,7 +110,6 @@ static kwsysProcessTime kwsysProcessTimeAdd(kwsysProcessTime in1,
                                             kwsysProcessTime in2);
 static kwsysProcessTime kwsysProcessTimeSubtract(kwsysProcessTime in1,
                                                  kwsysProcessTime in2);
-static void kwsysProcessSetExitException(kwsysProcess* cp, int code);
 static void kwsysProcessSetExitExceptionByIndex(kwsysProcess* cp, int code,
                                                 int idx);
 static void kwsysProcessKillTree(int pid);
@@ -355,16 +347,23 @@ kwsysProcess* kwsysProcess_New(void)
   ZeroMemory(&osv, sizeof(osv));
   osv.dwOSVersionInfoSize = sizeof(osv);
 #ifdef KWSYS_WINDOWS_DEPRECATED_GetVersionEx
-#pragma warning(push)
-#ifdef __INTEL_COMPILER
-#pragma warning(disable : 1478)
-#else
-#pragma warning(disable : 4996)
-#endif
+#  pragma warning(push)
+#  ifdef __INTEL_COMPILER
+#    pragma warning(disable : 1478)
+#  elif defined __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#  else
+#    pragma warning(disable : 4996)
+#  endif
 #endif
   GetVersionEx(&osv);
 #ifdef KWSYS_WINDOWS_DEPRECATED_GetVersionEx
-#pragma warning(pop)
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma warning(pop)
+#  endif
 #endif
   if (osv.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS) {
     /* Win9x no longer supported.  */
@@ -523,9 +522,7 @@ void kwsysProcess_Delete(kwsysProcess* cp)
   kwsysProcess_SetPipeFile(cp, kwsysProcess_Pipe_STDIN, 0);
   kwsysProcess_SetPipeFile(cp, kwsysProcess_Pipe_STDOUT, 0);
   kwsysProcess_SetPipeFile(cp, kwsysProcess_Pipe_STDERR, 0);
-  if (cp->CommandExitCodes) {
-    free(cp->CommandExitCodes);
-  }
+  free(cp->CommandExitCodes);
   free(cp->ProcessResults);
   free(cp);
 }
@@ -658,7 +655,7 @@ void kwsysProcess_SetTimeout(kwsysProcess* cp, double timeout)
   cp->TimeoutTime.QuadPart = -1;
 }
 
-int kwsysProcess_SetWorkingDirectory(kwsysProcess* cp, const char* dir)
+int kwsysProcess_SetWorkingDirectory(kwsysProcess* cp, char const* dir)
 {
   if (!cp) {
     return 0;
@@ -670,14 +667,14 @@ int kwsysProcess_SetWorkingDirectory(kwsysProcess* cp, const char* dir)
   if (dir && dir[0]) {
     wchar_t* wdir = kwsysEncoding_DupToWide(dir);
     /* We must convert the working directory to a full path.  */
-    DWORD length = GetFullPathNameW(wdir, 0, 0, 0);
+    DWORD length = GetFullPathNameW(wdir, 0, NULL, NULL);
     if (length > 0) {
       wchar_t* work_dir = malloc(length * sizeof(wchar_t));
       if (!work_dir) {
         free(wdir);
         return 0;
       }
-      if (!GetFullPathNameW(wdir, length, work_dir, 0)) {
+      if (!GetFullPathNameW(wdir, length, work_dir, NULL)) {
         free(work_dir);
         free(wdir);
         return 0;
@@ -689,7 +686,7 @@ int kwsysProcess_SetWorkingDirectory(kwsysProcess* cp, const char* dir)
   return 1;
 }
 
-int kwsysProcess_SetPipeFile(kwsysProcess* cp, int pipe, const char* file)
+int kwsysProcess_SetPipeFile(kwsysProcess* cp, int pipe, char const* file)
 {
   char** pfile;
   if (!cp) {
@@ -713,11 +710,10 @@ int kwsysProcess_SetPipeFile(kwsysProcess* cp, int pipe, const char* file)
     *pfile = 0;
   }
   if (file) {
-    *pfile = (char*)malloc(strlen(file) + 1);
+    *pfile = strdup(file);
     if (!*pfile) {
       return 0;
     }
-    strcpy(*pfile, file);
   }
 
   /* If we are redirecting the pipe, do not share it or use a native
@@ -758,7 +754,7 @@ void kwsysProcess_SetPipeShared(kwsysProcess* cp, int pipe, int shared)
   }
 }
 
-void kwsysProcess_SetPipeNative(kwsysProcess* cp, int pipe, HANDLE p[2])
+void kwsysProcess_SetPipeNative(kwsysProcess* cp, int pipe, const HANDLE p[2])
 {
   HANDLE* pPipeNative = 0;
 
@@ -872,7 +868,7 @@ int kwsysProcess_GetExitCode(kwsysProcess* cp)
     : 0;
 }
 
-const char* kwsysProcess_GetErrorString(kwsysProcess* cp)
+char const* kwsysProcess_GetErrorString(kwsysProcess* cp)
 {
   if (!cp) {
     return "Process management structure could not be allocated";
@@ -882,7 +878,7 @@ const char* kwsysProcess_GetErrorString(kwsysProcess* cp)
   return "Success";
 }
 
-const char* kwsysProcess_GetExceptionString(kwsysProcess* cp)
+char const* kwsysProcess_GetExceptionString(kwsysProcess* cp)
 {
   if (!(cp && cp->ProcessResults && (cp->NumberOfCommands > 0))) {
     return "GetExceptionString called with NULL process management structure";
@@ -923,7 +919,7 @@ int kwsysProcess_GetExitCodeByIndex(kwsysProcess* cp, int idx)
   return cp->CommandExitCodes[idx];
 }
 
-const char* kwsysProcess_GetExceptionStringByIndex(kwsysProcess* cp, int idx)
+char const* kwsysProcess_GetExceptionStringByIndex(kwsysProcess* cp, int idx)
 {
   KWSYSPE_IDX_CHK("GetExceptionString called with NULL process management "
                   "structure or index out of bound")
@@ -967,7 +963,10 @@ void kwsysProcess_Execute(kwsysProcess* cp)
       kwsysProcessCleanup(cp, GetLastError());
       return;
     }
-    SetCurrentDirectoryW(cp->WorkingDirectory);
+    if (!SetCurrentDirectoryW(cp->WorkingDirectory)) {
+      kwsysProcessCleanup(cp, GetLastError());
+      return;
+    }
   }
 
   /* Setup the stdin pipe for the first process.  */
@@ -976,8 +975,8 @@ void kwsysProcess_Execute(kwsysProcess* cp)
     wchar_t* wstdin = kwsysEncoding_DupToWide(cp->PipeFileSTDIN);
     DWORD error;
     cp->PipeChildStd[0] =
-      CreateFileW(wstdin, GENERIC_READ | GENERIC_WRITE,
-                  FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, 0, 0);
+      CreateFileW(wstdin, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0,
+                  OPEN_EXISTING, 0, 0);
     error = GetLastError(); /* Check now in case free changes this.  */
     free(wstdin);
     if (cp->PipeChildStd[0] == INVALID_HANDLE_VALUE) {
@@ -1469,6 +1468,11 @@ void kwsysProcess_Kill(kwsysProcess* cp)
      for them to exit.  */
 }
 
+void kwsysProcess_KillPID(unsigned long process_id)
+{
+  kwsysProcessKillTree((DWORD)process_id);
+}
+
 /*
   Function executed for each pipe's thread.  Argument is a pointer to
   the kwsysProcessPipeData instance for this thread.
@@ -1607,9 +1611,7 @@ int kwsysProcessInitialize(kwsysProcess* cp)
   }
   ZeroMemory(cp->ProcessInformation,
              sizeof(PROCESS_INFORMATION) * cp->NumberOfCommands);
-  if (cp->CommandExitCodes) {
-    free(cp->CommandExitCodes);
-  }
+  free(cp->CommandExitCodes);
   cp->CommandExitCodes = (DWORD*)malloc(sizeof(DWORD) * cp->NumberOfCommands);
   if (!cp->CommandExitCodes) {
     return 0;
@@ -1705,16 +1707,17 @@ DWORD kwsysProcessCreate(kwsysProcess* cp, int index,
   }
 
   /* Create inherited copies of the handles.  */
-  (error = kwsysProcessCreateChildHandle(&si->StartupInfo.hStdInput,
-                                         si->hStdInput, 1)) ||
-    (error = kwsysProcessCreateChildHandle(&si->StartupInfo.hStdOutput,
-                                           si->hStdOutput, 0)) ||
-    (error = kwsysProcessCreateChildHandle(&si->StartupInfo.hStdError,
-                                           si->hStdError, 0)) ||
-    /* Create the process.  */
-    (!CreateProcessW(0, cp->Commands[index], 0, 0, TRUE, creationFlags, 0, 0,
-                     &si->StartupInfo, &cp->ProcessInformation[index]) &&
-     (error = GetLastError()));
+  (void)((error = kwsysProcessCreateChildHandle(&si->StartupInfo.hStdInput,
+                                                si->hStdInput, 1)) ||
+         (error = kwsysProcessCreateChildHandle(&si->StartupInfo.hStdOutput,
+                                                si->hStdOutput, 0)) ||
+         (error = kwsysProcessCreateChildHandle(&si->StartupInfo.hStdError,
+                                                si->hStdError, 0)) ||
+         /* Create the process.  */
+         (!CreateProcessW(0, cp->Commands[index], 0, 0, TRUE, creationFlags, 0,
+                          0, &si->StartupInfo,
+                          &cp->ProcessInformation[index]) &&
+          (error = GetLastError())));
 
   /* Close the inherited copies of the handles. */
   if (si->StartupInfo.hStdInput != si->hStdInput) {
@@ -1795,7 +1798,7 @@ void kwsysProcessDestroy(kwsysProcess* cp, int event)
   }
 }
 
-DWORD kwsysProcessSetupOutputPipeFile(PHANDLE phandle, const char* name)
+DWORD kwsysProcessSetupOutputPipeFile(PHANDLE phandle, char const* name)
 {
   HANDLE fout;
   wchar_t* wname;
@@ -1866,18 +1869,18 @@ void kwsysProcessCleanup(kwsysProcess* cp, DWORD error)
         KWSYSPE_PIPE_BUFFER_SIZE, 0);
       if (length < 1) {
         /* FormatMessage failed.  Use a default message.  */
-        _snprintf(cp->ErrorMessage, KWSYSPE_PIPE_BUFFER_SIZE,
-                  "Process execution failed with error 0x%X.  "
-                  "FormatMessage failed with error 0x%X",
-                  error, GetLastError());
+        snprintf(cp->ErrorMessage, KWSYSPE_PIPE_BUFFER_SIZE,
+                 "Process execution failed with error 0x%lX.  "
+                 "FormatMessage failed with error 0x%lX",
+                 error, GetLastError());
       }
       if (!WideCharToMultiByte(CP_UTF8, 0, err_msg, -1, cp->ErrorMessage,
                                KWSYSPE_PIPE_BUFFER_SIZE, NULL, NULL)) {
         /* WideCharToMultiByte failed.  Use a default message.  */
-        _snprintf(cp->ErrorMessage, KWSYSPE_PIPE_BUFFER_SIZE,
-                  "Process execution failed with error 0x%X.  "
-                  "WideCharToMultiByte failed with error 0x%X",
-                  error, GetLastError());
+        snprintf(cp->ErrorMessage, KWSYSPE_PIPE_BUFFER_SIZE,
+                 "Process execution failed with error 0x%lX.  "
+                 "WideCharToMultiByte failed with error 0x%lX",
+                 error, GetLastError());
       }
     }
 
@@ -2118,7 +2121,7 @@ static void kwsysProcessSetExitExceptionByIndex(kwsysProcess* cp, int code,
       KWSYSPE_CASE(Fault, "In-page error");
       break;
     case STATUS_INVALID_HANDLE:
-      KWSYSPE_CASE(Fault, "Invalid hanlde");
+      KWSYSPE_CASE(Fault, "Invalid handle");
       break;
     case STATUS_NONCONTINUABLE_EXCEPTION:
       KWSYSPE_CASE(Fault, "Noncontinuable exception");
@@ -2143,8 +2146,8 @@ static void kwsysProcessSetExitExceptionByIndex(kwsysProcess* cp, int code,
     case STATUS_NO_MEMORY:
     default:
       cp->ProcessResults[idx].ExitException = kwsysProcess_Exception_Other;
-      _snprintf(cp->ProcessResults[idx].ExitExceptionString,
-                KWSYSPE_PIPE_BUFFER_SIZE, "Exit code 0x%x\n", code);
+      snprintf(cp->ProcessResults[idx].ExitExceptionString,
+               KWSYSPE_PIPE_BUFFER_SIZE, "Exit code 0x%x", code);
       break;
   }
 }
@@ -2266,16 +2269,23 @@ static kwsysProcess_List* kwsysProcess_List_New(void)
   ZeroMemory(&osv, sizeof(osv));
   osv.dwOSVersionInfoSize = sizeof(osv);
 #ifdef KWSYS_WINDOWS_DEPRECATED_GetVersionEx
-#pragma warning(push)
-#ifdef __INTEL_COMPILER
-#pragma warning(disable : 1478)
-#else
-#pragma warning(disable : 4996)
-#endif
+#  pragma warning(push)
+#  ifdef __INTEL_COMPILER
+#    pragma warning(disable : 1478)
+#  elif defined __clang__
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#  else
+#    pragma warning(disable : 4996)
+#  endif
 #endif
   GetVersionEx(&osv);
 #ifdef KWSYS_WINDOWS_DEPRECATED_GetVersionEx
-#pragma warning(pop)
+#  ifdef __clang__
+#    pragma clang diagnostic pop
+#  else
+#    pragma warning(pop)
+#  endif
 #endif
   self->NT4 =
     (osv.dwPlatformId == VER_PLATFORM_WIN32_NT && osv.dwMajorVersion < 5) ? 1
@@ -2346,7 +2356,7 @@ static int kwsysProcess_List__New_NT4(kwsysProcess_List* self)
   if (hNT) {
     /* Get pointers to the needed API functions.  */
     self->P_ZwQuerySystemInformation =
-      ((ZwQuerySystemInformationType)GetProcAddress(
+      ((ZwQuerySystemInformationType)(void*)GetProcAddress(
         hNT, "ZwQuerySystemInformation"));
   }
   if (!self->P_ZwQuerySystemInformation) {
@@ -2362,9 +2372,7 @@ static int kwsysProcess_List__New_NT4(kwsysProcess_List* self)
 static void kwsysProcess_List__Delete_NT4(kwsysProcess_List* self)
 {
   /* Free the process information buffer.  */
-  if (self->Buffer) {
-    free(self->Buffer);
-  }
+  free(self->Buffer);
 }
 
 static int kwsysProcess_List__Update_NT4(kwsysProcess_List* self)
@@ -2400,8 +2408,9 @@ static int kwsysProcess_List__Next_NT4(kwsysProcess_List* self)
 {
   if (self->CurrentInfo) {
     if (self->CurrentInfo->NextEntryDelta > 0) {
-      self->CurrentInfo = ((PSYSTEM_PROCESS_INFORMATION)(
-        (char*)self->CurrentInfo + self->CurrentInfo->NextEntryDelta));
+      self->CurrentInfo =
+        ((PSYSTEM_PROCESS_INFORMATION)((char*)self->CurrentInfo +
+                                       self->CurrentInfo->NextEntryDelta));
       return 1;
     }
     self->CurrentInfo = 0;
@@ -2411,12 +2420,13 @@ static int kwsysProcess_List__Next_NT4(kwsysProcess_List* self)
 
 static int kwsysProcess_List__GetProcessId_NT4(kwsysProcess_List* self)
 {
-  return self->CurrentInfo ? self->CurrentInfo->ProcessId : -1;
+  return self->CurrentInfo ? (int)self->CurrentInfo->ProcessId : -1;
 }
 
 static int kwsysProcess_List__GetParentId_NT4(kwsysProcess_List* self)
 {
-  return self->CurrentInfo ? self->CurrentInfo->InheritedFromProcessId : -1;
+  return self->CurrentInfo ? (int)self->CurrentInfo->InheritedFromProcessId
+                           : -1;
 }
 
 static int kwsysProcess_List__New_Snapshot(kwsysProcess_List* self)
@@ -2428,12 +2438,12 @@ static int kwsysProcess_List__New_Snapshot(kwsysProcess_List* self)
   HMODULE hKernel = GetModuleHandleW(L"kernel32.dll");
   if (hKernel) {
     self->P_CreateToolhelp32Snapshot =
-      ((CreateToolhelp32SnapshotType)GetProcAddress(
+      ((CreateToolhelp32SnapshotType)(void*)GetProcAddress(
         hKernel, "CreateToolhelp32Snapshot"));
     self->P_Process32First =
-      ((Process32FirstType)GetProcAddress(hKernel, "Process32First"));
+      ((Process32FirstType)(void*)GetProcAddress(hKernel, "Process32First"));
     self->P_Process32Next =
-      ((Process32NextType)GetProcAddress(hKernel, "Process32Next"));
+      ((Process32NextType)(void*)GetProcAddress(hKernel, "Process32Next"));
   }
   return (self->P_CreateToolhelp32Snapshot && self->P_Process32First &&
           self->P_Process32Next)
@@ -2481,12 +2491,12 @@ static int kwsysProcess_List__Next_Snapshot(kwsysProcess_List* self)
 
 static int kwsysProcess_List__GetProcessId_Snapshot(kwsysProcess_List* self)
 {
-  return self->Snapshot ? self->CurrentEntry.th32ProcessID : -1;
+  return self->Snapshot ? (int)self->CurrentEntry.th32ProcessID : -1;
 }
 
 static int kwsysProcess_List__GetParentId_Snapshot(kwsysProcess_List* self)
 {
-  return self->Snapshot ? self->CurrentEntry.th32ParentProcessID : -1;
+  return self->Snapshot ? (int)self->CurrentEntry.th32ParentProcessID : -1;
 }
 
 static void kwsysProcessKill(DWORD pid)
@@ -2661,8 +2671,8 @@ static int kwsysProcessesAdd(HANDLE hProcess, DWORD dwProcessid,
     newSize = kwsysProcesses.Size ? kwsysProcesses.Size * 2 : 4;
 
     /* Try allocating the new block of memory.  */
-    if (newArray = (kwsysProcessInstance*)malloc(
-          newSize * sizeof(kwsysProcessInstance))) {
+    if ((newArray = (kwsysProcessInstance*)malloc(
+           newSize * sizeof(kwsysProcessInstance)))) {
       /* Copy the old process handles to the new memory.  */
       if (kwsysProcesses.Count > 0) {
         memcpy(newArray, kwsysProcesses.Processes,

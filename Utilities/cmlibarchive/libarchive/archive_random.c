@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD$");
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -51,15 +50,20 @@ __FBSDID("$FreeBSD$");
 #include <pthread.h>
 #endif
 
-static void arc4random_buf(void *, size_t);
+static void la_arc4random_buf(void *, size_t);
 
 #endif /* HAVE_ARC4RANDOM_BUF */
 
 #include "archive.h"
 #include "archive_random_private.h"
 
-#if defined(HAVE_WINCRYPT_H) && !defined(__CYGWIN__)
-#include <wincrypt.h>
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#include <bcrypt.h>
+
+/* Common in other bcrypt implementations, but missing from VS2008. */
+#ifndef BCRYPT_SUCCESS
+#define BCRYPT_SUCCESS(r) ((NTSTATUS)(r) == STATUS_SUCCESS)
+#endif
 #endif
 
 #ifndef O_CLOEXEC
@@ -75,23 +79,25 @@ int
 archive_random(void *buf, size_t nbytes)
 {
 #if defined(_WIN32) && !defined(__CYGWIN__)
-	HCRYPTPROV hProv;
-	BOOL success;
+	NTSTATUS status;
+	BCRYPT_ALG_HANDLE hAlg;
 
-	success = CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL,
-	    CRYPT_VERIFYCONTEXT);
-	if (!success && GetLastError() == (DWORD)NTE_BAD_KEYSET) {
-		success = CryptAcquireContext(&hProv, NULL, NULL,
-		    PROV_RSA_FULL, CRYPT_NEWKEYSET);
+	status = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_RNG_ALGORITHM, NULL, 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		la_dosmaperr(GetLastError());
+		return ARCHIVE_FAILED;
 	}
-	if (success) {
-		success = CryptGenRandom(hProv, (DWORD)nbytes, (BYTE*)buf);
-		CryptReleaseContext(hProv, 0);
-		if (success)
-			return ARCHIVE_OK;
+	status = BCryptGenRandom(hAlg, buf, (ULONG)nbytes, 0);
+	BCryptCloseAlgorithmProvider(hAlg, 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		la_dosmaperr(GetLastError());
+		return ARCHIVE_FAILED;
 	}
-	/* TODO: Does this case really happen? */
-	return ARCHIVE_FAILED;
+
+	return ARCHIVE_OK;
+#elif !defined(HAVE_ARC4RANDOM_BUF) && (!defined(_WIN32) || defined(__CYGWIN__))
+	la_arc4random_buf(buf, nbytes);
+	return ARCHIVE_OK;
 #else
 	arc4random_buf(buf, nbytes);
 	return ARCHIVE_OK;
@@ -173,7 +179,7 @@ arc4_init(void)
 }
 
 static inline void
-arc4_addrandom(u_char *dat, int datlen)
+arc4_addrandom(uint8_t *dat, int datlen)
 {
 	int     n;
 	uint8_t si;
@@ -196,7 +202,7 @@ arc4_stir(void)
 	struct {
 		struct timeval	tv;
 		pid_t		pid;
-		u_char	 	rnd[KEYSIZE];
+		uint8_t		rnd[KEYSIZE];
 	} rdat;
 
 	if (!rs_initialized) {
@@ -216,7 +222,7 @@ arc4_stir(void)
 		/* We'll just take whatever was on the stack too... */
 	}
 
-	arc4_addrandom((u_char *)&rdat, KEYSIZE);
+	arc4_addrandom((uint8_t *)&rdat, KEYSIZE);
 
 	/*
 	 * Discard early keystream, as per recommendations in:
@@ -256,9 +262,9 @@ arc4_getbyte(void)
 }
 
 static void
-arc4random_buf(void *_buf, size_t n)
+la_arc4random_buf(void *_buf, size_t n)
 {
-	u_char *buf = (u_char *)_buf;
+	uint8_t *buf = (uint8_t *)_buf;
 	_ARC4_LOCK();
 	arc4_stir_if_needed();
 	while (n--) {

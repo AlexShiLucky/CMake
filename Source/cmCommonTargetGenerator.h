@@ -1,17 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCommonTargetGenerator_h
-#define cmCommonTargetGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
+#include <cm/string_view>
+
+#include "cmValue.h"
+
+template <typename T>
+class BT;
 class cmGeneratorTarget;
 class cmGlobalCommonGenerator;
-class cmLinkLineComputer;
 class cmLocalCommonGenerator;
 class cmMakefile;
 class cmSourceFile;
@@ -25,42 +31,89 @@ public:
   cmCommonTargetGenerator(cmGeneratorTarget* gt);
   virtual ~cmCommonTargetGenerator();
 
-  std::string const& GetConfigName() const;
+  std::vector<std::string> const& GetConfigNames() const;
 
 protected:
   // Feature query methods.
-  const char* GetFeature(const std::string& feature);
-
-  // Helper to add flag for windows .def file.
-  void AddModuleDefinitionFlag(cmLinkLineComputer* linkLineComputer,
-                               std::string& flags);
+  cmValue GetFeature(std::string const& feature, std::string const& config);
 
   cmGeneratorTarget* GeneratorTarget;
   cmMakefile* Makefile;
   cmLocalCommonGenerator* LocalCommonGenerator;
   cmGlobalCommonGenerator* GlobalCommonGenerator;
-  std::string ConfigName;
+  std::vector<std::string> ConfigNames;
+  bool UseLWYU = false;
 
   void AppendFortranFormatFlags(std::string& flags,
                                 cmSourceFile const& source);
 
-  virtual void AddIncludeFlags(std::string& flags,
-                               std::string const& lang) = 0;
+  enum class PreprocessFlagsRequired
+  {
+    YES,
+    NO
+  };
+  void AppendFortranPreprocessFlags(
+    std::string& flags, cmSourceFile const& source,
+    PreprocessFlagsRequired requires_pp = PreprocessFlagsRequired::YES);
 
-  void AppendOSXVerFlag(std::string& flags, const std::string& lang,
-                        const char* name, bool so);
+  virtual void AddIncludeFlags(std::string& flags, std::string const& lang,
+                               std::string const& config) = 0;
+  virtual std::string GetClangTidyReplacementsFilePath(
+    std::string const& directory, cmSourceFile const& source,
+    std::string const& config) const = 0;
 
-  typedef std::map<std::string, std::string> ByLanguageMap;
-  std::string GetFlags(const std::string& l);
-  ByLanguageMap FlagsByLanguage;
-  std::string GetDefines(const std::string& l);
-  ByLanguageMap DefinesByLanguage;
-  std::string GetIncludes(std::string const& l);
-  ByLanguageMap IncludesByLanguage;
-  std::string GetManifests();
+  void AppendOSXVerFlag(std::string& flags, std::string const& lang,
+                        char const* name, bool so);
 
-  std::vector<std::string> GetLinkedTargetDirectories() const;
-  std::string ComputeTargetCompilePDB() const;
+  std::string GetFlags(std::string const& l, std::string const& config,
+                       std::string const& arch = std::string());
+  std::string GetDefines(std::string const& l, std::string const& config);
+  std::string GetIncludes(std::string const& l, std::string const& config);
+  std::string GetManifests(std::string const& config);
+  std::string GetAIXExports(std::string const& config);
+  std::string GenerateCodeCheckRules(
+    cmSourceFile const& source, std::vector<std::string>& compilerLauncher,
+    std::string const& cmakeCmd, std::string const& config,
+    std::function<std::string(std::string const&)> const& pathConverter);
+
+  std::vector<std::string> GetCompilerLauncher(std::string const& lang,
+                                               std::string const& config);
+
+  struct LinkedTargetDirs
+  {
+    std::vector<std::string> Direct;
+    std::vector<std::string> Forward;
+  };
+
+  LinkedTargetDirs GetLinkedTargetDirectories(std::string const& lang,
+                                              std::string const& config) const;
+  std::string ComputeTargetCompilePDB(std::string const& config) const;
+
+  std::vector<std::string> GetLinkerLauncher(std::string const& config);
+
+  std::string ConvertLauncherToShell(
+    std::vector<std::string> const& launcher) const;
+
+  bool HaveRequiredLanguages(std::vector<cmSourceFile const*> const& sources,
+                             std::string const& config,
+                             std::set<std::string>& languagesNeeded) const;
+
+  void ComputeRustFlagsForObjects(std::string& linkCrates,
+                                  std::string& nativeObjects,
+                                  std::vector<std::string> const& objects);
+
+  std::vector<std::string> ParseWrappers(
+    std::vector<BT<std::string>> const& wrappers, cm::string_view prefix,
+    cm::string_view targetPropName, std::string const& targetName,
+    std::string const& config, std::string const& lang) const;
+
+private:
+  using ByLanguageMap = std::map<std::string, std::string>;
+  struct ByConfig
+  {
+    ByLanguageMap FlagsByLanguage;
+    ByLanguageMap DefinesByLanguage;
+    ByLanguageMap IncludesByLanguage;
+  };
+  std::map<std::string, ByConfig> Configs;
 };
-
-#endif

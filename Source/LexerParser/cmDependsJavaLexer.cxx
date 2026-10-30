@@ -842,7 +842,7 @@ static const flex_int16_t yy_chk[479] =
 #define YY_MORE_ADJ 0
 #define YY_RESTORE_YY_MORE_OFFSET
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 /*
 
 This file must be translated to C++ and modified to build everywhere.
@@ -860,6 +860,8 @@ Modify cmDependsJavaLexer.cxx:
 
 /* IWYU pragma: no_forward_declare yyguts_t */
 
+#ifndef __clang_analyzer__ /* Suppress clang-analyzer warnings */
+
 #include <iostream>
 
 #include "cmDependsJavaParserHelper.h"
@@ -867,7 +869,7 @@ Modify cmDependsJavaLexer.cxx:
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = yyextra->LexInput(buf, max_size); }
+  do { result = yyextra->LexInput(buf, max_size); } while (0)
 
 /* Include the set of tokens from the parser.  */
 #include "cmDependsJavaParserTokens.h"
@@ -2811,3 +2813,7 @@ void yyfree (void * ptr , yyscan_t yyscanner)
 }
 
 #define YYTABLES_NAME "yytables"
+
+/*--------------------------------------------------------------------------*/
+
+#endif /* __clang_analyzer__ */

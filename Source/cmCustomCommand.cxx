@@ -1,78 +1,100 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCustomCommand.h"
 
-#include "cmMakefile.h"
+#include <cassert>
+#include <utility>
 
-cmCustomCommand::cmCustomCommand()
-  : Backtrace()
-{
-  this->HaveComment = false;
-  this->EscapeOldStyle = true;
-  this->EscapeAllowMakeVars = false;
-  this->UsesTerminal = false;
-  this->CommandExpandLists = false;
-}
+#include <cmext/algorithm>
 
-cmCustomCommand::cmCustomCommand(cmMakefile const* mf,
-                                 const std::vector<std::string>& outputs,
-                                 const std::vector<std::string>& byproducts,
-                                 const std::vector<std::string>& depends,
-                                 const cmCustomCommandLines& commandLines,
-                                 const char* comment,
-                                 const char* workingDirectory)
-  : Outputs(outputs)
-  , Byproducts(byproducts)
-  , Depends(depends)
-  , CommandLines(commandLines)
-  , Backtrace()
-  , Comment(comment ? comment : "")
-  , WorkingDirectory(workingDirectory ? workingDirectory : "")
-  , HaveComment(comment != nullptr)
-  , EscapeAllowMakeVars(false)
-  , EscapeOldStyle(true)
-  , CommandExpandLists(false)
-{
-  if (mf) {
-    this->Backtrace = mf->GetBacktrace();
-  }
-}
+#include "cmStateSnapshot.h"
 
-const std::vector<std::string>& cmCustomCommand::GetOutputs() const
+std::vector<std::string> const& cmCustomCommand::GetOutputs() const
 {
   return this->Outputs;
 }
 
-const std::vector<std::string>& cmCustomCommand::GetByproducts() const
+void cmCustomCommand::SetOutputs(std::vector<std::string> outputs)
+{
+  this->Outputs = std::move(outputs);
+}
+
+void cmCustomCommand::SetOutputs(std::string output)
+{
+  this->Outputs = { std::move(output) };
+}
+
+std::vector<std::string> const& cmCustomCommand::GetByproducts() const
 {
   return this->Byproducts;
 }
 
-const std::vector<std::string>& cmCustomCommand::GetDepends() const
+void cmCustomCommand::SetByproducts(std::vector<std::string> byproducts)
+{
+  this->Byproducts = std::move(byproducts);
+}
+
+std::vector<std::string> const& cmCustomCommand::GetDepends() const
 {
   return this->Depends;
 }
 
-const cmCustomCommandLines& cmCustomCommand::GetCommandLines() const
+void cmCustomCommand::SetDepends(std::vector<std::string> depends)
+{
+  if (this->HasMainDependency_) {
+    depends.insert(depends.begin(), std::move(this->Depends[0]));
+  }
+
+  Depends = std::move(depends);
+}
+
+std::string const& cmCustomCommand::GetMainDependency() const
+{
+  assert(this->HasMainDependency_);
+  return this->Depends[0];
+}
+
+void cmCustomCommand::SetMainDependency(std::string main_dependency)
+{
+  if (this->HasMainDependency_) {
+    assert(!main_dependency.empty());
+    this->Depends[0] = std::move(main_dependency);
+  } else if (main_dependency.empty()) {
+    // Do nothing.
+  } else {
+    this->Depends.insert(this->Depends.begin(), std::move(main_dependency));
+    this->HasMainDependency_ = true;
+  }
+}
+
+cmCustomCommandLines const& cmCustomCommand::GetCommandLines() const
 {
   return this->CommandLines;
 }
 
-const char* cmCustomCommand::GetComment() const
+void cmCustomCommand::SetCommandLines(cmCustomCommandLines commandLines)
 {
-  const char* no_comment = nullptr;
-  return this->HaveComment ? this->Comment.c_str() : no_comment;
+  this->CommandLines = std::move(commandLines);
 }
 
-void cmCustomCommand::AppendCommands(const cmCustomCommandLines& commandLines)
+cm::optional<std::string> const& cmCustomCommand::GetComment() const
 {
-  this->CommandLines.insert(this->CommandLines.end(), commandLines.begin(),
-                            commandLines.end());
+  return this->Comment;
 }
 
-void cmCustomCommand::AppendDepends(const std::vector<std::string>& depends)
+void cmCustomCommand::SetComment(cm::optional<std::string> comment)
 {
-  this->Depends.insert(this->Depends.end(), depends.begin(), depends.end());
+  this->Comment = std::move(comment);
+}
+
+void cmCustomCommand::AppendCommands(cmCustomCommandLines const& commandLines)
+{
+  cm::append(this->CommandLines, commandLines);
+}
+
+void cmCustomCommand::AppendDepends(std::vector<std::string> const& depends)
+{
+  cm::append(this->Depends, depends);
 }
 
 bool cmCustomCommand::GetEscapeOldStyle() const
@@ -100,21 +122,24 @@ cmListFileBacktrace const& cmCustomCommand::GetBacktrace() const
   return this->Backtrace;
 }
 
-cmCustomCommand::ImplicitDependsList const&
-cmCustomCommand::GetImplicitDepends() const
+void cmCustomCommand::SetBacktrace(cmListFileBacktrace lfbt)
+{
+  this->Backtrace = std::move(lfbt);
+}
+
+cmImplicitDependsList const& cmCustomCommand::GetImplicitDepends() const
 {
   return this->ImplicitDepends;
 }
 
-void cmCustomCommand::SetImplicitDepends(ImplicitDependsList const& l)
+void cmCustomCommand::SetImplicitDepends(cmImplicitDependsList const& l)
 {
   this->ImplicitDepends = l;
 }
 
-void cmCustomCommand::AppendImplicitDepends(ImplicitDependsList const& l)
+void cmCustomCommand::AppendImplicitDepends(cmImplicitDependsList const& l)
 {
-  this->ImplicitDepends.insert(this->ImplicitDepends.end(), l.begin(),
-                               l.end());
+  cm::append(this->ImplicitDepends, l);
 }
 
 bool cmCustomCommand::GetUsesTerminal() const
@@ -127,6 +152,16 @@ void cmCustomCommand::SetUsesTerminal(bool b)
   this->UsesTerminal = b;
 }
 
+void cmCustomCommand::SetRole(std::string const& role)
+{
+  this->Role = role;
+}
+
+std::string const& cmCustomCommand::GetRole() const
+{
+  return this->Role;
+}
+
 bool cmCustomCommand::GetCommandExpandLists() const
 {
   return this->CommandExpandLists;
@@ -137,12 +172,66 @@ void cmCustomCommand::SetCommandExpandLists(bool b)
   this->CommandExpandLists = b;
 }
 
-const std::string& cmCustomCommand::GetDepfile() const
+bool cmCustomCommand::GetDependsExplicitOnly() const
+{
+  return this->DependsExplicitOnly;
+}
+
+void cmCustomCommand::SetDependsExplicitOnly(bool b)
+{
+  this->DependsExplicitOnly = b;
+}
+
+std::string const& cmCustomCommand::GetDepfile() const
 {
   return this->Depfile;
 }
 
-void cmCustomCommand::SetDepfile(const std::string& depfile)
+void cmCustomCommand::SetDepfile(std::string const& depfile)
 {
   this->Depfile = depfile;
+}
+
+std::string const& cmCustomCommand::GetJobPool() const
+{
+  return this->JobPool;
+}
+
+void cmCustomCommand::SetJobPool(std::string const& job_pool)
+{
+  this->JobPool = job_pool;
+}
+
+bool cmCustomCommand::GetJobserverAware() const
+{
+  return this->JobserverAware;
+}
+
+void cmCustomCommand::SetJobserverAware(bool b)
+{
+  this->JobserverAware = b;
+}
+
+#define DEFINE_CC_POLICY_ACCESSOR(P)                                          \
+  cmPolicies::PolicyStatus cmCustomCommand::Get##P##Status() const            \
+  {                                                                           \
+    return this->P##Status;                                                   \
+  }
+CM_FOR_EACH_CUSTOM_COMMAND_POLICY(DEFINE_CC_POLICY_ACCESSOR)
+#undef DEFINE_CC_POLICY_ACCESSOR
+
+void cmCustomCommand::RecordPolicyValues(cmStateSnapshot const& snapshot){
+#define SET_CC_POLICY(P) this->P##Status = snapshot.GetPolicy(cmPolicies::P);
+  CM_FOR_EACH_CUSTOM_COMMAND_POLICY(SET_CC_POLICY)
+#undef SET_CC_POLICY
+}
+
+std::string const& cmCustomCommand::GetTarget() const
+{
+  return this->Target;
+}
+
+void cmCustomCommand::SetTarget(std::string const& target)
+{
+  this->Target = target;
 }

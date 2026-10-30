@@ -1,15 +1,15 @@
 #ifdef _MSC_VER
-#include "windows.h"
+#  include "windows.h"
 #else
-#define WINAPI
+#  define WINAPI
 #endif
 
-int WINAPI foo()
+int WINAPI foo(void)
 {
   return 10;
 }
 
-int bar()
+int bar(void)
 {
   return 5;
 }

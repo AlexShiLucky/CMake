@@ -1,13 +1,12 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackRPMGenerator_h
-#define cmCPackRPMGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCPackGenerator.h"
-
 #include <string>
+
+#include "cmCPackGenerator.h"
 
 /** \class cmCPackRPMGenerator
  * \brief A generator for RPM packages
@@ -26,16 +25,16 @@ public:
    * Construct generator
    */
   cmCPackRPMGenerator();
-  ~cmCPackRPMGenerator() CM_OVERRIDE;
+  ~cmCPackRPMGenerator() override;
 
   static bool CanGenerate()
   {
 #ifdef __APPLE__
     // on MacOS enable CPackRPM iff rpmbuild is found
     std::vector<std::string> locations;
-    locations.push_back("/sw/bin");        // Fink
-    locations.push_back("/opt/local/bin"); // MacPorts
-    return cmSystemTools::FindProgram("rpmbuild") != "" ? true : false;
+    locations.emplace_back("/sw/bin");        // Fink
+    locations.emplace_back("/opt/local/bin"); // MacPorts
+    return !cmSystemTools::FindProgram("rpmbuild").empty();
 #else
     // legacy behavior on other systems
     return true;
@@ -43,8 +42,8 @@ public:
   }
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
-  int PackageFiles() CM_OVERRIDE;
+  int InitializeInternal() override;
+  int PackageFiles() override;
   /**
    * This method factors out the work done in component packaging case.
    */
@@ -60,13 +59,15 @@ protected:
    * Special case of component install where all
    * components will be put in a single installer.
    */
-  int PackageComponentsAllInOne(const std::string& compInstDirName);
-  const char* GetOutputExtension() CM_OVERRIDE { return ".rpm"; }
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  int PackageComponentsAllInOne(std::string const& compInstDirName);
+  char const* GetOutputExtension() override { return ".rpm"; }
+  std::string GetSanitizedDirOrFileName(std::string const& name,
+                                        bool isFullName = true) const override;
+  bool SupportsComponentInstallation() const override;
+  std::string GetComponentInstallSuffix(
+    std::string const& componentName) override;
   std::string GetComponentInstallDirNameSuffix(
-    const std::string& componentName) CM_OVERRIDE;
+    std::string const& componentName) override;
 
   void AddGeneratedPackageNames();
 };
-
-#endif

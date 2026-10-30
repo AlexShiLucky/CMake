@@ -1,10 +1,22 @@
 LANGUAGE
 --------
 
-What programming language is the file.
+Specify the language used to compile a source file.
 
-A property that can be set to indicate what programming language the
-source file is.  If it is not set the language is determined based on
-the file extension.  Typical values are CXX C etc.  Setting this
-property for a file means this file will be compiled.  Do not set this
-for headers or files that should not be compiled.
+This property selects the language whose compiler and compilation rules
+are used for the source file.  If it is not set, the language is determined
+from the file extension.  Typical values are ``CXX`` (i.e. C++), ``C``,
+``CSharp``, ``CUDA``, ``Fortran``, ``HIP``, ``ISPC``, and ``ASM``.  Setting
+this property for a file means this file will be compiled, unless
+:prop_sf:`HEADER_FILE_ONLY` is set.
+
+.. versionadded:: 4.5
+  The :prop_fs:`LANGUAGE` property of a ``SOURCES`` file set takes precedence
+  over this property when compiling a member of that set for a target.
+  This target-specific selection does not modify the source file property.
+
+.. versionchanged:: 3.20
+  Setting this property causes the source file to be compiled as the
+  specified language, using explicit flags if possible.  Previously it
+  only caused the specified language's compiler to be used.
+  See policy :policy:`CMP0119`.

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.11)
+cmake_minimum_required(VERSION 3.10)
 
 macro(GET_DATE)
   #
@@ -68,7 +68,7 @@ macro(GET_DATE)
 
   #
   # Extract six individual components by matching a regex with paren groupings.
-  # Use the replace functionality and \\1 thru \\6 to extract components.
+  # Use the replace functionality and \\1 through \\6 to extract components.
   #
   set(${GD_PREFIX}REGEX "([^/]+)/([^/]+)/([^ ]+) +([^:]+):([^:]+):([^\\.]+)")
 

@@ -1,5 +1,4 @@
-cmake_minimum_required (VERSION 3.0)
-project (RegexClear NONE)
+cmake_policy(SET CMP0186 NEW)
 
 function (output_results msg)
   message("results from: ${msg}")

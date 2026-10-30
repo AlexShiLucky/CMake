@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmScriptGenerator_h
-#define cmScriptGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -9,13 +8,12 @@
 #include <string>
 #include <vector>
 
+#include <cm/string_view>
+
 class cmScriptGeneratorIndent
 {
 public:
-  cmScriptGeneratorIndent()
-    : Level(0)
-  {
-  }
+  cmScriptGeneratorIndent() = default;
   cmScriptGeneratorIndent(int level)
     : Level(level)
   {
@@ -28,11 +26,11 @@ public:
   }
   cmScriptGeneratorIndent Next(int step = 2) const
   {
-    return cmScriptGeneratorIndent(this->Level + step);
+    return { this->Level + step };
   }
 
 private:
-  int Level;
+  int Level = 0;
 };
 inline std::ostream& operator<<(std::ostream& os,
                                 cmScriptGeneratorIndent indent)
@@ -41,39 +39,67 @@ inline std::ostream& operator<<(std::ostream& os,
   return os;
 }
 
+class cmScriptGeneratorQuoted
+{
+public:
+  cmScriptGeneratorQuoted(cm::string_view value, int bracket_length)
+    : Value(value)
+    , BracketLength(bracket_length)
+  {
+  }
+
+  std::string str() const;
+  operator std::string() const { return str(); }
+
+private:
+  friend std::ostream& operator<<(std::ostream& os,
+                                  cmScriptGeneratorQuoted const& self);
+
+  cm::string_view Value;
+  int BracketLength;
+};
+
 /** \class cmScriptGenerator
  * \brief Support class for generating install and test scripts.
  *
  */
 class cmScriptGenerator
 {
-  CM_DISABLE_COPY(cmScriptGenerator)
-
 public:
-  cmScriptGenerator(const std::string& config_var,
-                    std::vector<std::string> const& configurations);
+  cmScriptGenerator(std::string config_var,
+                    std::vector<std::string> configurations);
   virtual ~cmScriptGenerator();
 
-  void Generate(std::ostream& os, const std::string& config,
+  cmScriptGenerator(cmScriptGenerator const&) = delete;
+  cmScriptGenerator& operator=(cmScriptGenerator const&) = delete;
+
+  void Generate(std::ostream& os, std::string const& config,
                 std::vector<std::string> const& configurationTypes);
 
+  static cmScriptGeneratorQuoted Quote(cm::string_view value);
+
+  static std::string CreateConfigTest(std::string const& configVar,
+                                      std::string const& config);
+  static std::string CreateConfigTest(std::string const& configVar,
+                                      std::vector<std::string> const& configs);
+
 protected:
-  typedef cmScriptGeneratorIndent Indent;
+  using Indent = cmScriptGeneratorIndent;
   virtual void GenerateScript(std::ostream& os);
   virtual void GenerateScriptConfigs(std::ostream& os, Indent indent);
   virtual void GenerateScriptActions(std::ostream& os, Indent indent);
   virtual void GenerateScriptForConfig(std::ostream& os,
-                                       const std::string& config,
+                                       std::string const& config,
                                        Indent indent);
   virtual void GenerateScriptNoConfig(std::ostream&, Indent) {}
   virtual bool NeedsScriptNoConfig() const { return false; }
 
   // Test if this generator does something for a given configuration.
-  bool GeneratesForConfig(const std::string&);
+  bool GeneratesForConfig(std::string const&);
 
-  std::string CreateConfigTest(const std::string& config);
+  std::string CreateConfigTest(std::string const& config);
   std::string CreateConfigTest(std::vector<std::string> const& configs);
-  std::string CreateComponentTest(const char* component);
+  std::string CreateComponentTest(std::string const& component);
 
   // Information shared by most generator types.
   std::string RuntimeConfigVariable;
@@ -81,16 +107,14 @@ protected:
 
   // Information used during generation.
   std::string ConfigurationName;
-  std::vector<std::string> const* ConfigurationTypes;
+  std::vector<std::string> const* ConfigurationTypes = nullptr;
 
   // True if the subclass needs to generate an explicit rule for each
   // configuration.  False if the subclass only generates one rule for
   // all enabled configurations.
-  bool ActionsPerConfig;
+  bool ActionsPerConfig = false;
 
 private:
   void GenerateScriptActionsOnce(std::ostream& os, Indent indent);
   void GenerateScriptActionsPerConfig(std::ostream& os, Indent indent);
 };
-
-#endif

@@ -15,11 +15,12 @@ int main(int argc, char* argv[])
   fprintf(fp, "int wrapped_help() { return 5; }\n");
   fclose(fp);
 #ifdef CMAKE_INTDIR
-  const char* cfg = (argc >= 4) ? argv[3] : "";
+  char const* cfg = (argc >= 4) ? argv[3] : "";
   if (strcmp(cfg, CMAKE_INTDIR) != 0) {
-    fprintf(stderr, "Did not receive expected configuration argument:\n"
-                    "  expected [" CMAKE_INTDIR "]\n"
-                    "  received [%s]\n",
+    fprintf(stderr,
+            "Did not receive expected configuration argument:\n"
+            "  expected [" CMAKE_INTDIR "]\n"
+            "  received [%s]\n",
             cfg);
     return 1;
   }

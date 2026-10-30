@@ -21,16 +21,16 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD: head/lib/libarchive/archive_private.h 201098 2009-12-28 02:58:14Z kientzle $
  */
 
+#ifndef ARCHIVE_PRIVATE_H_INCLUDED
+#define ARCHIVE_PRIVATE_H_INCLUDED
+
 #ifndef __LIBARCHIVE_BUILD
+#ifndef __LIBARCHIVE_TEST
 #error This header is only to be used internally to libarchive.
 #endif
-
-#ifndef ARCHIVE_PRIVATE_H_INCLUDED
-#define	ARCHIVE_PRIVATE_H_INCLUDED
+#endif
 
 #if HAVE_ICONV_H
 #include <iconv.h>
@@ -40,10 +40,19 @@
 #include "archive_string.h"
 
 #if defined(__GNUC__) && (__GNUC__ > 2 || \
-			  (__GNUC__ == 2 && __GNUC_MINOR__ >= 5))
-#define	__LA_DEAD	__attribute__((__noreturn__))
+						  (__GNUC__ == 2 && __GNUC_MINOR__ >= 5))
+#define __LA_NORETURN __attribute__((__noreturn__))
+#elif defined(_MSC_VER)
+#define __LA_NORETURN __declspec(noreturn)
 #else
-#define	__LA_DEAD
+#define __LA_NORETURN
+#endif
+
+#if defined(__GNUC__) && (__GNUC__ > 2 || \
+			  (__GNUC__ == 2 && __GNUC_MINOR__ >= 7))
+#define	__LA_UNUSED	__attribute__((__unused__))
+#else
+#define	__LA_UNUSED
 #endif
 
 #define	ARCHIVE_WRITE_MAGIC	(0xb0c5c0deU)
@@ -52,12 +61,40 @@
 #define	ARCHIVE_READ_DISK_MAGIC (0xbadb0c5U)
 #define	ARCHIVE_MATCH_MAGIC	(0xcad11c9U)
 
-#define	ARCHIVE_STATE_NEW	1U
-#define	ARCHIVE_STATE_HEADER	2U
-#define	ARCHIVE_STATE_DATA	4U
-#define	ARCHIVE_STATE_EOF	0x10U
-#define	ARCHIVE_STATE_CLOSED	0x20U
+/*
+ * Having the state be a bitmask makes it easy to check
+ * for combinations of allowed states.  These should
+ * generally only be used in public API entry points,
+ * primarily in archive_read.c, archive_write.c, etc.
+ * Internal callbacks can rely on the core machinery
+ * to only call them when appropriate.
+ *
+ * Generally checked via `__archive_check_magic()`.
+ */
+
+/* Newly created archive object, not yet opened. */
+#define	ARCHIVE_STATE_NEW	0x01U
+/* Archive is opened. */
+#define	ARCHIVE_STATE_OPEN	0x02U
+/* Archive is ready to read a header. */
+#define	ARCHIVE_STATE_HEADER	0x04U
+/* A header has been read: client can ask for data
+ * or they can ask for the next header and
+ * we'll automatically skip the remaining data. */
+#define	ARCHIVE_STATE_DATA	0x08U
+/* Similar to STATE_DATA but after a FAILED header:
+ * the client may not read data, but they may ask
+ * for the next header and we'll recover. */
+#define	ARCHIVE_STATE_DATA_RECOVERY	0x10U
+/* End-of-archive has been reached.  Client can only
+ * close or free the archive. */
+#define	ARCHIVE_STATE_EOF	0x20U
+/* Archive is closed; client is only allowed to free the archive. */
+#define	ARCHIVE_STATE_CLOSED	0x40U
+/* Archive is in a FATAL error state: a close request
+ * is permitted but ignored. */
 #define	ARCHIVE_STATE_FATAL	0x8000U
+/* Any valid (non-fatal) state. */
 #define	ARCHIVE_STATE_ANY	(0xFFFFU & ~ARCHIVE_STATE_FATAL)
 
 struct archive_vtable {
@@ -100,13 +137,10 @@ struct archive {
 	 * Some public API functions depend on the "real" type of the
 	 * archive object.
 	 */
-	struct archive_vtable *vtable;
+	const struct archive_vtable *vtable;
 
 	int		  archive_format;
 	const char	 *archive_format_name;
-
-	int	  compression_code;	/* Currently active compression. */
-	const char *compression_name;
 
 	/* Number of file entries processed. */
 	int		  file_count;
@@ -149,10 +183,16 @@ int	__archive_check_magic(struct archive *, unsigned int magic,
 			return ARCHIVE_FATAL; \
 	} while (0)
 
-void	__archive_errx(int retvalue, const char *msg) __LA_DEAD;
+__LA_NORETURN void	__archive_errx(int retvalue, const char *msg);
 
 void	__archive_ensure_cloexec_flag(int fd);
+int	__archive_get_tempdir(struct archive_string *);
 int	__archive_mktemp(const char *tmpdir);
+#if defined(_WIN32) && !defined(__CYGWIN__)
+int	__archive_mkstemp(wchar_t *templates);
+#else
+int	__archive_mkstemp(char *templates);
+#endif
 
 int	__archive_clean(struct archive *);
 
@@ -167,5 +207,7 @@ void __archive_reset_read_data(struct archive *);
 # define	ARCHIVE_LITERAL_LL(x)	x##ll
 # define	ARCHIVE_LITERAL_ULL(x)	x##ull
 #endif
+
+unsigned long __archive_crc32(unsigned long crc, const void *p, size_t len);
 
 #endif

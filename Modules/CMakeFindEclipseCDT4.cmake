@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 # This file is included in CMakeSystemSpecificInformation.cmake if
@@ -25,7 +25,7 @@ function(_FIND_ECLIPSE_VERSION)
 
   if(NOT DEFINED CMAKE_ECLIPSE_VERSION)
     if(CMAKE_ECLIPSE_EXECUTABLE)
-      # use REALPATH to resolve symlinks (https://gitlab.kitware.com/cmake/cmake/issues/13036)
+      # use REALPATH to resolve symlinks (https://gitlab.kitware.com/cmake/cmake/-/issues/13036)
       get_filename_component(_REALPATH_CMAKE_ECLIPSE_EXECUTABLE "${CMAKE_ECLIPSE_EXECUTABLE}" REALPATH)
       get_filename_component(_ECLIPSE_DIR "${_REALPATH_CMAKE_ECLIPSE_EXECUTABLE}" PATH)
       file(GLOB _ECLIPSE_FEATURE_DIR "${_ECLIPSE_DIR}/features/org.eclipse.platform*")
@@ -68,7 +68,7 @@ _find_eclipse_version()
 set(_CMAKE_ECLIPSE_INITIAL_MAKE_ARGS "")
 
 include(ProcessorCount)
-processorcount(_CMAKE_ECLIPSE_PROCESSOR_COUNT)
+ProcessorCount(_CMAKE_ECLIPSE_PROCESSOR_COUNT)
 
 # Only set -j if we are under UNIX and if the make-tool used actually has "make" in the name
 # (we may also get here in the future e.g. for ninja)

@@ -1,52 +1,34 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestConfigureCommand_h
-#define cmCTestConfigureCommand_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCTestHandlerCommand.h"
-
 #include <string>
 
-class cmCTestGenericHandler;
-class cmCommand;
+#include "cmCTestHandlerCommand.h"
 
-/** \class cmCTestConfigure
- * \brief Run a ctest script
- *
- * cmCTestConfigureCommand defineds the command to configures the project.
- */
+class cmExecutionStatus;
+
 class cmCTestConfigureCommand : public cmCTestHandlerCommand
 {
 public:
-  cmCTestConfigureCommand();
-
-  /**
-   * This is a virtual constructor for the command.
-   */
-  cmCommand* Clone() CM_OVERRIDE
-  {
-    cmCTestConfigureCommand* ni = new cmCTestConfigureCommand;
-    ni->CTest = this->CTest;
-    ni->CTestScriptHandler = this->CTestScriptHandler;
-    return ni;
-  }
-
-  /**
-   * The name of the command as specified in CMakeList.txt.
-   */
-  std::string GetName() const CM_OVERRIDE { return "ctest_configure"; }
+  using cmCTestHandlerCommand::cmCTestHandlerCommand;
 
 protected:
-  cmCTestGenericHandler* InitializeHandler() CM_OVERRIDE;
-
-  enum
+  struct ConfigureArguments : HandlerArguments
   {
-    ctc_FIRST = ct_LAST,
-    ctc_OPTIONS,
-    ctc_LAST
+    std::string Options;
+    std::string Preset;
+    std::string PresetsFile;
   };
-};
 
-#endif
+private:
+  std::string GetName() const override { return "ctest_configure"; }
+
+  bool ExecuteConfigure(ConfigureArguments const& args,
+                        cmExecutionStatus& status) const;
+
+  bool InitialPass(std::vector<std::string> const& args,
+                   cmExecutionStatus& status) const override;
+};

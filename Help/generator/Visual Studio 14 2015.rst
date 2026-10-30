@@ -1,25 +1,9 @@
 Visual Studio 14 2015
 ---------------------
 
-Generates Visual Studio 14 (VS 2015) project files.
-
-The :variable:`CMAKE_GENERATOR_PLATFORM` variable may be set
-to specify a target platform name (architecture).
-
-For compatibility with CMake versions prior to 3.1, one may specify
-a target platform name optionally at the end of this generator name:
-
-``Visual Studio 14 2015 Win64``
-  Specify target platform ``x64``.
-
-``Visual Studio 14 2015 ARM``
-  Specify target platform ``ARM``.
-
-Toolset Selection
-^^^^^^^^^^^^^^^^^
-
-The ``v140`` toolset that comes with Visual Studio 14 2015 is selected by
-default.  The :variable:`CMAKE_GENERATOR_TOOLSET` option may be set, perhaps
-via the :manual:`cmake(1)` ``-T`` option, to specify another toolset.
-
-.. include:: VS_TOOLSET_HOST_ARCH.txt
+Removed.  This once generated Visual Studio 14 2015 project files, but
+the generator has been removed since CMake 4.5.  It is still possible
+to build with the VS 14 2015 toolset by also installing VS 2017 (or above)
+and using the :generator:`Visual Studio 15 2017` (or above) generator with
+:variable:`CMAKE_GENERATOR_TOOLSET` set to ``v140``,
+or by using the :generator:`NMake Makefiles` generator.

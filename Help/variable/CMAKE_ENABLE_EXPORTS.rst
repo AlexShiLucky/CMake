@@ -1,22 +1,18 @@
 CMAKE_ENABLE_EXPORTS
 --------------------
 
-Specify whether an executable exports symbols for loadable modules.
+.. versionadded:: 3.4
 
-Normally an executable does not export any symbols because it is the
-final program.  It is possible for an executable to export symbols to
-be used by loadable modules.  When this property is set to true CMake
-will allow other targets to ``link`` to the executable with the
-:command:`TARGET_LINK_LIBRARIES` command.  On all platforms a target-level
-dependency on the executable is created for targets that link to it.
-For DLL platforms an import library will be created for the exported
-symbols and then used for linking.  All Windows-based systems
-including Cygwin are DLL platforms.  For non-DLL platforms that
-require all symbols to be resolved at link time, such as OS X, the
-module will ``link`` to the executable using a flag like
-``-bundle_loader``.  For other non-DLL platforms the link rule is simply
-ignored since the dynamic loader will automatically bind symbols when
-the module is loaded.
+.. deprecated:: 4.3
+  This variable has been deprecated in favor of the
+  :variable:`CMAKE_EXECUTABLE_ENABLE_EXPORTS` and
+  :variable:`CMAKE_SHARED_LIBRARY_ENABLE_EXPORTS` variables,
+  which have been available since CMake 3.27.
+  It is provided for backward compatibility with older CMake code,
+  but should not be used in new projects.
 
-This variable is used to initialize the target property
-:prop_tgt:`ENABLE_EXPORTS` for executable targets.
+Specify whether executables export symbols for loadable modules.
+
+This variable is used to initialize the :prop_tgt:`ENABLE_EXPORTS` target
+property for executable targets when they are created by calls to the
+:command:`add_executable` command.  See the property documentation for details.

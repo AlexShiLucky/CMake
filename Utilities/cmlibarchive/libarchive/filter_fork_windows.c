@@ -31,8 +31,72 @@
 
 #include "filter_fork.h"
 
-pid_t
-__archive_create_child(const char *cmd, int *child_stdin, int *child_stdout)
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+/* There are some editions of Windows ("nano server," for example) that
+ * do not host user32.dll. If we want to keep running on those editions,
+ * we need to delay-load WaitForInputIdle. */
+
+static int
+failing_wait(HANDLE hProcess, DWORD dwMilliseconds) {
+	/* An inability to wait for input idle is
+	 * not _good_, but it is not catastrophic. */
+	(void)hProcess; /* UNUSED */
+	(void)dwMilliseconds; /* UNUSED */
+	return WAIT_FAILED;
+}
+
+# if _WIN32_WINNT < _WIN32_WINNT_VISTA
+static int
+la_WaitForInputIdle(HANDLE hProcess, DWORD dwMilliseconds)
+{
+	static DWORD (WINAPI * volatile f)(HANDLE, DWORD);
+
+	if (f == NULL) {
+		HINSTANCE lib;
+		void *old;
+		DWORD (WINAPI *tmp)(HANDLE, DWORD);
+
+		lib = LoadLibrary(TEXT("user32.dll"));
+		tmp = (lib != NULL) ?
+		    (PVOID)GetProcAddress(lib, "WaitForInputIdle") :
+		    failing_wait;
+		old = InterlockedCompareExchangePointer((volatile PVOID *)&f,
+		    tmp, NULL);
+		if (old != NULL && lib != NULL)
+			FreeLibrary(lib);
+	}
+
+	return (*f)(hProcess, dwMilliseconds);
+}
+# else
+static BOOL CALLBACK
+load_WaitForInputIdle(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
+	HMODULE user32 = LoadLibrary(TEXT("user32.dll"));
+
+	(void)InitOnce; /* UNUSED */
+	(void)Parameter; /* UNUSED */
+
+	*Context = (user32 != NULL) ?
+	    (PVOID)GetProcAddress(user32, "WaitForInputIdle") : (PVOID)failing_wait;
+
+	return TRUE;
+}
+
+static int
+la_WaitForInputIdle(HANDLE hProcess, DWORD dwMilliseconds)
+{
+	static DWORD (WINAPI *f)(HANDLE, DWORD);
+	static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
+
+	InitOnceExecuteOnce(&once, load_WaitForInputIdle, NULL, (PVOID)&f);
+
+	return (*f)(hProcess, dwMilliseconds);
+}
+# endif
+
+int
+__archive_create_child(const char *cmd, int *child_stdin, int *child_stdout,
+		HANDLE *out_child)
 {
 	HANDLE childStdout[2], childStdin[2],childStderr;
 	SECURITY_ATTRIBUTES secAtts;
@@ -44,6 +108,7 @@ __archive_create_child(const char *cmd, int *child_stdin, int *child_stdout)
 	char *arg0, *ext;
 	int i, l;
 	DWORD fl, fl_old;
+	HANDLE child;
 
 	childStdout[0] = childStdout[1] = INVALID_HANDLE_VALUE;
 	childStdin[0] = childStdin[1] = INVALID_HANDLE_VALUE;
@@ -147,20 +212,27 @@ __archive_create_child(const char *cmd, int *child_stdin, int *child_stdout)
 	if (CreateProcessA(fullpath.s, cmdline.s, NULL, NULL, TRUE, 0,
 	      NULL, NULL, &staInfo, &childInfo) == 0)
 		goto fail;
-	WaitForInputIdle(childInfo.hProcess, INFINITE);
+	la_WaitForInputIdle(childInfo.hProcess, INFINITE);
 	CloseHandle(childInfo.hProcess);
 	CloseHandle(childInfo.hThread);
 
 	*child_stdout = _open_osfhandle((intptr_t)childStdout[0], _O_RDONLY);
 	*child_stdin = _open_osfhandle((intptr_t)childStdin[1], _O_WRONLY);
 	
+	child = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE,
+		childInfo.dwProcessId);
+	if (child == NULL) // INVALID_HANDLE_VALUE ?
+		goto fail;
+
+	*out_child = child;
+
 	CloseHandle(childStdout[1]);
 	CloseHandle(childStdin[0]);
 
 	archive_string_free(&cmdline);
 	archive_string_free(&fullpath);
 	__archive_cmdline_free(acmd);
-	return (childInfo.dwProcessId);
+	return ARCHIVE_OK;
 
 fail:
 	if (childStdout[0] != INVALID_HANDLE_VALUE)
@@ -176,8 +248,16 @@ fail:
 	archive_string_free(&cmdline);
 	archive_string_free(&fullpath);
 	__archive_cmdline_free(acmd);
-	return (-1);
+	return ARCHIVE_FAILED;
 }
+#else /* !WINAPI_PARTITION_DESKTOP */
+int
+__archive_create_child(const char *cmd, int *child_stdin, int *child_stdout, HANDLE *out_child)
+{
+	(void)cmd; (void)child_stdin; (void) child_stdout; (void) out_child;
+	return ARCHIVE_FAILED;
+}
+#endif /* !WINAPI_PARTITION_DESKTOP */
 
 void
 __archive_check_child(int in, int out)

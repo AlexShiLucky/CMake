@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(TestFindDoxygen VERSION 1.0 LANGUAGES NONE)
 
 # Testing backward compatible signature
@@ -22,6 +22,7 @@ else()
     message(FATAL_ERROR "Import target Doxygen::doxygen not defined")
 endif()
 
+set(DOXYGEN_OUTPUT_DIRECTORY noArgs)
 doxygen_add_docs(docsNoArgs)
 if(NOT EXISTS "${PROJECT_BINARY_DIR}/Doxyfile.docsNoArgs")
     message(FATAL_ERROR "Missing generated file: Doxyfile.docsNoArgs")
@@ -30,6 +31,7 @@ if(NOT TARGET docsNoArgs)
     message(FATAL_ERROR "Target docsNoArgs not created")
 endif()
 
+set(DOXYGEN_OUTPUT_DIRECTORY withArgs)
 configure_file(spaces_in_name.cpp.in "spaces in name.cpp" COPYONLY)
 doxygen_add_docs(docsWithArgs
     "${CMAKE_CURRENT_BINARY_DIR}/spaces in name.cpp"
@@ -55,5 +57,14 @@ foreach(f IN LISTS expectedList)
     endif()
 endforeach()
 
+# Tolerate output formats explicitly set to an empty value.
+set(DOXYGEN_OUTPUT_DIRECTORY emptyGenerate)
+set(DOXYGEN_GENERATE_LATEX "")
+doxygen_add_docs(docsEmptyGenerate main.cpp)
+unset(DOXYGEN_GENERATE_LATEX)
+if(NOT TARGET docsEmptyGenerate)
+    message(FATAL_ERROR "Target docsEmptyGenerate not created")
+endif()
+
 add_custom_target(allDocTargets)
-add_dependencies(allDocTargets docsNoArgs docsWithArgs)
+add_dependencies(allDocTargets docsNoArgs docsWithArgs docsEmptyGenerate)

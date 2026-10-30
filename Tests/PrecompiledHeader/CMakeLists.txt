@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 project(PrecompiledHeader C)
 
 # Make sure the proper compiler is in use.
@@ -7,7 +7,8 @@ if(NOT MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL "Intel")
 endif()
 
 # Compute a custom name for the precompiled header.
-if(CMAKE_CONFIGURATION_TYPES)
+get_property(_isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_isMultiConfig)
   set(PCH_DIR "${CMAKE_CURRENT_BINARY_DIR}/PCH/${CMAKE_CFG_INTDIR}")
   foreach(cfg ${CMAKE_CONFIGURATION_TYPES})
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/PCH/${cfg})
@@ -41,8 +42,7 @@ set_source_files_properties(foo_precompile.c PROPERTIES
 
 # Setup dependencies for precompiled header creation and use.  The VS
 # IDE takes care of this automatically.
-if("${CMAKE_GENERATOR}" MATCHES "Makefile" OR
-   "${CMAKE_GENERATOR}" MATCHES "Ninja")
+if("${CMAKE_GENERATOR}" MATCHES "Makefile|Ninja|FASTBuild")
   # This source file creates the precompiled header as a side-effect.
   set_source_files_properties(foo_precompile.c PROPERTIES
     OBJECT_OUTPUTS "${PCH_DIR}/foo_precompiled.pch")

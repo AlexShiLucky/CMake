@@ -1,7 +1,5 @@
-cmake_minimum_required(VERSION 3.7)
-project(CudaComplex CUDA C)
-
-string(APPEND CMAKE_CUDA_FLAGS " -gencode arch=compute_30,code=compute_30")
+cmake_minimum_required(VERSION 3.18)
+project(WithC CUDA C)
 
 add_executable(CudaWithC main.c cuda.cu)
 

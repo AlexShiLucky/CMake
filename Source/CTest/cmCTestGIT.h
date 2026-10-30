@@ -1,16 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestGIT_h
-#define cmCTestGIT_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmCTestGlobalVC.h"
 
 #include <iosfwd>
 #include <string>
 
+#include "cmCTestGlobalVC.h"
+
 class cmCTest;
+class cmMakefile;
 
 /** \class cmCTestGIT
  * \brief Interaction with git command-line tool
@@ -20,17 +20,17 @@ class cmCTestGIT : public cmCTestGlobalVC
 {
 public:
   /** Construct with a CTest instance and update log stream.  */
-  cmCTestGIT(cmCTest* ctest, std::ostream& log);
+  cmCTestGIT(cmCTest* ctest, cmMakefile* mf, std::ostream& log);
 
-  ~cmCTestGIT() CM_OVERRIDE;
+  ~cmCTestGIT() override;
 
 private:
   unsigned int CurrentGitVersion;
   unsigned int GetGitVersion();
   std::string GetWorkingRevision();
-  bool NoteOldRevision() CM_OVERRIDE;
-  bool NoteNewRevision() CM_OVERRIDE;
-  bool UpdateImpl() CM_OVERRIDE;
+  bool NoteOldRevision() override;
+  bool NoteNewRevision() override;
+  bool UpdateImpl() override;
 
   std::string FindGitDir();
   std::string FindTopDir();
@@ -39,8 +39,8 @@ private:
   bool UpdateByCustom(std::string const& custom);
   bool UpdateInternal();
 
-  bool LoadRevisions() CM_OVERRIDE;
-  bool LoadModifications() CM_OVERRIDE;
+  bool LoadRevisions() override;
+  bool LoadModifications() override;
 
   // "public" needed by older Sun compilers
 public:
@@ -53,5 +53,3 @@ public:
   friend class DiffParser;
   friend class OneLineParser;
 };
-
-#endif

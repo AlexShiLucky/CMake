@@ -1,29 +1,54 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmPropertyMap_h
-#define cmPropertyMap_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmProperty.h"
-
-#include <map>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
-class cmPropertyMap : public std::map<std::string, cmProperty>
+#include "cmValue.h"
+
+/** \class cmPropertyMap
+ * \brief String property map.
+ */
+class cmPropertyMap
 {
 public:
-  cmProperty* GetOrCreateProperty(const std::string& name);
+  // -- General
 
-  std::vector<std::string> GetPropertyList() const;
+  //! Clear property list
+  void Clear();
 
-  void SetProperty(const std::string& name, const char* value);
+  // -- Properties
 
-  void AppendProperty(const std::string& name, const char* value,
+  //! Set the property value
+  void SetProperty(std::string const& name, cmValue value);
+  void SetProperty(std::string const& name, std::string const& value)
+  {
+    this->SetProperty(name, cmValue(value));
+  }
+
+  //! Append to the property value
+  void AppendProperty(std::string const& name, std::string const& value,
                       bool asString = false);
 
-  const char* GetPropertyValue(const std::string& name) const;
-};
+  //! Get the property value
+  cmValue GetPropertyValue(std::string const& name) const;
 
-#endif
+  //! Remove the property @a name from the map
+  void RemoveProperty(std::string const& name);
+
+  // -- Lists
+
+  //! Get a sorted list of property keys
+  std::vector<std::string> GetKeys() const;
+
+  //! Get a sorted by key list of property key,value pairs
+  std::vector<std::pair<std::string, std::string>> GetList() const;
+
+private:
+  std::unordered_map<std::string, std::string> Map_;
+};

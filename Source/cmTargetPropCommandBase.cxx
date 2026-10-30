@@ -1,30 +1,36 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmTargetPropCommandBase.h"
 
+#include "cmExecutionStatus.h"
 #include "cmGlobalGenerator.h"
 #include "cmMakefile.h"
-#include "cmStateTypes.h"
 #include "cmTarget.h"
-#include "cmake.h"
+#include "cmTargetTypes.h"
+#include "cmValue.h"
+
+cmTargetPropCommandBase::cmTargetPropCommandBase(cmExecutionStatus& status)
+  : Makefile(&status.GetMakefile())
+  , Status(status)
+{
+}
+
+void cmTargetPropCommandBase::SetError(std::string const& e)
+{
+  this->Status.SetError(e);
+}
 
 bool cmTargetPropCommandBase::HandleArguments(
-  std::vector<std::string> const& args, const std::string& prop,
-  ArgumentFlags flags)
+  std::vector<std::string> const& args, std::string const& prop,
+  unsigned int flags)
 {
   if (args.size() < 2) {
     this->SetError("called with incorrect number of arguments");
     return false;
   }
 
-  // Lookup the target for which libraries are specified.
-  if (this->Makefile->IsAlias(args[0])) {
-    this->SetError("can not be used on an ALIAS target.");
-    return false;
-  }
-  this->Target =
-    this->Makefile->GetCMakeInstance()->GetGlobalGenerator()->FindTarget(
-      args[0]);
+  // Lookup the target for which property-values are specified.
+  this->Target = this->Makefile->GetGlobalGenerator()->FindTarget(args[0]);
   if (!this->Target) {
     this->Target = this->Makefile->FindTargetToUse(args[0]);
   }
@@ -32,14 +38,31 @@ bool cmTargetPropCommandBase::HandleArguments(
     this->HandleMissingTarget(args[0]);
     return false;
   }
-  if ((this->Target->GetType() != cmStateEnums::SHARED_LIBRARY) &&
-      (this->Target->GetType() != cmStateEnums::STATIC_LIBRARY) &&
-      (this->Target->GetType() != cmStateEnums::OBJECT_LIBRARY) &&
-      (this->Target->GetType() != cmStateEnums::MODULE_LIBRARY) &&
-      (this->Target->GetType() != cmStateEnums::INTERFACE_LIBRARY) &&
-      (this->Target->GetType() != cmStateEnums::EXECUTABLE)) {
-    this->SetError("called with non-compilable target type");
+  if (this->Target->IsSymbolic()) {
+    this->SetError("can not be used on a SYMBOLIC target.");
     return false;
+  }
+  bool const isRegularTarget =
+    (this->Target->GetType() == cm::TargetType::EXECUTABLE) ||
+    (this->Target->GetType() == cm::TargetType::STATIC_LIBRARY) ||
+    (this->Target->GetType() == cm::TargetType::SHARED_LIBRARY) ||
+    (this->Target->GetType() == cm::TargetType::MODULE_LIBRARY) ||
+    (this->Target->GetType() == cm::TargetType::OBJECT_LIBRARY) ||
+    (this->Target->GetType() == cm::TargetType::INTERFACE_LIBRARY) ||
+    (this->Target->GetType() == cm::TargetType::UNKNOWN_LIBRARY);
+  bool const isCustomTarget =
+    this->Target->GetType() == cm::TargetType::UTILITY;
+
+  if (prop == "SOURCES") {
+    if (!isRegularTarget && !isCustomTarget) {
+      this->SetError("called with non-compilable target type");
+      return false;
+    }
+  } else {
+    if (!isRegularTarget) {
+      this->SetError("called with non-compilable target type");
+      return false;
+    }
   }
 
   bool system = false;
@@ -55,12 +78,33 @@ bool cmTargetPropCommandBase::HandleArguments(
   }
 
   bool prepend = false;
-  if ((flags & PROCESS_BEFORE) && args[argIndex] == "BEFORE") {
+  if ((flags & PROCESS_BEFORE) && argIndex < args.size() &&
+      args[argIndex] == "BEFORE") {
     if (args.size() < 3) {
       this->SetError("called with incorrect number of arguments");
       return false;
     }
     prepend = true;
+    ++argIndex;
+  } else if ((flags & PROCESS_AFTER) && argIndex < args.size() &&
+             args[argIndex] == "AFTER") {
+    if (args.size() < 3) {
+      this->SetError("called with incorrect number of arguments");
+      return false;
+    }
+    prepend = false;
+    ++argIndex;
+  }
+
+  if ((flags & PROCESS_REUSE_FROM) && argIndex < args.size() &&
+      args[argIndex] == "REUSE_FROM") {
+    if (args.size() != 3) {
+      this->SetError("called with incorrect number of arguments");
+      return false;
+    }
+    ++argIndex;
+
+    this->Target->SetProperty("PRECOMPILE_HEADERS_REUSE_FROM", args[argIndex]);
     ++argIndex;
   }
 
@@ -85,18 +129,6 @@ bool cmTargetPropCommandBase::ProcessContentArgs(
     return false;
   }
 
-  if (this->Target->IsImported()) {
-    this->HandleImportedTarget(args[0]);
-    return false;
-  }
-
-  if (this->Target->GetType() == cmStateEnums::INTERFACE_LIBRARY &&
-      scope != "INTERFACE") {
-    this->SetError("may only be set INTERFACE properties on INTERFACE "
-                   "targets");
-    return false;
-  }
-
   ++argIndex;
 
   std::vector<std::string> content;
@@ -104,17 +136,36 @@ bool cmTargetPropCommandBase::ProcessContentArgs(
   for (unsigned int i = argIndex; i < args.size(); ++i, ++argIndex) {
     if (args[i] == "PUBLIC" || args[i] == "PRIVATE" ||
         args[i] == "INTERFACE") {
-      return this->PopulateTargetProperies(scope, content, prepend, system);
+      break;
     }
     content.push_back(args[i]);
   }
-  return this->PopulateTargetProperies(scope, content, prepend, system);
+  if (!content.empty()) {
+    if (this->Target->GetType() == cm::TargetType::INTERFACE_LIBRARY &&
+        scope != "INTERFACE" && this->Property != "SOURCES") {
+      this->SetError("may only set INTERFACE properties on INTERFACE targets");
+      return false;
+    }
+    if (this->Target->IsImported() && scope != "INTERFACE") {
+      this->SetError("may only set INTERFACE properties on IMPORTED targets");
+      return false;
+    }
+    if (this->Target->GetType() == cm::TargetType::UTILITY &&
+        scope != "PRIVATE") {
+      this->SetError("may only set PRIVATE properties on custom targets");
+      return false;
+    }
+  }
+  return this->PopulateTargetProperties(scope, content, prepend, system);
 }
 
-bool cmTargetPropCommandBase::PopulateTargetProperies(
-  const std::string& scope, const std::vector<std::string>& content,
+bool cmTargetPropCommandBase::PopulateTargetProperties(
+  std::string const& scope, std::vector<std::string> const& content,
   bool prepend, bool system)
 {
+  if (content.empty()) {
+    return true;
+  }
   if (scope == "PRIVATE" || scope == "PUBLIC") {
     if (!this->HandleDirectContent(this->Target, content, prepend, system)) {
       return false;
@@ -127,16 +178,15 @@ bool cmTargetPropCommandBase::PopulateTargetProperies(
 }
 
 void cmTargetPropCommandBase::HandleInterfaceContent(
-  cmTarget* tgt, const std::vector<std::string>& content, bool prepend, bool)
+  cmTarget* tgt, std::vector<std::string> const& content, bool prepend, bool)
 {
   if (prepend) {
-    const std::string propName = std::string("INTERFACE_") + this->Property;
-    const char* propValue = tgt->GetProperty(propName);
-    const std::string totalContent = this->Join(content) +
-      (propValue ? std::string(";") + propValue : std::string());
-    tgt->SetProperty(propName, totalContent.c_str());
+    std::string const propName = std::string("INTERFACE_") + this->Property;
+    cmValue propValue = tgt->GetProperty(propName);
+    std::string const totalContent =
+      this->Join(content) + (propValue ? (";" + *propValue) : std::string());
+    tgt->SetProperty(propName, totalContent);
   } else {
-    tgt->AppendProperty("INTERFACE_" + this->Property,
-                        this->Join(content).c_str());
+    tgt->AppendProperty("INTERFACE_" + this->Property, this->Join(content));
   }
 }

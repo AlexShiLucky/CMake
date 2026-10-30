@@ -1,15 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCursesStringWidget.h"
 
+#include <cstdio>
+
+#include "cmCursesColor.h"
 #include "cmCursesForm.h"
 #include "cmCursesMainForm.h"
 #include "cmCursesStandardIncludes.h"
 #include "cmCursesWidget.h"
 #include "cmStateTypes.h"
-
-#include <stdio.h>
-#include <string.h>
 
 inline int ctrl(int z)
 {
@@ -22,9 +22,20 @@ cmCursesStringWidget::cmCursesStringWidget(int width, int height, int left,
 {
   this->InEdit = false;
   this->Type = cmStateEnums::STRING;
-  set_field_fore(this->Field, A_NORMAL);
-  set_field_back(this->Field, A_STANDOUT);
+  if (cmCursesColor::HasColors()) {
+    set_field_fore(this->Field, COLOR_PAIR(cmCursesColor::String));
+    set_field_back(this->Field, COLOR_PAIR(cmCursesColor::String));
+  } else {
+    set_field_fore(this->Field, A_NORMAL);
+    set_field_back(this->Field, A_STANDOUT);
+  }
   field_opts_off(this->Field, O_STATIC);
+}
+
+void cmCursesStringWidget::SetInEdit(bool inedit)
+{
+  this->InEdit = inedit;
+  curs_set(inedit);
 }
 
 void cmCursesStringWidget::OnTab(cmCursesMainForm* /*unused*/,
@@ -35,23 +46,21 @@ void cmCursesStringWidget::OnTab(cmCursesMainForm* /*unused*/,
 
 void cmCursesStringWidget::OnReturn(cmCursesMainForm* fm, WINDOW* /*unused*/)
 {
-  FORM* form = fm->GetForm();
   if (this->InEdit) {
     cmCursesForm::LogMessage("String widget leaving edit.");
-    this->InEdit = false;
+    this->SetInEdit(false);
     fm->PrintKeys();
-    delete[] this->OriginalString;
+    this->OriginalString.clear();
     // trick to force forms to update the field buffer
+    FORM* form = fm->GetForm();
     form_driver(form, REQ_NEXT_FIELD);
     form_driver(form, REQ_PREV_FIELD);
     this->Done = true;
   } else {
     cmCursesForm::LogMessage("String widget entering edit.");
-    this->InEdit = true;
+    this->SetInEdit(true);
     fm->PrintKeys();
-    char* buf = field_buffer(this->Field, 0);
-    this->OriginalString = new char[strlen(buf) + 1];
-    strcpy(this->OriginalString, buf);
+    this->OriginalString = field_buffer(this->Field, 0);
   }
 }
 
@@ -64,7 +73,8 @@ void cmCursesStringWidget::OnType(int& key, cmCursesMainForm* fm,
 bool cmCursesStringWidget::HandleInput(int& key, cmCursesMainForm* fm,
                                        WINDOW* w)
 {
-  int x, y;
+  int x;
+  int y;
 
   FORM* form = fm->GetForm();
   // when not in edit mode, edit mode is entered by pressing enter or i (vim
@@ -74,14 +84,15 @@ bool cmCursesStringWidget::HandleInput(int& key, cmCursesMainForm* fm,
     return false;
   }
 
-  this->OriginalString = nullptr;
+  this->OriginalString.clear();
   this->Done = false;
 
   char debugMessage[128];
 
   // <Enter> is used to change edit mode (like <Esc> in vi).
   while (!this->Done) {
-    sprintf(debugMessage, "String widget handling input, key: %d", key);
+    snprintf(debugMessage, sizeof(debugMessage),
+             "String widget handling input, key: %d", key);
     cmCursesForm::LogMessage(debugMessage);
 
     fm->PrintKeys();
@@ -101,18 +112,16 @@ bool cmCursesStringWidget::HandleInput(int& key, cmCursesMainForm* fm,
     if (!this->InEdit && (key != 10 && key != KEY_ENTER && key != 'i')) {
       return false;
     }
-    // enter edit with return and i (vim binding)
-    if (!this->InEdit && (key == 10 || key == KEY_ENTER || key == 'i')) {
-      this->OnReturn(fm, w);
-    }
-    // leave edit with return (but not i -- not a toggle)
-    else if (this->InEdit && (key == 10 || key == KEY_ENTER)) {
+    // toggle edit with return
+    if ((key == 10 || key == KEY_ENTER)
+        // enter edit with i (and not-edit mode)
+        || (!this->InEdit && key == 'i')) {
       this->OnReturn(fm, w);
     } else if (key == KEY_DOWN || key == ctrl('n') || key == KEY_UP ||
                key == ctrl('p') || key == KEY_NPAGE || key == ctrl('d') ||
                key == KEY_PPAGE || key == ctrl('u')) {
-      this->InEdit = false;
-      delete[] this->OriginalString;
+      this->SetInEdit(false);
+      this->OriginalString.clear();
       // trick to force forms to update the field buffer
       form_driver(form, REQ_NEXT_FIELD);
       form_driver(form, REQ_PREV_FIELD);
@@ -121,10 +130,10 @@ bool cmCursesStringWidget::HandleInput(int& key, cmCursesMainForm* fm,
     // esc
     else if (key == 27) {
       if (this->InEdit) {
-        this->InEdit = false;
+        this->SetInEdit(false);
         fm->PrintKeys();
         this->SetString(this->OriginalString);
-        delete[] this->OriginalString;
+        this->OriginalString.clear();
         touchwin(w);
         wrefresh(w);
         return true;
@@ -141,7 +150,7 @@ bool cmCursesStringWidget::HandleInput(int& key, cmCursesMainForm* fm,
       form_driver(form, REQ_BEG_FIELD);
     } else if (key == ctrl('e') || key == KEY_END) {
       form_driver(form, REQ_END_FIELD);
-    } else if (key == 127 || key == KEY_BACKSPACE) {
+    } else if (key == ctrl('h') || key == 127 || key == KEY_BACKSPACE) {
       FIELD* cur = current_field(form);
       form_driver(form, REQ_DEL_PREV);
       if (current_field(form) != cur) {
@@ -162,49 +171,43 @@ bool cmCursesStringWidget::HandleInput(int& key, cmCursesMainForm* fm,
   return true;
 }
 
-void cmCursesStringWidget::SetString(const std::string& value)
+void cmCursesStringWidget::SetString(std::string const& value)
 {
   this->SetValue(value);
 }
 
-const char* cmCursesStringWidget::GetString()
+char const* cmCursesStringWidget::GetString()
 {
   return this->GetValue();
 }
 
-const char* cmCursesStringWidget::GetValue()
+char const* cmCursesStringWidget::GetValue()
 {
   return field_buffer(this->Field, 0);
 }
 
 bool cmCursesStringWidget::PrintKeys()
 {
-  int x, y;
+  int x;
+  int y;
   getmaxyx(stdscr, y, x);
   if (x < cmCursesMainForm::MIN_WIDTH || y < cmCursesMainForm::MIN_HEIGHT) {
     return false;
   }
   if (this->InEdit) {
     char fmt_s[] = "%s";
-    char firstLine[512];
     // Clean the toolbar
-    for (int i = 0; i < 512; i++) {
-      firstLine[i] = ' ';
-    }
-    firstLine[511] = '\0';
-    curses_move(y - 4, 0);
-    printw(fmt_s, firstLine);
-    curses_move(y - 3, 0);
-    printw(fmt_s, firstLine);
-    curses_move(y - 2, 0);
-    printw(fmt_s, firstLine);
-    curses_move(y - 1, 0);
-    printw(fmt_s, firstLine);
-
-    curses_move(y - 3, 0);
+    move(y - 4, 0);
+    clrtoeol();
+    move(y - 3, 0);
     printw(fmt_s, "Editing option, press [enter] to confirm");
-    curses_move(y - 2, 0);
+    clrtoeol();
+    move(y - 2, 0);
     printw(fmt_s, "                press [esc] to cancel");
+    clrtoeol();
+    move(y - 1, 0);
+    clrtoeol();
+
     return true;
   }
   return false;

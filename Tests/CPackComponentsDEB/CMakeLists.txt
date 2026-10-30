@@ -4,8 +4,12 @@
 # application (mylibapp). We create a binary installer (a CPack Generator)
 # which supports CPack components.
 
-cmake_minimum_required(VERSION 2.8.3.20101130 FATAL_ERROR)
-project(CPackComponentsDEB)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+# Make sure to properly escape RPATH/RUNPATH entries.
+if (POLICY CMP0095)
+  cmake_policy(SET CMP0095 NEW)
+endif()
+project(CPackComponentsDEB VERSION 1.0.3)
 
 # Use GNUInstallDirs in order to enforce lib64 if needed
 include(GNUInstallDirs)
@@ -22,6 +26,21 @@ target_link_libraries(mylibapp mylib)
 add_executable(mylibapp2 mylibapp.cpp)
 target_link_libraries(mylibapp2 mylib)
 
+if (CPackDEBConfiguration MATCHES "shlibdeps-with-private-lib")
+  add_subdirectory("shlibdeps-with-private-lib")
+  add_executable(mylibapp3 mylibapp.cpp)
+  target_compile_definitions(mylibapp3 PRIVATE -DSHLIBDEPS_PRIVATE)
+  target_link_libraries(mylibapp3 myprivatelib)
+endif()
+
+if (CPackDEBConfiguration MATCHES "shlibdeps-with-ORIGIN-RPATH")
+  add_subdirectory("subdir")
+  add_executable(mylibapp4 mylibapp.cpp)
+  target_compile_definitions(mylibapp4 PRIVATE -DSHLIBDEPS_OTHER)
+  target_link_libraries(mylibapp4 PUBLIC myotherlib)
+  set_target_properties(mylibapp4 PROPERTIES INSTALL_RPATH "\${ORIGIN};$ORIGIN/../lib")
+endif()
+
 # Create installation targets. Note that we put each kind of file
 # into a different component via COMPONENT. These components will
 # be used to create the installation components.
@@ -32,22 +51,36 @@ install(TARGETS mylib
 
 install(TARGETS mylibapp
   RUNTIME
-  DESTINATION bin
+  DESTINATION ${CMAKE_INSTALL_BINDIR}
   COMPONENT applications)
 
 install(FILES mylib.h
-        DESTINATION include
-        COMPONENT headers)
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  COMPONENT headers)
+
+if (CPackDEBConfiguration MATCHES "shlibdeps-with-private-lib")
+  install(TARGETS mylibapp3
+    RUNTIME
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    COMPONENT applications)
+endif()
+
+if (CPackDEBConfiguration MATCHES "shlibdeps-with-ORIGIN-RPATH")
+  install(TARGETS myotherlib
+    LIBRARY
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    COMPONENT libraries)
+  install(TARGETS mylibapp4
+    RUNTIME
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    COMPONENT applications)
+endif()
 
 # CPack boilerplate for this project
 set(CPACK_PACKAGE_NAME "MyLib")
 set(CPACK_PACKAGE_CONTACT "None")
 set(CPACK_PACKAGE_VENDOR "CMake.org")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MyLib - CPack Component Installation Example")
-set(CPACK_PACKAGE_VERSION "1.0.2")
-set(CPACK_PACKAGE_VERSION_MAJOR "1")
-set(CPACK_PACKAGE_VERSION_MINOR "0")
-set(CPACK_PACKAGE_VERSION_PATCH "2")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "CPack Component Example")
 set(CPACK_RESOURCE_FILE_LICENSE ${CMAKE_CURRENT_SOURCE_DIR}/license.txt)
 
@@ -108,7 +141,7 @@ install(FILES ${CPackComponentsDEB_BINARY_DIR}/symtest
         COMPONENT applications)
 
 if(EXISTS "./dirtest")
-  execute_process(COMMAND ${CMAKE_COMMAND} -E remove_directory ./dirtest)
+  execute_process(COMMAND ${CMAKE_COMMAND} -E rm -rf ./dirtest)
 endif()
 # NOTE: directory left empty on purpose
 execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ./dirtest)

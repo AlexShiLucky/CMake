@@ -1,43 +1,77 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindXercesC
-# -----------
-#
-# Find the Apache Xerces-C++ validating XML parser headers and libraries.
-#
-# Imported targets
-# ^^^^^^^^^^^^^^^^
-#
-# This module defines the following :prop_tgt:`IMPORTED` targets:
-#
-# ``XercesC::XercesC``
-#   The Xerces-C++ ``xerces-c`` library, if found.
-#
-# Result variables
-# ^^^^^^^^^^^^^^^^
-#
-# This module will set the following variables in your project:
-#
-# ``XercesC_FOUND``
-#   true if the Xerces headers and libraries were found
-# ``XercesC_VERSION``
-#   Xerces release version
-# ``XercesC_INCLUDE_DIRS``
-#   the directory containing the Xerces headers
-# ``XercesC_LIBRARIES``
-#   Xerces libraries to be linked
-#
-# Cache variables
-# ^^^^^^^^^^^^^^^
-#
-# The following cache variables may also be set:
-#
-# ``XercesC_INCLUDE_DIR``
-#   the directory containing the Xerces headers
-# ``XercesC_LIBRARY``
-#   the Xerces library
+#[=======================================================================[.rst:
+FindXercesC
+-----------
+
+.. versionadded:: 3.1
+
+Finds the Apache Xerces-C++ validating XML parser headers and libraries:
+
+.. code-block:: cmake
+
+  find_package(XercesC [<version>] [...])
+
+Imported Targets
+^^^^^^^^^^^^^^^^
+
+This module provides the following :ref:`Imported Targets`:
+
+``XercesC::XercesC``
+  .. versionadded:: 3.5
+
+  Target encapsulating the Xerces-C++ library (``xerces-c``) usage requirements,
+  available only if Xerces-C++ is found.
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``XercesC_FOUND``
+  Boolean indicating whether (the requested version of) Xerces-C++ was found.
+``XercesC_VERSION``
+  The version of the found Xerces-C++ library.
+``XercesC_INCLUDE_DIRS``
+  Include directories needed to use Xerces-C++.
+``XercesC_LIBRARIES``
+  Libraries needed to link for using Xerces-C++.
+``XercesC_LIBRARY``
+  The path to the Xerces-C++ library (``xerces-c``), either release or debug
+  variant.
+
+Cache Variables
+^^^^^^^^^^^^^^^
+
+The following cache variables may also be set:
+
+``XercesC_INCLUDE_DIR``
+  The directory containing the Xerces-C++ headers.
+
+``XercesC_LIBRARY_RELEASE``
+  .. versionadded:: 3.4
+
+  The path to a release (optimized) variant of the Xerces-C++ library.
+
+``XercesC_LIBRARY_DEBUG``
+  .. versionadded:: 3.4
+
+  The path to a debug variant of the Xerces-C++ library.
+
+Examples
+^^^^^^^^
+
+Finding the Xerces-C++ library and linking it to a project target:
+
+.. code-block:: cmake
+
+  find_package(XercesC)
+  target_link_libraries(project_target PRIVATE XercesC::XercesC)
+#]=======================================================================]
+
+cmake_policy(PUSH)
+cmake_policy(SET CMP0159 NEW) # file(STRINGS) with REGEX updates CMAKE_MATCH_<n>
 
 # Written by Roger Leigh <rleigh@codelibre.net>
 
@@ -59,6 +93,9 @@ function(_XercesC_GET_VERSION  version_hdr)
         endif()
 
         set(XercesC_VERSION "${XercesC_MAJOR}.${XercesC_MINOR}.${XercesC_PATCH}" PARENT_SCOPE)
+        set(XercesC_VERSION_MAJOR "${XercesC_MAJOR}" PARENT_SCOPE)
+        set(XercesC_VERSION_MINOR "${XercesC_MINOR}" PARENT_SCOPE)
+        set(XercesC_VERSION_PATCH "${XercesC_PATCH}" PARENT_SCOPE)
     else()
         message(FATAL_ERROR "Include file ${version_hdr} does not exist or does not contain expected version information")
     endif()
@@ -70,26 +107,35 @@ find_path(XercesC_INCLUDE_DIR
           DOC "Xerces-C++ include directory")
 mark_as_advanced(XercesC_INCLUDE_DIR)
 
+if(XercesC_INCLUDE_DIR AND EXISTS "${XercesC_INCLUDE_DIR}/xercesc/util/XercesVersion.hpp")
+  _XercesC_GET_VERSION("${XercesC_INCLUDE_DIR}/xercesc/util/XercesVersion.hpp")
+endif()
+
 if(NOT XercesC_LIBRARY)
   # Find all XercesC libraries
   find_library(XercesC_LIBRARY_RELEASE
-               NAMES "xerces-c" "xerces-c_3"
+               NAMES "xerces-c"
+                     "xerces-c_${XercesC_VERSION_MAJOR}"
+                     "xerces-c-${XercesC_VERSION_MAJOR}.${XercesC_VERSION_MINOR}"
+               NAMES_PER_DIR
                DOC "Xerces-C++ libraries (release)")
   find_library(XercesC_LIBRARY_DEBUG
-               NAMES "xerces-cd" "xerces-c_3D" "xerces-c_3_1D"
+               NAMES "xerces-cd"
+                     "xerces-c_${XercesC_VERSION_MAJOR}D"
+                     "xerces-c_${XercesC_VERSION_MAJOR}_${XercesC_VERSION_MINOR}D"
+               NAMES_PER_DIR
                DOC "Xerces-C++ libraries (debug)")
   include(${CMAKE_CURRENT_LIST_DIR}/SelectLibraryConfigurations.cmake)
   select_library_configurations(XercesC)
   mark_as_advanced(XercesC_LIBRARY_RELEASE XercesC_LIBRARY_DEBUG)
 endif()
 
-if(XercesC_INCLUDE_DIR)
-  _XercesC_GET_VERSION("${XercesC_INCLUDE_DIR}/xercesc/util/XercesVersion.hpp")
-endif()
+unset(XercesC_VERSION_MAJOR)
+unset(XercesC_VERSION_MINOR)
+unset(XercesC_VERSION_PATCH)
 
-include(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(XercesC
-                                  FOUND_VAR XercesC_FOUND
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(XercesC
                                   REQUIRED_VARS XercesC_LIBRARY
                                                 XercesC_INCLUDE_DIR
                                                 XercesC_VERSION
@@ -128,3 +174,5 @@ if(XercesC_FOUND)
     endif()
   endif()
 endif()
+
+cmake_policy(POP)

@@ -1,23 +1,25 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmAddDefinitionsCommand.h"
 
+#include "cmDiagnostics.h"
+#include "cmExecutionStatus.h"
 #include "cmMakefile.h"
 
-class cmExecutionStatus;
-
-// cmAddDefinitionsCommand
-bool cmAddDefinitionsCommand::InitialPass(std::vector<std::string> const& args,
-                                          cmExecutionStatus&)
+bool cmAddDefinitionsCommand(std::vector<std::string> const& args,
+                             cmExecutionStatus& status)
 {
-  // it is OK to have no arguments
-  if (args.empty()) {
-    return true;
+  cmMakefile& mf = status.GetMakefile();
+
+  mf.IssueDiagnostic(
+    cmDiagnostics::CMD_NON_TARGET_DIRECTIVE,
+    "Use of non-target directives is not recommended. "
+    "Consider target_compile_definitions, target_compile_options, or "
+    "target_include_directories instead.");
+
+  for (std::string const& i : args) {
+    mf.AddDefineFlag(i);
   }
 
-  for (std::vector<std::string>::const_iterator i = args.begin();
-       i != args.end(); ++i) {
-    this->Makefile->AddDefineFlag(i->c_str());
-  }
   return true;
 }

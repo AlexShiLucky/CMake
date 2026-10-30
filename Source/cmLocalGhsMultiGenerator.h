@@ -1,11 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmLocalGhsMultiGenerator_h
-#define cmLocalGhsMultiGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
+
+#include <string>
 
 #include "cmLocalGenerator.h"
 
-class cmGeneratedFileStream;
+class cmGlobalGenerator;
+class cmMakefile;
 
 /** \class cmLocalGhsMultiGenerator
  * \brief Write Green Hills MULTI project files.
@@ -18,12 +20,18 @@ class cmLocalGhsMultiGenerator : public cmLocalGenerator
 public:
   cmLocalGhsMultiGenerator(cmGlobalGenerator* gg, cmMakefile* mf);
 
-  virtual ~cmLocalGhsMultiGenerator();
+  ~cmLocalGhsMultiGenerator() override;
 
   /**
    * Generate the makefile for this directory.
    */
-  virtual void Generate();
-};
+  void Generate() override;
 
-#endif
+  std::string GetTargetDirectory(
+    cmGeneratorTarget const* target,
+    cmStateEnums::IntermediateDirKind kind) const override;
+
+  void ComputeObjectFilenames(
+    std::map<cmSourceFile const*, cmObjectLocations>& mapping,
+    std::string const& config, cmGeneratorTarget const* gt = nullptr) override;
+};

@@ -1,6 +1,10 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmExternalMakefileProjectGenerator.h"
+
+#include <utility>
+
+#include "cmStringAlgorithms.h"
 
 class cmMakefile;
 
@@ -11,31 +15,33 @@ void cmExternalMakefileProjectGenerator::EnableLanguage(
 }
 
 std::string cmExternalMakefileProjectGenerator::CreateFullGeneratorName(
-  const std::string& globalGenerator, const std::string& extraGenerator)
+  std::string const& globalGenerator, std::string const& extraGenerator)
 {
-  std::string fullName;
-  if (!globalGenerator.empty()) {
-    if (!extraGenerator.empty()) {
-      fullName = extraGenerator;
-      fullName += " - ";
-    }
-    fullName += globalGenerator;
+  if (globalGenerator.empty()) {
+    return {};
   }
-  return fullName;
+  if (extraGenerator.empty()) {
+    return globalGenerator;
+  }
+  return cmStrCat(extraGenerator, " - ", globalGenerator);
+}
+
+bool cmExternalMakefileProjectGenerator::Open(
+  std::string const& /*bindir*/, std::string const& /*projectName*/,
+  bool /*dryRun*/)
+{
+  return false;
 }
 
 cmExternalMakefileProjectGeneratorFactory::
-  cmExternalMakefileProjectGeneratorFactory(const std::string& n,
-                                            const std::string& doc)
-  : Name(n)
-  , Documentation(doc)
+  cmExternalMakefileProjectGeneratorFactory(std::string n, std::string doc)
+  : Name(std::move(n))
+  , Documentation(std::move(doc))
 {
 }
 
 cmExternalMakefileProjectGeneratorFactory::
-  ~cmExternalMakefileProjectGeneratorFactory()
-{
-}
+  ~cmExternalMakefileProjectGeneratorFactory() = default;
 
 std::string cmExternalMakefileProjectGeneratorFactory::GetName() const
 {
@@ -54,7 +60,7 @@ cmExternalMakefileProjectGeneratorFactory::GetSupportedGlobalGenerators() const
 }
 
 void cmExternalMakefileProjectGeneratorFactory::AddSupportedGlobalGenerator(
-  const std::string& base)
+  std::string const& base)
 {
   this->SupportedGlobalGenerators.push_back(base);
 }

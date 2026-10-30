@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD$");
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -50,9 +49,10 @@ struct { int code; int (*setter)(struct archive *); } codes[] =
 	{ ARCHIVE_FILTER_LZ4,		archive_write_add_filter_lz4 },
 	{ ARCHIVE_FILTER_LZIP,		archive_write_add_filter_lzip },
 	{ ARCHIVE_FILTER_LZMA,		archive_write_add_filter_lzma },
-	{ ARCHIVE_FILTER_LZOP,		archive_write_add_filter_lzip },
+	{ ARCHIVE_FILTER_LZOP,		archive_write_add_filter_lzop },
 	{ ARCHIVE_FILTER_UU,		archive_write_add_filter_uuencode },
 	{ ARCHIVE_FILTER_XZ,		archive_write_add_filter_xz },
+	{ ARCHIVE_FILTER_ZSTD,		archive_write_add_filter_zstd },
 	{ -1,			NULL }
 };
 

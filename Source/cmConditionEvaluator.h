@@ -1,92 +1,71 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmConditionEvaluator_h
-#define cmConditionEvaluator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include <list>
 #include <string>
 #include <vector>
 
-#include "cmExpandedCommandArgument.h"
-#include "cmListFileCache.h"
-#include "cmPolicies.h"
-#include "cmake.h"
+#include <cmext/string_view>
 
+#include "cmListFileCache.h"
+#include "cmMessageType.h" // IWYU pragma: keep
+#include "cmPolicies.h"
+#include "cmValue.h"
+
+class cmExpandedCommandArgument;
 class cmMakefile;
 
 class cmConditionEvaluator
 {
 public:
-  typedef std::list<cmExpandedCommandArgument> cmArgumentList;
-
-  cmConditionEvaluator(cmMakefile& makefile, cmListFileContext const& context,
-                       cmListFileBacktrace const& bt);
+  cmConditionEvaluator(cmMakefile& makefile, cmListFileBacktrace bt);
 
   // this is a shared function for both If and Else to determine if the
   // arguments were valid, and if so, was the response true. If there is
   // an error, the errorString will be set.
-  bool IsTrue(const std::vector<cmExpandedCommandArgument>& args,
-              std::string& errorString, cmake::MessageType& status);
+  bool IsTrue(std::vector<cmExpandedCommandArgument> const& args,
+              std::string& errorString, MessageType& status);
 
 private:
-  // Filter the given variable definition based on policy CMP0054.
-  const char* GetDefinitionIfUnquoted(
-    const cmExpandedCommandArgument& argument) const;
+  class cmArgumentList;
 
-  const char* GetVariableOrString(
-    const cmExpandedCommandArgument& argument) const;
+  cmValue GetDefinitionIfUnquoted(
+    cmExpandedCommandArgument const& argument) const;
 
-  bool IsKeyword(std::string const& keyword,
-                 cmExpandedCommandArgument& argument) const;
+  cmValue GetVariableOrString(cmExpandedCommandArgument const& argument) const;
+
+  bool IsKeyword(cm::static_string_view keyword,
+                 cmExpandedCommandArgument const& argument) const;
 
   bool GetBooleanValue(cmExpandedCommandArgument& arg) const;
 
-  bool GetBooleanValueOld(cmExpandedCommandArgument const& arg,
-                          bool one) const;
+  template <int N>
+  int matchKeysImpl(cmExpandedCommandArgument const&);
 
-  bool GetBooleanValueWithAutoDereference(cmExpandedCommandArgument& newArg,
-                                          std::string& errorString,
-                                          cmake::MessageType& status,
-                                          bool oneArg = false) const;
+  template <int N, typename T, typename... Keys>
+  int matchKeysImpl(cmExpandedCommandArgument const&, T, Keys...);
 
-  void IncrementArguments(cmArgumentList& newArgs,
-                          cmArgumentList::iterator& argP1,
-                          cmArgumentList::iterator& argP2) const;
-
-  void HandlePredicate(bool value, int& reducible,
-                       cmArgumentList::iterator& arg, cmArgumentList& newArgs,
-                       cmArgumentList::iterator& argP1,
-                       cmArgumentList::iterator& argP2) const;
-
-  void HandleBinaryOp(bool value, int& reducible,
-                      cmArgumentList::iterator& arg, cmArgumentList& newArgs,
-                      cmArgumentList::iterator& argP1,
-                      cmArgumentList::iterator& argP2);
+  template <typename... Keys>
+  int matchKeys(cmExpandedCommandArgument const&, Keys...);
 
   bool HandleLevel0(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
-  bool HandleLevel1(cmArgumentList& newArgs, std::string&,
-                    cmake::MessageType&);
+  bool HandleLevel1(cmArgumentList& newArgs, std::string&, MessageType&);
 
   bool HandleLevel2(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
   bool HandleLevel3(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
   bool HandleLevel4(cmArgumentList& newArgs, std::string& errorString,
-                    cmake::MessageType& status);
+                    MessageType& status);
 
   cmMakefile& Makefile;
-  cmListFileContext ExecutionContext;
   cmListFileBacktrace Backtrace;
-  cmPolicies::PolicyStatus Policy12Status;
-  cmPolicies::PolicyStatus Policy54Status;
-  cmPolicies::PolicyStatus Policy57Status;
-  cmPolicies::PolicyStatus Policy64Status;
+  cmPolicies::PolicyStatus Policy139Status;
+  cmPolicies::PolicyStatus Policy222Status;
 };
-
-#endif

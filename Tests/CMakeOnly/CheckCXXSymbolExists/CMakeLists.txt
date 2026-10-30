@@ -7,13 +7,19 @@
 # If you change this test do not forget to change the CheckSymbolExists
 # test, too.
 
+cmake_minimum_required(VERSION 3.10)
 project(CheckCXXSymbolExists CXX)
-
-cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
 set(CMAKE_REQUIRED_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/../CheckSymbolExists")
 
 include(CheckCXXSymbolExists)
+
+set(CMAKE_REQUIRED_FLAGS "-DCSE_REQUIRED_FLAG")
+check_cxx_symbol_exists(required_flag_symbol "cm_cse.h" CSE_RESULT_REQUIRED_FLAG)
+if(NOT CSE_RESULT_REQUIRED_FLAG)
+  message(SEND_ERROR "CheckCXXSymbolExists did not honor CMAKE_REQUIRED_FLAGS")
+endif()
+unset(CMAKE_REQUIRED_FLAGS)
 
 foreach(_config_type Release RelWithDebInfo MinSizeRel Debug)
   set(CMAKE_TRY_COMPILE_CONFIGURATION ${_config_type})
@@ -49,7 +55,16 @@ else ()
   message(STATUS "errno found in <cerrno>")
 endif ()
 
-if (CMAKE_COMPILER_IS_GNUCXX)
+check_cxx_symbol_exists("std::fopen" "cstdio" CSE_RESULT_FOPEN)
+if (NOT CSE_RESULT_FOPEN)
+  if(NOT ("x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xMSVC" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.10))
+    message(SEND_ERROR "CheckCXXSymbolExists did not find std::fopen in <cstdio>")
+  endif()
+else()
+  message(STATUS "std::fopen found in <cstdio>")
+endif()
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|LCC)$")
   string(APPEND CMAKE_CXX_FLAGS " -O3")
   unset(CSE_RESULT_O3 CACHE)
   message(STATUS "Testing with optimization -O3")
@@ -60,3 +75,8 @@ if (CMAKE_COMPILER_IS_GNUCXX)
     message(SEND_ERROR "CheckCXXSymbolExists reported a nonexistent symbol as existing with optimization -O3")
   endif ()
 endif ()
+
+check_cxx_symbol_exists("std::non_existent_function_for_symbol_test<int*>" "algorithm" CSE_RESULT_NON_SYMBOL)
+if (CSE_RESULT_NON_SYMBOL)
+  message(SEND_ERROR "CheckCXXSymbolExists reported a nonexistent symbol.")
+endif()

@@ -1,5 +1,4 @@
-
-cmake_policy(SET CMP0037 NEW)
+enable_language(CXX)
 
 add_library("lib with spaces" empty.cpp)
 add_executable("exe with spaces" empty.cpp)

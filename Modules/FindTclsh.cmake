@@ -1,27 +1,79 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindTclsh
-# ---------
-#
-# Find tclsh
-#
-# This module finds if TCL is installed and determines where the include
-# files and libraries are.  It also determines what the name of the
-# library is.  This code sets the following variables:
-#
-# ::
-#
-#   TCLSH_FOUND = TRUE if tclsh has been found
-#   TCL_TCLSH = the path to the tclsh executable
-#
-# In cygwin, look for the cygwin version first.  Don't look for it later
-# to avoid finding the cygwin version on a Win32 build.
+#[=======================================================================[.rst:
+FindTclsh
+---------
 
-if(CYGWIN)
-  find_program(TCL_TCLSH NAMES cygtclsh83 cygtclsh80)
-endif()
+Finds the Tcl shell command-line executable (``tclsh``), which includes the Tcl
+(Tool Command Language) interpreter:
+
+.. code-block:: cmake
+
+  find_package(Tclsh [<version>] [...])
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``Tclsh_FOUND``
+  .. versionadded:: 3.3
+
+  Boolean indicating whether the (requested version of) ``tclsh`` executable
+  was found.
+
+``Tclsh_VERSION``
+  .. versionadded:: 4.2
+
+  The version of ``tclsh`` found.
+
+Cache Variables
+^^^^^^^^^^^^^^^
+
+The following cache variables may also be set:
+
+``TCL_TCLSH``
+  The path to the ``tclsh`` executable.
+
+Deprecated Variables
+^^^^^^^^^^^^^^^^^^^^
+
+The following variables are provided for backward compatibility:
+
+``TCLSH_FOUND``
+  .. deprecated:: 4.2
+    Use ``Tclsh_FOUND``, which has the same value.
+
+  Boolean indicating whether the (requested version of) ``tclsh`` executable
+  was found.
+
+``TCLSH_VERSION_STRING``
+  .. deprecated:: 4.2
+    Use ``Tclsh_VERSION``, which has the same value.
+
+  The version of ``tclsh`` found.
+
+Examples
+^^^^^^^^
+
+In the following example, this module is used to find the ``tclsh``
+command-line executable, which is then executed in a process to evaluate
+TCL code from the script file located in the project source directory:
+
+.. code-block:: cmake
+
+  find_package(Tclsh)
+  if(Tclsh_FOUND)
+    execute_process(COMMAND ${TCL_TCLSH} example-script.tcl)
+  endif()
+
+See Also
+^^^^^^^^
+
+* The :module:`FindTCL` module to find the Tcl installation.
+* The :module:`FindTclStub` module to find the Tcl Stubs Library.
+#]=======================================================================]
 
 get_filename_component(TK_WISH_PATH "${TK_WISH}" PATH)
 get_filename_component(TK_WISH_PATH_PARENT "${TK_WISH_PATH}" PATH)
@@ -48,6 +100,8 @@ set(TCLTK_POSSIBLE_BIN_PATHS
   "${TK_LIBRARY_PATH_PARENT}/bin"
   "${TK_WISH_PATH_PARENT}/bin"
   )
+# Entries built from a path not found yet are just /bin.
+list(FILTER TCLTK_POSSIBLE_BIN_PATHS EXCLUDE REGEX "^/bin$")
 
 if(WIN32)
   get_filename_component(
@@ -56,18 +110,14 @@ if(WIN32)
     NAME)
   set(TCLTK_POSSIBLE_BIN_PATHS ${TCLTK_POSSIBLE_BIN_PATHS}
     "[HKEY_LOCAL_MACHINE\\SOFTWARE\\ActiveState\\ActiveTcl\\${ActiveTcl_CurrentVersion}]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.6;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.5;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.4;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.3;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.2;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.0;Root]/bin"
     )
 endif()
 
 set(TCL_TCLSH_NAMES
   tclsh
   tclsh${TCL_LIBRARY_VERSION} tclsh${TK_LIBRARY_VERSION} tclsh${TK_WISH_VERSION}
+  tclsh91 tclsh9.1
+  tclsh90 tclsh9.0
   tclsh86 tclsh8.6
   tclsh85 tclsh8.5
   tclsh84 tclsh8.4
@@ -78,20 +128,32 @@ set(TCL_TCLSH_NAMES
 
 find_program(TCL_TCLSH
   NAMES ${TCL_TCLSH_NAMES}
+  NAMES_PER_DIR
   HINTS ${TCLTK_POSSIBLE_BIN_PATHS}
   )
 
 if(TCL_TCLSH)
-   execute_process(COMMAND "${CMAKE_COMMAND}" -E echo puts "\$tcl_version"
-                   COMMAND "${TCL_TCLSH}"
-                   OUTPUT_VARIABLE TCLSH_VERSION_STRING
-                   ERROR_QUIET
-                   OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E echo puts "\$tcl_version"
+                  COMMAND "${TCL_TCLSH}"
+                  OUTPUT_VARIABLE Tclsh_VERSION
+                  ERROR_QUIET
+                  OUTPUT_STRIP_TRAILING_WHITESPACE
+                  RESULT_VARIABLE _tclsh_version_result)
+  set(TCLSH_VERSION_STRING "${Tclsh_VERSION}")
 endif()
 
-include(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(Tclsh
+include(FindPackageHandleStandardArgs)
+if (CMAKE_FIND_PACKAGE_NAME STREQUAL "TCL" OR
+    CMAKE_FIND_PACKAGE_NAME STREQUAL "TclStub")
+  # FindTCL include()'s this module. It's an old pattern, but rather than
+  # trying to suppress this from outside the module (which is then sensitive to
+  # the contents, detect the case in this module and suppress it explicitly.
+  # Transitively, FindTclStub includes FindTCL.
+  set(FPHSA_NAME_MISMATCHED 1)
+endif ()
+find_package_handle_standard_args(Tclsh
                                   REQUIRED_VARS TCL_TCLSH
-                                  VERSION_VAR TCLSH_VERSION_STRING)
+                                  VERSION_VAR Tclsh_VERSION)
+unset(FPHSA_NAME_MISMATCHED)
 
 mark_as_advanced(TCL_TCLSH)

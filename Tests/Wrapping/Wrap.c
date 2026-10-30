@@ -1,10 +1,11 @@
 #include <stdio.h>
 
 #ifdef __CLASSIC_C__
-int main(argc, argv) int argc;
+int main(argc, argv)
+int argc;
 char** argv;
 #else
-int main(int argc, const char* argv[])
+int main(int argc, char const* argv[])
 #endif
 {
   FILE* fout = fopen(argv[argc - 1], "w");

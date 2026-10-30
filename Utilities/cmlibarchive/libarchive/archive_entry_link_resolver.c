@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_entry_link_resolver.c 201100 2009-12-28 03:05:31Z kientzle $");
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -42,6 +41,7 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_entry_link_resolver.c 201100 200
 
 #include "archive.h"
 #include "archive_entry.h"
+#include "archive_integer.h"
 
 /*
  * This is mostly a pretty straightforward hash table implementation.
@@ -79,7 +79,7 @@ struct links_entry {
 struct archive_entry_linkresolver {
 	struct links_entry	**buckets;
 	struct links_entry	 *spare;
-	unsigned long		  number_entries;
+	size_t			  number_entries;
 	size_t			  number_buckets;
 	int			  strategy;
 };
@@ -159,13 +159,12 @@ archive_entry_linkresolver_set_strategy(struct archive_entry_linkresolver *res,
 void
 archive_entry_linkresolver_free(struct archive_entry_linkresolver *res)
 {
-	struct links_entry *le;
-
 	if (res == NULL)
 		return;
 
-	while ((le = next_entry(res, NEXT_ENTRY_ALL)) != NULL)
-		archive_entry_free(le->entry);
+	while (next_entry(res, NEXT_ENTRY_ALL) != NULL) {
+		/* Actual freeing done by next_entry() */
+	}
 	free(res->buckets);
 	free(res);
 }
@@ -202,16 +201,26 @@ archive_entry_linkify(struct archive_entry_linkresolver *res,
 		le = find_entry(res, *e);
 		if (le != NULL) {
 			archive_entry_unset_size(*e);
+#if defined(_WIN32) && !defined(__CYGWIN__)
+			archive_entry_copy_hardlink_w(*e,
+			    archive_entry_pathname_w(le->canonical));
+#else
 			archive_entry_copy_hardlink(*e,
 			    archive_entry_pathname(le->canonical));
+#endif
 		} else
 			insert_entry(res, *e);
 		return;
 	case ARCHIVE_ENTRY_LINKIFY_LIKE_MTREE:
 		le = find_entry(res, *e);
 		if (le != NULL) {
+#if defined(_WIN32) && !defined(__CYGWIN__)
+			archive_entry_copy_hardlink_w(*e,
+			    archive_entry_pathname_w(le->canonical));
+#else
 			archive_entry_copy_hardlink(*e,
 			    archive_entry_pathname(le->canonical));
+#endif
 		} else
 			insert_entry(res, *e);
 		return;
@@ -230,8 +239,13 @@ archive_entry_linkify(struct archive_entry_linkresolver *res,
 			le->entry = t;
 			/* Make the old entry into a hardlink. */
 			archive_entry_unset_size(*e);
+#if defined(_WIN32) && !defined(__CYGWIN__)
+			archive_entry_copy_hardlink_w(*e,
+			    archive_entry_pathname_w(le->canonical));
+#else
 			archive_entry_copy_hardlink(*e,
 			    archive_entry_pathname(le->canonical));
+#endif
 			/* If we ran out of links, return the
 			 * final entry as well. */
 			if (le->links == 0) {
@@ -265,6 +279,10 @@ find_entry(struct archive_entry_linkresolver *res,
 	size_t			 hash, bucket;
 	dev_t			 dev;
 	int64_t			 ino;
+
+	if (!archive_entry_ino_is_set(entry) || !archive_entry_dev_is_set(entry)) {
+		return (NULL);
+	}
 
 	/* Free a held entry. */
 	if (res->spare != NULL) {
@@ -355,14 +373,22 @@ insert_entry(struct archive_entry_linkresolver *res,
 	struct links_entry *le;
 	size_t hash, bucket;
 
+	if (!archive_entry_ino_is_set(entry) || !archive_entry_dev_is_set(entry)) {
+		return (NULL);
+	}
+
 	/* Add this entry to the links cache. */
 	le = calloc(1, sizeof(struct links_entry));
 	if (le == NULL)
 		return (NULL);
 	le->canonical = archive_entry_clone(entry);
+	if (le->canonical == NULL) {
+		free(le);
+		return (NULL);
+	}
 
 	/* If the links cache is getting too full, enlarge the hash table. */
-	if (res->number_entries > res->number_buckets * 2)
+	if (res->number_entries / 2 > res->number_buckets)
 		grow_hash(res);
 
 	hash = (size_t)(archive_entry_dev(entry) ^ archive_entry_ino64(entry));
@@ -388,8 +414,7 @@ grow_hash(struct archive_entry_linkresolver *res)
 	size_t i, bucket;
 
 	/* Try to enlarge the bucket list. */
-	new_size = res->number_buckets * 2;
-	if (new_size < res->number_buckets)
+	if (archive_ckd_mul_size(&new_size, res->number_buckets, 2))
 		return;
 	new_buckets = calloc(new_size, sizeof(struct links_entry *));
 

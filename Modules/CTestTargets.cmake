@@ -1,16 +1,18 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 if(NOT RUN_FROM_CTEST_OR_DART)
-  message(FATAL_ERROR "Do not incldue CTestTargets.cmake directly")
+  message(FATAL_ERROR "Do not include CTestTargets.cmake directly")
 endif()
 
 if(NOT PROJECT_BINARY_DIR)
   message(FATAL_ERROR "Do not include(CTest) before calling project().")
 endif()
 
-# make directories in the binary tree
+# Make directories in the binary tree.  This is only the default output
+# directory: CTEST_OUTPUT_DIRECTORY and --output-dir are chosen per ctest
+# invocation and are not known here, so ctest creates those itself at run time.
 file(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/Testing/Temporary)
 get_filename_component(CMAKE_HOST_PATH ${CMAKE_COMMAND} PATH)
 set(CMAKE_TARGET_PATH ${EXECUTABLE_OUTPUT_PATH})
@@ -20,15 +22,47 @@ mark_as_advanced(CMAKE_CTEST_COMMAND)
 # Use CTest
 # configure files
 
-if(CTEST_NEW_FORMAT)
+block()
+  if(NOT DEFINED CTEST_TLS_VERSION)
+    if(DEFINED CMAKE_TLS_VERSION)
+      set(CTEST_TLS_VERSION "${CMAKE_TLS_VERSION}")
+    elseif(DEFINED ENV{CMAKE_TLS_VERSION})
+      set(CTEST_TLS_VERSION "$ENV{CMAKE_TLS_VERSION}")
+    endif()
+  endif()
+  if(NOT DEFINED CTEST_TLS_VERIFY)
+    if(DEFINED CMAKE_TLS_VERIFY)
+      set(CTEST_TLS_VERIFY "${CMAKE_TLS_VERIFY}")
+    elseif(DEFINED ENV{CMAKE_TLS_VERIFY})
+      set(CTEST_TLS_VERIFY "$ENV{CMAKE_TLS_VERIFY}")
+    endif()
+  endif()
+
+  if(CTEST_TEST_COVERAGE_TOOL STREQUAL "LLVM-COV")
+    find_program(CTEST_TEST_COVERAGE_MERGE_EXECUTABLE llvm-profdata)
+    if(NOT CTEST_TEST_COVERAGE_MERGE_EXECUTABLE)
+      set(CTEST_TEST_COVERAGE_MERGE_EXECUTABLE "llvm-profdata")
+    endif()
+
+        find_program(CTEST_TEST_COVERAGE_MERGE_EXECUTABLE llvm-cov)
+    if(NOT CTEST_TEST_COVERAGE_DATA_EXEUCUTABLE)
+      set(CTEST_TEST_COVERAGE_DATA_EXECUTABLE "llvm-cov")
+    endif()
+  endif()
+
+  if(CTEST_NEW_FORMAT)
+    configure_file(
+      ${CMAKE_ROOT}/Modules/DartConfiguration.tcl.in
+      ${PROJECT_BINARY_DIR}/CTestConfiguration.ini )
+  else()
+    configure_file(
+      ${CMAKE_ROOT}/Modules/DartConfiguration.tcl.in
+      ${PROJECT_BINARY_DIR}/DartConfiguration.tcl )
+  endif()
   configure_file(
-    ${CMAKE_ROOT}/Modules/DartConfiguration.tcl.in
-    ${PROJECT_BINARY_DIR}/CTestConfiguration.ini )
-else()
-  configure_file(
-    ${CMAKE_ROOT}/Modules/DartConfiguration.tcl.in
-    ${PROJECT_BINARY_DIR}/DartConfiguration.tcl )
-endif()
+    ${CMAKE_ROOT}/Templates/CTestScript.cmake.in
+    ${PROJECT_BINARY_DIR}/CMakeFiles/CTestScript.cmake @ONLY)
+endblock()
 
 #
 # Section 3:
@@ -38,9 +72,10 @@ endif()
 #
 
 set(__conf_types "")
-if(CMAKE_CONFIGURATION_TYPES)
+get_property(_isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_isMultiConfig)
   # We need to pass the configuration type on the test command line.
-  set(__conf_types -C "${CMAKE_CFG_INTDIR}")
+  set(__conf_types -C "$<CONFIG>")
 endif()
 
 # Add convenience targets.  Do this at most once in case of nested
@@ -56,7 +91,9 @@ if(NOT _CTEST_TARGETS_ADDED)
   # For all generators add basic testing targets.
   foreach(mode Experimental Nightly Continuous NightlyMemoryCheck)
     add_custom_target(${mode}
-      ${CMAKE_CTEST_COMMAND} ${__conf_types} -D ${mode}
+      COMMAND
+        ${CMAKE_CTEST_COMMAND} ${__conf_types}
+        -DMODEL=${mode} -S CMakeFiles/CTestScript.cmake -V
       USES_TERMINAL
       )
     set_property(TARGET ${mode} PROPERTY RULE_LAUNCH_CUSTOM "")
@@ -64,7 +101,7 @@ if(NOT _CTEST_TARGETS_ADDED)
   endforeach()
 
   # For Makefile generators add more granular targets.
-  if("${CMAKE_GENERATOR}" MATCHES "(Ninja|Make)")
+  if("${CMAKE_GENERATOR}" MATCHES "(Ninja|Make|FASTBuild)")
     # Make targets for Experimental builds
     foreach(mode Nightly Experimental Continuous)
       foreach(testtype
@@ -72,7 +109,10 @@ if(NOT _CTEST_TARGETS_ADDED)
           # missing purify
           )
         add_custom_target(${mode}${testtype}
-          ${CMAKE_CTEST_COMMAND} ${__conf_types} -D ${mode}${testtype}
+          COMMAND
+            ${CMAKE_CTEST_COMMAND} ${__conf_types}
+            -DMODEL=${mode} -DACTIONS=${testtype}
+            -S CMakeFiles/CTestScript.cmake -V
           USES_TERMINAL
           )
         set_property(TARGET ${mode}${testtype} PROPERTY RULE_LAUNCH_CUSTOM "")
@@ -85,7 +125,7 @@ if(NOT _CTEST_TARGETS_ADDED)
   # or "RUN_TESTS" target:
   if(CTEST_TEST_TARGET_ALIAS)
     add_custom_target(${CTEST_TEST_TARGET_ALIAS}
-      ${CMAKE_CTEST_COMMAND} ${__conf_types}
+      ${CMAKE_CTEST_COMMAND} ${CMAKE_CTEST_ARGUMENTS} ${__conf_types}
       USES_TERMINAL
       )
   endif()

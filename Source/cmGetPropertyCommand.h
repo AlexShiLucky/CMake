@@ -1,57 +1,54 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGetPropertyCommand_h
-#define cmGetPropertyCommand_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
-#include "cmCommand.h"
-
 class cmExecutionStatus;
+class cmValue;
 
-class cmGetPropertyCommand : public cmCommand
-{
-public:
-  cmGetPropertyCommand();
+namespace GetPropertyCommand {
 
-  cmCommand* Clone() CM_OVERRIDE { return new cmGetPropertyCommand; }
+// Per-entity property lookups used by the get_property command. Each preserves
+// the script command's error semantics for its scope (status.SetError on
+// missing entity / empty name where applicable). On success, returns true and
+// fills `out`; `out` is null iff the property is unset. On hard error returns
+// false with status.SetError already set.
 
-  /**
-   * This is called when the command is first encountered in
-   * the input file.
-   */
-  bool InitialPass(std::vector<std::string> const& args,
-                   cmExecutionStatus& status) CM_OVERRIDE;
+bool LookupTargetProperty(cmExecutionStatus& status, std::string const& name,
+                          std::string const& propertyName, cmValue& out);
 
-private:
-  enum OutType
-  {
-    OutValue,
-    OutDefined,
-    OutBriefDoc,
-    OutFullDoc,
-    OutSet
-  };
-  std::string Variable;
-  std::string Name;
-  std::string PropertyName;
-  OutType InfoType;
+bool LookupDirectoryProperty(cmExecutionStatus& status,
+                             std::string const& name,
+                             std::string const& propertyName, cmValue& out);
 
-  // Implementation of result storage.
-  bool StoreResult(const char* value);
+bool LookupSourceProperty(
+  cmExecutionStatus& status, std::string const& name,
+  std::string const& propertyName, bool sourceFileDirectoryOptionEnabled,
+  bool sourceFileTargetOptionEnabled,
+  std::vector<std::string>& sourceFileDirectories,
+  std::vector<std::string>& sourceFileTargetDirectories, cmValue& out);
 
-  // Implementation of each property type.
-  bool HandleGlobalMode();
-  bool HandleDirectoryMode();
-  bool HandleTargetMode();
-  bool HandleSourceMode();
-  bool HandleTestMode();
-  bool HandleVariableMode();
-  bool HandleCacheMode();
-  bool HandleInstallMode();
-};
+// Convenience overload: no DIRECTORY / TARGET_DIRECTORY scoping.
+bool LookupSourceProperty(cmExecutionStatus& status, std::string const& name,
+                          std::string const& propertyName, cmValue& out);
 
-#endif
+bool LookupTestProperty(cmExecutionStatus& status, std::string const& name,
+                        std::string const& propertyName,
+                        bool testDirectoryOptionEnabled,
+                        std::string& testDirectory, cmValue& out);
+
+// Convenience overload: no DIRECTORY scoping.
+bool LookupTestProperty(cmExecutionStatus& status, std::string const& name,
+                        std::string const& propertyName, cmValue& out);
+
+bool LookupCacheProperty(cmExecutionStatus& status, std::string const& name,
+                         std::string const& propertyName, cmValue& out);
+
+}
+
+bool cmGetPropertyCommand(std::vector<std::string> const& args,
+                          cmExecutionStatus& status);

@@ -2,8 +2,9 @@ CMake Tests Directory
 *********************
 
 This directory contains the CMake test suite.
-See also the `CMake Source Code Guide`_.
+See also the `CMake Testing Guide`_ and the `CMake Source Code Guide`_.
 
+.. _`CMake Testing Guide`: ../Help/dev/testing.rst
 .. _`CMake Source Code Guide`: ../Help/dev/source.rst
 
 Many tests exist as immediate subdirectories, but some tests
@@ -29,3 +30,13 @@ are organized as follows.
   Tests that run CMake and/or other tools while precisely checking
   their return code and stdout/stderr content.  Useful for testing
   error cases and diagnostic output.
+
+  See `RunCMake/README.rst`_.
+
+* ``Fuzzing/``:
+  Fuzz testing targets using libFuzzer, integrated with OSS-Fuzz.
+
+  See `Fuzzing/README.rst`_.
+
+.. _`RunCMake/README.rst`: RunCMake/README.rst
+.. _`Fuzzing/README.rst`: Fuzzing/README.rst

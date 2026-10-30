@@ -1,9 +1,18 @@
 #
 # A more complex test case
 #
-cmake_minimum_required(VERSION 2.4)
-cmake_policy(SET CMP0054 NEW)
+cmake_minimum_required(VERSION 3.10)
 project (Complex)
+
+set(CMAKE_INTERMEDIATE_DIR_STRATEGY FULL CACHE STRING "" FORCE)
+
+# Inform the test if the debug configuration is getting built.
+string(APPEND CMAKE_C_FLAGS_RELEASE " -DCOMPLEX_NDEBUG")
+string(APPEND CMAKE_CXX_FLAGS_RELEASE " -DCOMPLEX_NDEBUG")
+string(APPEND CMAKE_C_FLAGS_RELWITHDEBINFO " -DCOMPLEX_NDEBUG")
+string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -DCOMPLEX_NDEBUG")
+string(APPEND CMAKE_C_FLAGS_MINSIZEREL " -DCOMPLEX_NDEBUG")
+string(APPEND CMAKE_CXX_FLAGS_MINSIZEREL " -DCOMPLEX_NDEBUG")
 
 # Test that renaming a built-in works when configured multiple times.
 message("message")
@@ -11,31 +20,6 @@ function(message)
   _message(${ARGN})
 endfunction()
 message("message")
-
-# Try setting a new policy.  The IF test is for coverage.
-if(POLICY CMP0003)
-  cmake_policy(SET CMP0003 NEW)
-
-  cmake_policy(GET CMP0003 P3)
-  if(NOT "${P3}" STREQUAL "NEW")
-    message(FATAL_ERROR "cmake_policy(GET) did not report NEW!")
-  endif()
-endif()
-
-# It is not recommended to set a policy to OLD, but this test
-# covers the OLD behavior of some policies.
-foreach(p
-    CMP0029
-    CMP0032
-    CMP0033
-    CMP0034
-    CMP0043
-    CMP0050
-    )
-  if(POLICY ${p})
-    cmake_policy(SET ${p} OLD)
-  endif()
-endforeach()
 
 # Test building without per-rule echo lines in Makefiles.
 set_property(GLOBAL PROPERTY RULE_MESSAGES OFF)
@@ -100,7 +84,7 @@ if(NOT 2.4 GREATER_EQUAL 2.4)
 endif()
 
 if(CMAKE_SYSTEM MATCHES "OSF1-V")
-  if(NOT CMAKE_COMPILER_IS_GNUCXX)
+  if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
      string(APPEND CMAKE_CXX_FLAGS " -timplicit_local -no_implicit_include ")
   endif()
 endif()
@@ -108,18 +92,6 @@ endif()
 
 add_definitions(-DCMAKE_IS_FUN)
 add_definitions(-DCMAKE_IS_REALLY_FUN)
-set_property(DIRECTORY
-  PROPERTY COMPILE_DEFINITIONS_RELEASE
-  CMAKE_IS_FUN_IN_RELEASE_MODE
-  )
-set_property(DIRECTORY
-  PROPERTY COMPILE_DEFINITIONS_RELWITHDEBINFO
-  CMAKE_IS_FUN_IN_RELEASE_MODE
-  )
-set_property(DIRECTORY
-  PROPERTY COMPILE_DEFINITIONS_MINSIZEREL
-  CMAKE_IS_FUN_IN_RELEASE_MODE
-  )
 
 set(TEST_SEP "a b c")
 separate_arguments(TEST_SEP)
@@ -236,6 +208,12 @@ configure_file(
   ${Complex_SOURCE_DIR}/Library/dummy
   ${Complex_BINARY_DIR}/Library/dummylib.lib
   COPYONLY)
+if(CMAKE_C_COMPILER_ID STREQUAL "OrangeC")
+  configure_file(
+    ${Complex_SOURCE_DIR}/Library/dummy
+    ${Complex_BINARY_DIR}/Library/dummylib.l
+    COPYONLY)
+endif()
 foreach (ext ${CMAKE_SHLIB_SUFFIX};.so;.a;.sl
          ${CMAKE_SHARED_LIBRARY_SUFFIX}.2
          ${CMAKE_STATIC_LIBRARY_SUFFIX}.2)
@@ -319,12 +297,32 @@ if (WIN32)
       ${Complex_SOURCE_DIR}/Library/dummy
       "${dir}/${file}"
       COPYONLY)
-    exec_program(${CMAKE_COMMAND} ARGS "-E write_regv \"${hkey}\" \"${dir}\"")
+
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E write_regv "${hkey}" "${dir}"
+      RESULT_VARIABLE write_regv_result)
+    if(NOT write_regv_result EQUAL 0)
+      message(SEND_ERROR "write_regv failed with result ${write_regv_result}")
+    endif()
     find_path(REGISTRY_TEST_PATH
       ${file}
-      "[${hkey}]" DOC "Registry_Test_Path")
-    exec_program(${CMAKE_COMMAND} ARGS "-E delete_regv \"${hkey}\"")
-    exec_program(${CMAKE_COMMAND} ARGS "-E remove \"${dir}/${file}\"")
+      "[${hkey}]"
+      NO_DEFAULT_PATH
+      DOC "Registry_Test_Path")
+    if(NOT REGISTRY_TEST_PATH)
+      message(SEND_ERROR "Registry value was not found after write_regv")
+    elseif(NOT EXISTS "${REGISTRY_TEST_PATH}/${file}")
+      message(SEND_ERROR "Registry-resolved path does not contain ${file}: ${REGISTRY_TEST_PATH}")
+    endif()
+
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E delete_regv "${hkey}"
+      RESULT_VARIABLE delete_regv_result)
+    if(NOT delete_regv_result EQUAL 0)
+      message(SEND_ERROR "delete_regv failed with result ${delete_regv_result}")
+    endif()
+
+    execute_process(COMMAND ${CMAKE_COMMAND} -E rm -f "${dir}/${file}")
   endif ()
 endif ()
 
@@ -432,25 +430,7 @@ if(NOT RESULT STREQUAL "a[b]c[d]e")
 endif()
 
 #
-# This tests needs Ansi C++98
-#
-set(CMAKE_CXX_STANDARD 98)
-#
-# GNU extensions are needed for stricmp() on Windows.
-#
-set(CMAKE_CXX_EXTENSIONS TRUE)
-
-# Clang/C2 in C++98 mode cannot properly handle some of MSVC headers
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
-    CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
-  set(CMAKE_CXX_STANDARD 11)
-endif()
-
-#
 # Create the libs and the main exe
 #
 add_subdirectory(Library)
 add_subdirectory(Executable)
-subdir_depends(Executable Library)
-export_library_dependencies(${Complex_BINARY_DIR}/ComplexLibraryDepends.cmake)
-include(${Complex_BINARY_DIR}/ComplexLibraryDepends.cmake OPTIONAL)

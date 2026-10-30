@@ -1,10 +1,10 @@
-#include "testXMLParser.h"
+#include <iostream>
 
 #include "cmXMLParser.h"
 
-#include <iostream>
+#include "testConfig.h"
 
-int testXMLParser(int /*unused*/, char* /*unused*/ [])
+int testXMLParser(int /*unused*/, char* /*unused*/[])
 {
   // TODO: Derive from parser and check attributes.
   cmXMLParser parser;

@@ -1,5 +1,14 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.10)
 project(ExternalProjectUpdateTest NONE)
+if(CMAKE_XCODE_BUILD_SYSTEM VERSION_GREATER_EQUAL 12)
+  cmake_policy(SET CMP0114 NEW)
+else()
+  # This test is very noisy with warnings about this policy if we don't
+  # explicitly set it. Projects shouldn't do this, but for test code this
+  # is reasonable.
+  cmake_policy(SET CMP0114 OLD)
+endif()
+cmake_policy(GET CMP0114 cmp0114)
 
 include(ExternalProject)
 
@@ -18,8 +27,16 @@ set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER
 set(base "${CMAKE_BINARY_DIR}/CMakeExternals")
 set(binary_base "${base}/Build")
 set_property(DIRECTORY PROPERTY EP_BASE ${base})
-set_property(DIRECTORY PROPERTY EP_STEP_TARGETS configure build test)
-set_property(DIRECTORY PROPERTY EP_INDEPENDENT_STEP_TARGETS update)
+if(cmp0114 STREQUAL "NEW")
+  set_property(DIRECTORY PROPERTY EP_STEP_TARGETS configure build test update)
+  set(TestUpdateCommand_STEP_TARGETS STEP_TARGETS update)
+  set(TestUpdateCommand_INDEPENDENT_STEP_TARGETS)
+else()
+  set_property(DIRECTORY PROPERTY EP_STEP_TARGETS configure build test)
+  set_property(DIRECTORY PROPERTY EP_INDEPENDENT_STEP_TARGETS update)
+  set(TestUpdateCommand_STEP_TARGETS)
+  set(TestUpdateCommand_INDEPENDENT_STEP_TARGETS INDEPENDENT_STEP_TARGETS update)
+endif()
 
 ExternalProject_Add(TestUpdateCommand
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
@@ -28,7 +45,8 @@ ExternalProject_Add(TestUpdateCommand
   CONFIGURE_COMMAND ""
   BUILD_COMMAND ""
   INSTALL_COMMAND ""
-  INDEPENDENT_STEP_TARGETS update
+  ${TestUpdateCommand_STEP_TARGETS}
+  ${TestUpdateCommand_INDEPENDENT_STEP_TARGETS}
   )
 add_custom_target(TestUpdateCommandDriver ALL)
 add_dependencies(TestUpdateCommandDriver TestUpdateCommand-update)
@@ -38,15 +56,9 @@ set(do_git_tests 0)
 if(GIT_EXECUTABLE)
   set(do_git_tests 1)
 
-  execute_process(
-    COMMAND "${GIT_EXECUTABLE}" --version
-    OUTPUT_VARIABLE ov
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-  string(REGEX REPLACE "^git version (.+)$" "\\1" git_version "${ov}")
-  message(STATUS "git_version='${git_version}'")
+  message(STATUS "Git_VERSION='${Git_VERSION}'")
 
-  if(git_version VERSION_LESS 1.6.5)
+  if(Git_VERSION VERSION_LESS 1.6.5)
     message(STATUS "No ExternalProject git tests with git client less than version 1.6.5")
     set(do_git_tests 0)
   endif()
@@ -58,7 +70,9 @@ if(NOT TEST_GIT_TAG)
 endif()
 
 if(do_git_tests)
-  set(local_git_repo "../../LocalRepositories/GIT")
+  cmake_path(SET local_git_repo NORMALIZE
+    "${CMAKE_CURRENT_BINARY_DIR}/LocalRepositories/GIT"
+  )
 
   # Unzip/untar the git repository in our source folder so that other
   # projects below may use it to test git args of ExternalProject_Add
@@ -67,6 +81,7 @@ if(do_git_tests)
   ExternalProject_Add(${proj}
     SOURCE_DIR ${CMAKE_CURRENT_BINARY_DIR}/LocalRepositories/GIT
     URL ${CMAKE_CURRENT_SOURCE_DIR}/gitrepo.tgz
+    DOWNLOAD_EXTRACT_TIMESTAMP NO
     BUILD_COMMAND ""
     CONFIGURE_COMMAND "${GIT_EXECUTABLE}" --version
     INSTALL_COMMAND ""
@@ -78,6 +93,9 @@ if(do_git_tests)
   ExternalProject_Add(${proj}
     GIT_REPOSITORY "${local_git_repo}"
     GIT_TAG ${TEST_GIT_TAG}
+    GIT_CONFIG "user.email=testauthor@cmake.org"
+               "user.name=testauthor"
+               "commit.gpgsign=false"
     CMAKE_GENERATOR "${CMAKE_GENERATOR}"
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
     INSTALL_COMMAND ""

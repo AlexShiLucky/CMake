@@ -1,12 +1,14 @@
-#include "testVisualStudioSlnParser.h"
+#include <iostream>
 
 #include "cmVisualStudioSlnData.h"
 #include "cmVisualStudioSlnParser.h"
 
-#include <iostream>
+#include "testConfig.h"
+
+#define SLN_EXTENSION "sln-file"
 
 static bool parsedRight(cmVisualStudioSlnParser& parser,
-                        const std::string& file, cmSlnData& data,
+                        std::string const& file, cmSlnData& data,
                         cmVisualStudioSlnParser::ParseResult expected =
                           cmVisualStudioSlnParser::ResultOK)
 {
@@ -27,13 +29,13 @@ static bool parsedRight(cmVisualStudioSlnParser& parser,
   return false;
 }
 
-int testVisualStudioSlnParser(int, char* [])
+int testVisualStudioSlnParser(int, char*[])
 {
   cmVisualStudioSlnParser parser;
 
   // Test clean parser
   if (parser.GetParseResult() != cmVisualStudioSlnParser::ResultOK) {
-    std::cerr << "cmVisualStudioSlnParser initialisation failed" << std::endl;
+    std::cerr << "cmVisualStudioSlnParser initialization failed" << std::endl;
     return 1;
   }
 
@@ -43,23 +45,60 @@ int testVisualStudioSlnParser(int, char* [])
     if (!parsedRight(parser, "valid", data)) {
       return 1;
     }
-    const std::vector<cmSlnProjectEntry>& projects = data.GetProjects();
-    const char* const names[] = {
-      "3rdParty", "ALL_BUILD", "CMakeLib", "CMakeLibTests",
-      "CMakePredefinedTargets", "CPackLib", "CTestDashboardTargets",
-      "CTestLib", "Continuous", "Documentation", "Experimental", "INSTALL",
-      "KWSys", "LIBCURL", "Nightly", "NightlyMemoryCheck", "PACKAGE",
-      "RUN_TESTS", "Tests", "Utilities", "Win9xCompat", "ZERO_CHECK",
-      "cmIML_test", "cmake", "cmbzip2", "cmcldeps", "cmcompress", "cmcurl",
-      "cmexpat", "cmlibarchive", "cmsys", "cmsysEncodeExecutable",
-      "cmsysProcessFwd9x", "cmsysTestDynload", "cmsysTestProcess",
-      "cmsysTestSharedForward", "cmsysTestsC", "cmsysTestsCxx", "cmsys_c",
-      "cmw9xcom", "cmzlib", "cpack", "ctest", "documentation", "memcheck_fail",
-      "pseudo_BC", "pseudo_purify", "pseudo_valgrind", "test_clean",
+    std::vector<cmSlnProjectEntry> const& projects = data.GetProjects();
+    char const* const names[] = {
+      "3rdParty",
+      "ALL_BUILD",
+      "CMakeLib",
+      "CMakeLibTests",
+      "CMakePredefinedTargets",
+      "CPackLib",
+      "CTestDashboardTargets",
+      "CTestLib",
+      "Continuous",
+      "Documentation",
+      "Experimental",
+      "INSTALL",
+      "KWSys",
+      "LIBCURL",
+      "Nightly",
+      "NightlyMemoryCheck",
+      "PACKAGE",
+      "RUN_TESTS",
+      "Tests",
+      "Utilities",
+      "Win9xCompat",
+      "ZERO_CHECK",
+      "cmIML_test",
+      "cmake",
+      "cmbzip2",
+      "cmcldeps",
+      "cmcompress",
+      "cmcurl",
+      "cmexpat",
+      "cmlibarchive",
+      "cmsys",
+      "cmsysEncodeExecutable",
+      "cmsysProcessFwd9x",
+      "cmsysTestDynload",
+      "cmsysTestProcess",
+      "cmsysTestsC",
+      "cmsysTestsCxx",
+      "cmsys_c",
+      "cmw9xcom",
+      "cmzlib",
+      "cpack",
+      "ctest",
+      "documentation",
+      "memcheck_fail",
+      "pseudo_BC",
+      "pseudo_purify",
+      "pseudo_valgrind",
+      "test_clean",
       "uninstall"
       /* clang-format needs this comment to break after the opening brace */
     };
-    const size_t expectedProjectCount = sizeof(names) / sizeof(*names);
+    size_t const expectedProjectCount = sizeof(names) / sizeof(*names);
     if (projects.size() != expectedProjectCount) {
       std::cerr << "cmVisualStudioSlnParser returned bad number of "
                 << "projects (" << projects.size() << " instead of "
@@ -129,7 +168,7 @@ int testVisualStudioSlnParser(int, char* [])
         return 1;
       }
     }
-    const char* const files[] = {
+    char const* const files[] = {
       "header",         "projectArgs", "topLevel", "projectContents",
       "projectSection", "global",      "unclosed", "strayQuote",
       "strayParen",     "strayQuote2"

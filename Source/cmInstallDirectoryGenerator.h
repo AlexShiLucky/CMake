@@ -1,10 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmInstallDirectoryGenerator_h
-#define cmInstallDirectoryGenerator_h
-
-#include "cmInstallGenerator.h"
-#include "cmScriptGenerator.h"
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -12,6 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "cmInstallGenerator.h"
+
+class cmDiagnosticContext;
 class cmLocalGenerator;
 
 /** \class cmInstallDirectoryGenerator
@@ -20,32 +19,39 @@ class cmLocalGenerator;
 class cmInstallDirectoryGenerator : public cmInstallGenerator
 {
 public:
-  cmInstallDirectoryGenerator(std::vector<std::string> const& dirs,
-                              const char* dest, const char* file_permissions,
-                              const char* dir_permissions,
-                              std::vector<std::string> const& configurations,
-                              const char* component, MessageLevel message,
-                              bool exclude_from_all, const char* literal_args,
-                              bool optional = false);
-  ~cmInstallDirectoryGenerator() CM_OVERRIDE;
+  cmInstallDirectoryGenerator(
+    std::vector<std::string> const& dirs, std::string const& dest,
+    std::string filePermissions, std::string dirPermissions,
+    std::vector<std::string> const& configurations,
+    std::string const& component, std::vector<std::string> buildDepends,
+    MessageLevel message, bool excludeFromAll, std::string literalArgs,
+    bool optional, cmDiagnosticContext context);
+  ~cmInstallDirectoryGenerator() override;
 
-  void Compute(cmLocalGenerator* lg) CM_OVERRIDE;
+  bool Compute(cmLocalGenerator* lg) override;
+
+  void GetInstallBuildDependencies(
+    std::string const& config,
+    std::vector<BuildDependency>& dependencies) const override;
 
   std::string GetDestination(std::string const& config) const;
+  std::vector<std::string> GetDirectories(std::string const& config) const;
+
+  bool GetOptional() const { return this->Optional; }
 
 protected:
-  void GenerateScriptActions(std::ostream& os, Indent indent) CM_OVERRIDE;
-  void GenerateScriptForConfig(std::ostream& os, const std::string& config,
-                               Indent indent) CM_OVERRIDE;
-  void AddDirectoryInstallRule(std::ostream& os, const std::string& config,
+  void GenerateScriptActions(std::ostream& os, Indent indent) override;
+  void GenerateScriptForConfig(std::ostream& os, std::string const& config,
+                               Indent indent) override;
+  void AddDirectoryInstallRule(std::ostream& os, std::string const& config,
                                Indent indent,
                                std::vector<std::string> const& dirs);
-  cmLocalGenerator* LocalGenerator;
-  std::vector<std::string> Directories;
-  std::string FilePermissions;
-  std::string DirPermissions;
-  std::string LiteralArguments;
-  bool Optional;
+  cmLocalGenerator* LocalGenerator = nullptr;
+  std::vector<std::string> const Directories;
+  std::string const FilePermissions;
+  std::string const DirPermissions;
+  std::string const LiteralArguments;
+  std::vector<std::string> const BuildDepends;
+  BuildDependsEntries ResolvedBuildDepends;
+  bool const Optional;
 };
-
-#endif

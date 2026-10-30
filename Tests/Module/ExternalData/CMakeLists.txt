@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.10.20130115)
+cmake_minimum_required(VERSION 3.10)
 project(ExternalDataTest NONE)
 
 include(CTest)
@@ -57,3 +57,4 @@ add_subdirectory(Data3)
 add_subdirectory(Data4)
 add_subdirectory(Data5)
 add_subdirectory(DataNoSymlinks)
+add_subdirectory(DataStateRoot)

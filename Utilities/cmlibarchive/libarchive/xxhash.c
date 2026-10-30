@@ -149,8 +149,16 @@ typedef struct _U32_S { U32 v; } _PACKED U32_S;
 
 #if GCC_VERSION >= 409
 __attribute__((__no_sanitize_undefined__))
+#else
+#  if defined(__clang__)
+__attribute__((no_sanitize("undefined")))
+#  endif
 #endif
-static inline U32 A32(const void * x)
+#if defined(_MSC_VER)
+static __inline U32 A32(const void * x)
+#else
+static inline U32 A32(const void* x)
+#endif
 {
     return (((const U32_S *)(x))->v);
 }
@@ -353,6 +361,8 @@ static
 void* XXH32_init (U32 seed)
 {
     void* state = XXH_malloc (sizeof(struct XXH_state32_t));
+    if (state == NULL)
+        return NULL;
     XXH32_resetState(state, seed);
     return state;
 }

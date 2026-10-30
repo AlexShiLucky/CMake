@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 project(Preprocess)
 
 # This test is meant both as a test and as a reference for supported
@@ -28,6 +28,17 @@ endif()
 if("${CMAKE_GENERATOR}" MATCHES "Visual Studio")
   set(PP_VS 1)
 endif()
+if("${CMAKE_GENERATOR}" MATCHES "FASTBuild")
+  set(PP_FASTBUILD 1)
+endif()
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND
+   "x${CMAKE_C_SIMULATE_ID}" STREQUAL "xMSVC")
+   set(CLANG_MSVC_WINDOWS 1)
+endif()
+if(CLANG_MSVC_WINDOWS AND
+   "x${CMAKE_C_COMPILER_FRONTEND_VARIANT}" STREQUAL "xGNU")
+   set(CLANG_GNULIKE_WINDOWS 1)
+endif()
 
 # Some tests below check the PP_* variables set above.  They are meant
 # to test the case that the build tool is at fault.  Other tests below
@@ -53,7 +64,7 @@ endif()
 
 string(APPEND STRING_EXTRA " ")
 
-if(NOT PP_BORLAND AND NOT PP_WATCOM)
+if(NOT PP_BORLAND AND NOT PP_WATCOM AND NOT CLANG_GNULIKE_WINDOWS)
   # Borland, WMake: multiple spaces
   # The make tool seems to remove extra whitespace from inside
   # quoted strings when passing to the compiler.  It does not have
@@ -70,14 +81,14 @@ if(NOT PP_VS)
   string(APPEND STRING_EXTRA ",")
 endif()
 
-if(NOT PP_MINGW)
+if(NOT PP_MINGW AND NOT CLANG_GNULIKE_WINDOWS)
   # MinGW: &
   # When inside -D"FOO=\"a & b\"" MinGW make wants -D"FOO=\"a "&" b\""
   # but it does not like quoted ampersand elsewhere.
   string(APPEND STRING_EXTRA "&")
 endif()
 
-if(NOT PP_MINGW)
+if(NOT PP_MINGW AND NOT CLANG_GNULIKE_WINDOWS)
   # MinGW: |
   # When inside -D"FOO=\"a | b\"" MinGW make wants -D"FOO=\"a "|" b\""
   # but it does not like quoted pipe elsewhere.
@@ -99,8 +110,11 @@ if(NOT PP_BORLAND AND NOT PP_MINGW AND NOT PP_NMAKE)
 endif()
 
 set(EXPR_OP1 "/")
-if((NOT MSVC OR PP_NMAKE) AND
-   NOT CMAKE_C_COMPILER_ID STREQUAL "Intel")
+if(NOT PP_FASTBUILD AND (NOT MSVC OR PP_NMAKE) AND
+   NOT CMAKE_C_COMPILER_ID STREQUAL "Intel" AND
+   NOT CLANG_MSVC_WINDOWS)
+  # FASTBuild does not support escaping of '%' character in the command line.
+  # See https://github.com/fastbuild/fastbuild/issues/390 for more details.
   # MSVC cl, Intel icl: %
   # When the cl compiler is invoked from the command line then % must
   # be written %% (to distinguish from %ENV% syntax).  However cl does
@@ -138,8 +152,13 @@ endif()
 #  - NMake is okay with just \\\"
 #  - The XL compiler does not re-escape \\\" when launching an
 #    internal tool to do preprocessing .
+#  - The IntelLLVM C and C++ compiler drivers do not re-escape the \\\" when
+#    launching the underlying compiler. FIXME: this bug is expected to be fixed
+#    in a future release.
 if((PP_NMAKE OR PP_UMAKE) AND
-    NOT CMAKE_C_COMPILER_ID STREQUAL "XL")
+    NOT CMAKE_C_COMPILER_ID STREQUAL "XL" AND
+    NOT CMAKE_C_COMPILER_ID STREQUAL "IntelLLVM" AND
+    NOT CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
   string(APPEND STRING_EXTRA "\\\"")
 endif()
 
@@ -183,9 +202,14 @@ endif()
 #-----------------------------------------------------------------------------
 
 # Inform the test if the debug configuration is getting built.
-# The NDEBUG definition takes care of this for release.
 string(APPEND CMAKE_C_FLAGS_DEBUG " -DPREPROCESS_DEBUG")
 string(APPEND CMAKE_CXX_FLAGS_DEBUG " -DPREPROCESS_DEBUG")
+string(APPEND CMAKE_C_FLAGS_RELEASE " -DPREPROCESS_NDEBUG")
+string(APPEND CMAKE_CXX_FLAGS_RELEASE " -DPREPROCESS_NDEBUG")
+string(APPEND CMAKE_C_FLAGS_RELWITHDEBINFO " -DPREPROCESS_NDEBUG")
+string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -DPREPROCESS_NDEBUG")
+string(APPEND CMAKE_C_FLAGS_MINSIZEREL " -DPREPROCESS_NDEBUG")
+string(APPEND CMAKE_CXX_FLAGS_MINSIZEREL " -DPREPROCESS_NDEBUG")
 
 # Inform the test if it built from Xcode.
 if(PP_XCODE)
@@ -208,24 +232,45 @@ set(FILE_PATH "${Preprocess_SOURCE_DIR}/file_def.h")
 set(TARGET_PATH "${Preprocess_SOURCE_DIR}/target_def.h")
 
 # Set some definition properties.
-foreach(c "" "_DEBUG" "_RELEASE" "_RELWITHDEBINFO" "_MINSIZEREL")
-  set(FLAVOR "${c}")
+set_property(
+  DIRECTORY .
+  APPEND PROPERTY COMPILE_DEFINITIONS "DIRECTORY_DEF"
+  )
+set_property(
+  TARGET Preprocess
+  APPEND PROPERTY COMPILE_DEFINITIONS "TARGET_DEF"
+  )
+set_property(
+  SOURCE preprocess.c preprocess.cxx
+  PROPERTY COMPILE_DEFINITIONS "FILE_DEF"
+  )
+
+# Set some per-config definition properties.
+foreach(c "DEBUG" "RELEASE" "RELWITHDEBINFO" "MINSIZEREL")
   # Treat RelWithDebInfo and MinSizeRel as Release to avoid having
-  # an exponentional matrix of inclusions and exclusions of defines
-  if("${c}" STREQUAL "_RELWITHDEBINFO" OR "${c}" STREQUAL "_MINSIZEREL")
-    set(FLAVOR "_RELEASE")
+  # an exponential matrix of inclusions and exclusions of defines
+  if("${c}" STREQUAL "RELWITHDEBINFO" OR "${c}" STREQUAL "MINSIZEREL")
+    set(FLAVOR "RELEASE")
+  else()
+    set(FLAVOR "${c}")
   endif()
   set_property(
     DIRECTORY .
-    APPEND PROPERTY COMPILE_DEFINITIONS${c} "DIRECTORY_DEF${FLAVOR}"
+    APPEND PROPERTY COMPILE_DEFINITIONS "$<$<CONFIG:${c}>:DIRECTORY_DEF_${FLAVOR}>"
     )
   set_property(
     TARGET Preprocess
-    PROPERTY COMPILE_DEFINITIONS${c} "TARGET_DEF${FLAVOR}"
+    APPEND PROPERTY COMPILE_DEFINITIONS "$<$<CONFIG:${c}>:TARGET_DEF_${FLAVOR}>"
     )
+  if(NOT PREPROCESS_XCODE)
+    set_property(
+      SOURCE preprocess.c
+      APPEND PROPERTY COMPILE_DEFINITIONS "$<$<CONFIG:${c}>:FILE_DEF_${FLAVOR}>"
+      )
+  endif()
   set_property(
-    SOURCE preprocess.c preprocess.cxx
-    PROPERTY COMPILE_DEFINITIONS${c} "FILE_DEF${FLAVOR}"
+    SOURCE preprocess.cxx
+    PROPERTY COMPILE_DEFINITIONS_${c} "FILE_DEF_${FLAVOR}"
     )
 endforeach()
 

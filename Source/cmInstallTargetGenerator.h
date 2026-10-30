@@ -1,19 +1,18 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmInstallTargetGenerator_h
-#define cmInstallTargetGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmInstallGenerator.h"
-#include "cmScriptGenerator.h"
 
 #include <iosfwd>
 #include <string>
 #include <vector>
 
+#include "cmDiagnosticContext.h"
+#include "cmInstallGenerator.h"
+#include "cmInstallType.h"
+
 class cmGeneratorTarget;
-class cmLocalGenerator;
 
 /** \class cmInstallTargetGenerator
  * \brief Generate target installation rules.
@@ -21,12 +20,13 @@ class cmLocalGenerator;
 class cmInstallTargetGenerator : public cmInstallGenerator
 {
 public:
-  cmInstallTargetGenerator(std::string const& targetName, const char* dest,
-                           bool implib, const char* file_permissions,
+  cmInstallTargetGenerator(std::string targetName, std::string const& dest,
+                           bool implib, std::string filePermissions,
                            std::vector<std::string> const& configurations,
-                           const char* component, MessageLevel message,
-                           bool exclude_from_all, bool optional);
-  ~cmInstallTargetGenerator() CM_OVERRIDE;
+                           std::string const& component, MessageLevel message,
+                           bool excludeFromAll, bool optional,
+                           cmDiagnosticContext context = {});
+  ~cmInstallTargetGenerator() override;
 
   /** Select the policy for installing shared library linkable name
       symlinks.  */
@@ -37,9 +37,12 @@ public:
     NamelinkModeSkip
   };
   void SetNamelinkMode(NamelinkModeType mode) { this->NamelinkMode = mode; }
-  NamelinkModeType GetNamelinkMode() const { return this->NamelinkMode; }
+  void SetImportlinkMode(NamelinkModeType mode)
+  {
+    this->ImportlinkMode = mode;
+  }
 
-  std::string GetInstallFilename(const std::string& config) const;
+  std::string GetInstallFilename(std::string const& config) const;
 
   void GetInstallObjectNames(std::string const& config,
                              std::vector<std::string>& objects) const;
@@ -49,14 +52,19 @@ public:
     NameNormal,
     NameImplib,
     NameSO,
-    NameReal
+    NameReal,
+    NameImplibReal
   };
 
-  static std::string GetInstallFilename(const cmGeneratorTarget* target,
-                                        const std::string& config,
+  static std::string GetInstallFilename(cmGeneratorTarget const* target,
+                                        std::string const& config,
                                         NameType nameType = NameNormal);
 
-  void Compute(cmLocalGenerator* lg) CM_OVERRIDE;
+  bool Compute(cmLocalGenerator* lg) override;
+
+  void GetInstallBuildDependencies(
+    std::string const& config,
+    std::vector<BuildDependency>& dependencies) const override;
 
   cmGeneratorTarget* GetTarget() const { return this->Target; }
 
@@ -64,50 +72,64 @@ public:
 
   std::string GetDestination(std::string const& config) const;
 
+  struct Files
+  {
+    // Names or paths of files to be read from the source or build tree.
+    // The paths may be computed as [FromDir/] + From[i].
+    std::vector<std::string> From;
+
+    // Corresponding names of files to be written in the install directory.
+    // The paths may be computed as Destination/ + [ToDir/] + To[i].
+    std::vector<std::string> To;
+
+    // Prefix for all files in From.
+    std::string FromDir;
+
+    // Prefix for all files in To.
+    std::string ToDir;
+
+    NamelinkModeType NamelinkMode = NamelinkModeNone;
+    bool Rename = false;
+    bool NoTweak = false;
+    bool UseSourcePermissions = false;
+    cmInstallType Type = cmInstallType();
+  };
+  Files GetFiles(std::string const& config) const;
+
+  bool GetOptional() const { return this->Optional; }
+
 protected:
-  void GenerateScript(std::ostream& os) CM_OVERRIDE;
-  void GenerateScriptForConfig(std::ostream& os, const std::string& config,
-                               Indent indent) CM_OVERRIDE;
-  void GenerateScriptForConfigObjectLibrary(std::ostream& os,
-                                            const std::string& config,
-                                            Indent indent);
-  typedef void (cmInstallTargetGenerator::*TweakMethod)(std::ostream&, Indent,
-                                                        const std::string&,
-                                                        std::string const&);
-  void AddTweak(std::ostream& os, Indent indent, const std::string& config,
-                std::string const& file, TweakMethod tweak);
-  void AddTweak(std::ostream& os, Indent indent, const std::string& config,
-                std::vector<std::string> const& files, TweakMethod tweak);
-  std::string GetDestDirPath(std::string const& file);
+  void GenerateScriptForConfig(std::ostream& os, std::string const& config,
+                               Indent indent) override;
   void PreReplacementTweaks(std::ostream& os, Indent indent,
-                            const std::string& config,
+                            std::string const& config,
                             std::string const& file);
   void PostReplacementTweaks(std::ostream& os, Indent indent,
-                             const std::string& config,
+                             std::string const& config,
                              std::string const& file);
   void AddInstallNamePatchRule(std::ostream& os, Indent indent,
-                               const std::string& config,
-                               const std::string& toDestDirPath);
+                               std::string const& config,
+                               std::string const& toDestDirPath);
   void AddChrpathPatchRule(std::ostream& os, Indent indent,
-                           const std::string& config,
+                           std::string const& config,
                            std::string const& toDestDirPath);
   void AddRPathCheckRule(std::ostream& os, Indent indent,
-                         const std::string& config,
+                         std::string const& config,
                          std::string const& toDestDirPath);
 
   void AddStripRule(std::ostream& os, Indent indent,
-                    const std::string& toDestDirPath);
+                    std::string const& toDestDirPath);
   void AddRanlibRule(std::ostream& os, Indent indent,
-                     const std::string& toDestDirPath);
+                     std::string const& toDestDirPath);
   void AddUniversalInstallRule(std::ostream& os, Indent indent,
-                               const std::string& toDestDirPath);
+                               std::string const& toDestDirPath);
+  void IssueCMP0095Warning(std::string const& unescapedRpath);
 
-  std::string TargetName;
-  cmGeneratorTarget* Target;
-  std::string FilePermissions;
+  std::string const TargetName;
+  cmGeneratorTarget* Target = nullptr;
+  std::string const FilePermissions;
   NamelinkModeType NamelinkMode;
-  bool ImportLibrary;
-  bool Optional;
+  NamelinkModeType ImportlinkMode;
+  bool const ImportLibrary;
+  bool const Optional;
 };
-
-#endif

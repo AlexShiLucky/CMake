@@ -1,19 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmExportInstallAndroidMKGenerator.h"
 
+#include <cstddef>
+#include <functional>
+#include <memory>
 #include <ostream>
-#include <stddef.h>
+#include <vector>
 
-#include "cmExportBuildAndroidMKGenerator.h"
 #include "cmExportSet.h"
+#include "cmGeneratorExpression.h"
 #include "cmGeneratorTarget.h"
 #include "cmInstallExportGenerator.h"
 #include "cmInstallTargetGenerator.h"
-#include "cmStateTypes.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 #include "cmTarget.h"
 #include "cmTargetExport.h"
+#include "cmTargetTypes.h"
 
 cmExportInstallAndroidMKGenerator::cmExportInstallAndroidMKGenerator(
   cmInstallExportGenerator* iegen)
@@ -21,8 +25,48 @@ cmExportInstallAndroidMKGenerator::cmExportInstallAndroidMKGenerator(
 {
 }
 
+void cmExportInstallAndroidMKGenerator::ReportDuplicateTarget(
+  std::string const& targetName) const
+{
+  this->ReportError(cmStrCat("install(EXPORT_ANDROID_MK \"",
+                             this->GetExportSet()->GetName(),
+                             "\" ...) includes target \"", targetName,
+                             "\" more than once in the export set."));
+}
+
+bool cmExportInstallAndroidMKGenerator::GenerateMainFile(std::ostream& os)
+{
+  std::vector<cmTargetExport const*> allTargets;
+  {
+    auto visitor = [&](cmTargetExport const* te) { allTargets.push_back(te); };
+
+    if (!this->CollectExports(visitor)) {
+      return false;
+    }
+  }
+
+  // Create all the imported targets.
+  for (cmTargetExport const* te : allTargets) {
+    cmGeneratorTarget const* gt = te->Target;
+
+    this->GenerateImportTargetCode(os, gt, this->GetExportTargetType(te));
+
+    ImportPropertyMap properties;
+    if (!this->PopulateInterfaceProperties(te, properties)) {
+      return false;
+    }
+
+    this->PopulateInterfaceLinkLibrariesProperty(
+      gt, cmGeneratorExpression::InstallInterface, properties);
+
+    this->GenerateInterfaceProperties(gt, os, properties);
+  }
+
+  return true;
+}
+
 void cmExportInstallAndroidMKGenerator::GenerateImportHeaderCode(
-  std::ostream& os, const std::string&)
+  std::ostream& os, std::string const&)
 {
   std::string installDir = this->IEGen->GetDestination();
   os << "LOCAL_PATH := $(call my-dir)\n";
@@ -32,14 +76,11 @@ void cmExportInstallAndroidMKGenerator::GenerateImportHeaderCode(
   for (size_t n = 0; n < numDotDot; n++) {
     path += "/..";
   }
-  os << "_IMPORT_PREFIX := "
-     << "$(LOCAL_PATH)" << path << "\n\n";
-  for (std::vector<cmTargetExport*>::const_iterator tei =
-         this->IEGen->GetExportSet()->GetTargetExports()->begin();
-       tei != this->IEGen->GetExportSet()->GetTargetExports()->end(); ++tei) {
+  os << "_IMPORT_PREFIX := $(LOCAL_PATH)" << path << "\n\n";
+  for (std::unique_ptr<cmTargetExport> const& te :
+       this->IEGen->GetExportSet()->GetTargetExports()) {
     // Collect import properties for this target.
-    cmTargetExport const* te = *tei;
-    if (te->Target->GetType() == cmStateEnums::INTERFACE_LIBRARY) {
+    if (te->Target->GetType() == cm::TargetType::INTERFACE_LIBRARY) {
       continue;
     }
     std::string dest;
@@ -49,90 +90,23 @@ void cmExportInstallAndroidMKGenerator::GenerateImportHeaderCode(
     if (te->ArchiveGenerator) {
       dest = te->ArchiveGenerator->GetDestination("");
     }
-    te->Target->Target->SetProperty("__dest", dest.c_str());
+    te->Target->Target->SetProperty("__dest", dest);
   }
 }
 
-void cmExportInstallAndroidMKGenerator::GenerateImportFooterCode(std::ostream&)
-{
-}
-
 void cmExportInstallAndroidMKGenerator::GenerateImportTargetCode(
-  std::ostream& os, const cmGeneratorTarget* target)
+  std::ostream& os, cmGeneratorTarget const* target,
+  cm::TargetType /*targetType*/)
 {
-  std::string targetName = this->Namespace;
-  targetName += target->GetExportName();
+  std::string targetName = cmStrCat(this->Namespace, target->GetExportName());
   os << "include $(CLEAR_VARS)\n";
   os << "LOCAL_MODULE := ";
   os << targetName << "\n";
   os << "LOCAL_SRC_FILES := $(_IMPORT_PREFIX)/";
-  os << target->Target->GetProperty("__dest") << "/";
+  os << target->Target->GetSafeProperty("__dest") << "/";
   std::string config;
   if (!this->Configurations.empty()) {
     config = this->Configurations[0];
   }
   os << target->GetFullName(config) << "\n";
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateExpectedTargetsCode(
-  std::ostream&, const std::string&)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateImportPropertyCode(
-  std::ostream&, const std::string&, cmGeneratorTarget const*,
-  ImportPropertyMap const&)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateMissingTargetsCheckCode(
-  std::ostream&, const std::vector<std::string>&)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateInterfaceProperties(
-  cmGeneratorTarget const* target, std::ostream& os,
-  const ImportPropertyMap& properties)
-{
-  std::string config;
-  if (!this->Configurations.empty()) {
-    config = this->Configurations[0];
-  }
-  cmExportBuildAndroidMKGenerator::GenerateInterfaceProperties(
-    target, os, properties, cmExportBuildAndroidMKGenerator::INSTALL, config);
-}
-
-void cmExportInstallAndroidMKGenerator::LoadConfigFiles(std::ostream&)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateImportPrefix(std::ostream&)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateRequiredCMakeVersion(
-  std::ostream&, const char*)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::CleanupTemporaryVariables(
-  std::ostream&)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateImportedFileCheckLoop(
-  std::ostream&)
-{
-}
-
-void cmExportInstallAndroidMKGenerator::GenerateImportedFileChecksCode(
-  std::ostream&, cmGeneratorTarget*, ImportPropertyMap const&,
-  const std::set<std::string>&)
-{
-}
-
-bool cmExportInstallAndroidMKGenerator::GenerateImportFileConfig(
-  const std::string&, std::vector<std::string>&)
-{
-  return true;
 }

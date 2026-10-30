@@ -1,12 +1,17 @@
-cmake_minimum_required(VERSION 3.8)
-project (CudaOnlyExportPTX CUDA)
+cmake_minimum_required(VERSION 3.19)
+project (ExportPTX CUDA)
 
 #Goal for this example:
 # How to generate PTX files instead of OBJECT files
 # How to reference PTX files for custom commands
 # How to install PTX files
 
+# PTX can be compiled only for a single virtual architecture at a time
+list(SUBLIST CMAKE_CUDA_ARCHITECTURES 0 1 CMAKE_CUDA_ARCHITECTURES)
+string(APPEND CMAKE_CUDA_ARCHITECTURES "-virtual")
+
 add_library(CudaPTX OBJECT kernelA.cu kernelB.cu)
+target_compile_definitions(CudaPTX PRIVATE "CUDA_PTX_COMPILATION")
 set_property(TARGET CudaPTX PROPERTY CUDA_PTX_COMPILATION ON)
 
 #Test ObjectFiles with file(GENERATE)
@@ -34,17 +39,28 @@ static std::string ptx_paths = "$<TARGET_OBJECTS:CudaPTX>";
 # need to also pass the --name option
 set(output_file ${CMAKE_CURRENT_BINARY_DIR}/embedded_objs.h)
 
-get_filename_component(cuda_compiler_bin "${CMAKE_CUDA_COMPILER}" DIRECTORY)
+find_package(CUDAToolkit REQUIRED)
 find_program(bin_to_c
   NAMES bin2c
-  PATHS ${cuda_compiler_bin}
+  PATHS ${CUDAToolkit_BIN_DIR}
   )
 if(NOT bin_to_c)
   message(FATAL_ERROR
     "bin2c not found:\n"
-    "  CMAKE_CUDA_COMPILER='${CMAKE_CUDA_COMPILER}'\n"
-    "  cuda_compiler_bin='${cuda_compiler_bin}'\n"
+    "  CUDAToolkit_BIN_DIR='${CUDAToolkit_BIN_DIR}'\n"
     )
+endif()
+
+# FASTBuild has a bug where Exec nodes can't depend
+# on files produced by ObjectListNode... So, depend on the
+# target directly.
+# https://github.com/fastbuild/fastbuild/issues/1115
+
+set(DEP "")
+if (CMAKE_GENERATOR MATCHES "FASTBuild")
+  set(DEP "CudaPTX")
+else()
+  set(DEP "$<TARGET_OBJECTS:CudaPTX>")
 endif()
 
 add_custom_command(
@@ -53,9 +69,9 @@ add_custom_command(
     "-DBIN_TO_C_COMMAND=${bin_to_c}"
     "-DOBJECTS=$<TARGET_OBJECTS:CudaPTX>"
     "-DOUTPUT=${output_file}"
-    -P ${CMAKE_CURRENT_SOURCE_DIR}/bin2c_wrapper.cmake
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/../utils/bin2c_wrapper.cmake
   VERBATIM
-  DEPENDS $<TARGET_OBJECTS:CudaPTX>
+  DEPENDS ${DEP}
   COMMENT "Converting Object files to a C header"
   )
 

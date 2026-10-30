@@ -1,26 +1,28 @@
 #include "cmParseDelphiCoverage.h"
 
-#include "cmCTest.h"
-#include "cmCTestCoverageHandler.h"
-#include "cmSystemTools.h"
+#include <cstdio>
+#include <cstdlib>
 
 #include "cmsys/FStream.hxx"
 #include "cmsys/Glob.hxx"
-#include <stdio.h>
-#include <stdlib.h>
+
+#include "cmCTest.h"
+#include "cmCTestCoverageHandler.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
 
 class cmParseDelphiCoverage::HTMLParser
 {
 public:
-  typedef cmCTestCoverageHandlerContainer::SingleFileCoverageVector
-    FileLinesType;
+  using FileLinesType =
+    cmCTestCoverageHandlerContainer::SingleFileCoverageVector;
   HTMLParser(cmCTest* ctest, cmCTestCoverageHandlerContainer& cont)
     : CTest(ctest)
     , Coverage(cont)
   {
   }
 
-  virtual ~HTMLParser() {}
+  virtual ~HTMLParser() = default;
 
   bool initializeDelphiFile(
     std::string const& filename,
@@ -44,7 +46,7 @@ public:
       // Check that the begin is the first non-space string on the line
       if ((beginPos == line.find_first_not_of(' ')) &&
           beginPos != std::string::npos) {
-        beginSet.push_back("begin");
+        beginSet.emplace_back("begin");
         coverageVector.push_back(-1);
         continue;
       }
@@ -71,7 +73,8 @@ public:
         }
       }
       // Based up what was found, add a line to the coverageVector
-      if (!beginSet.empty() && line != "" && !blockComFlag && !lineComFlag) {
+      if (!beginSet.empty() && !line.empty() && !blockComFlag &&
+          !lineComFlag) {
         coverageVector.push_back(0);
       } else {
         coverageVector.push_back(-1);
@@ -79,7 +82,7 @@ public:
     }
     return true;
   }
-  bool ParseFile(const char* file)
+  bool ParseFile(char const* file)
   {
     std::string line = file;
     std::string lineresult;
@@ -107,18 +110,17 @@ public:
     while (true) {
       lastoffset = line.find('(', pos);
       if (lastoffset == std::string::npos) {
-        cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT, endnamepos
-                             << "File not found  " << lastoffset << std::endl,
-                           this->Coverage.Quiet);
+        cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
+                           this->Coverage.Quiet, endnamepos,
+                           "File not found  ", lastoffset, '\n');
         return false;
       }
       endnamepos = line.find(')', lastoffset);
       filename = line.substr(lastoffset + 1, (endnamepos - 1) - lastoffset);
       if (filename.find(".pas") != std::string::npos) {
         cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                           "Coverage found for file:  " << filename
-                                                        << std::endl,
-                           this->Coverage.Quiet);
+                           this->Coverage.Quiet,
+                           "Coverage found for file:  ", filename, '\n');
         break;
       }
       pos = lastoffset + 1;
@@ -130,7 +132,7 @@ public:
     cmsys::Glob gl;
     gl.RecurseOn();
     gl.RecurseThroughSymlinksOff();
-    std::string glob = Coverage.SourceDir + "*/" + filename;
+    std::string glob = cmStrCat(this->Coverage.SourceDir, "*/", filename);
     gl.FindFiles(glob);
     std::vector<std::string> const& files = gl.GetFiles();
     if (files.empty()) {
@@ -139,8 +141,8 @@ public:
        *  return a failure.
        */
       cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                         "Unable to find file matching" << glob << std::endl,
-                         this->Coverage.Quiet);
+                         this->Coverage.Quiet, "Unable to find file matching",
+                         glob, '\n');
       return false;
     }
     FileLinesType& coverageVector = this->Coverage.TotalCoverage[files[0]];
@@ -210,8 +212,7 @@ bool cmParseDelphiCoverage::LoadCoverageData(
     path = files[i];
 
     cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                       "Reading HTML File " << path << std::endl,
-                       this->Coverage.Quiet);
+                       this->Coverage.Quiet, "Reading HTML File ", path, '\n');
     if (cmSystemTools::GetFilenameLastExtension(path) == ".html") {
       if (!this->ReadDelphiHTML(path.c_str())) {
         return false;
@@ -221,7 +222,7 @@ bool cmParseDelphiCoverage::LoadCoverageData(
   return true;
 }
 
-bool cmParseDelphiCoverage::ReadDelphiHTML(const char* file)
+bool cmParseDelphiCoverage::ReadDelphiHTML(char const* file)
 {
   cmParseDelphiCoverage::HTMLParser parser(this->CTest, this->Coverage);
   parser.ParseFile(file);

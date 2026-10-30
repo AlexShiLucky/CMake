@@ -1,8 +1,7 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
-#ifndef cmLinkLineDeviceComputer_h
-#define cmLinkLineDeviceComputer_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -12,41 +11,39 @@
 
 class cmComputeLinkInformation;
 class cmGeneratorTarget;
-class cmGlobalNinjaGenerator;
+class cmLocalGenerator;
 class cmOutputConverter;
 class cmStateDirectory;
 
 class cmLinkLineDeviceComputer : public cmLinkLineComputer
 {
-  CM_DISABLE_COPY(cmLinkLineDeviceComputer)
-
 public:
   cmLinkLineDeviceComputer(cmOutputConverter* outputConverter,
-                           cmStateDirectory const& stateDir);
-  ~cmLinkLineDeviceComputer() CM_OVERRIDE;
+                           cmStateDirectory const& stateDir,
+                           std::string language = "CUDA");
+  ~cmLinkLineDeviceComputer() override;
 
-  std::string ComputeLinkLibraries(cmComputeLinkInformation& cli,
-                                   std::string const& stdLibString)
-    CM_OVERRIDE;
+  cmLinkLineDeviceComputer(cmLinkLineDeviceComputer const&) = delete;
+  cmLinkLineDeviceComputer& operator=(cmLinkLineDeviceComputer const&) =
+    delete;
+
+  bool ComputeRequiresDeviceLinking(cmComputeLinkInformation& cli);
+  bool ComputeRequiresDeviceLinkingIPOFlag(cmComputeLinkInformation& cli);
+
+  void ComputeLinkLibraries(
+    cmComputeLinkInformation& cli, std::string const& stdLibString,
+    std::vector<BT<std::string>>& linkLibraries) override;
 
   std::string GetLinkerLanguage(cmGeneratorTarget* target,
-                                std::string const& config) CM_OVERRIDE;
-};
-
-class cmNinjaLinkLineDeviceComputer : public cmLinkLineDeviceComputer
-{
-  CM_DISABLE_COPY(cmNinjaLinkLineDeviceComputer)
-
-public:
-  cmNinjaLinkLineDeviceComputer(cmOutputConverter* outputConverter,
-                                cmStateDirectory const& stateDir,
-                                cmGlobalNinjaGenerator const* gg);
-
-  std::string ConvertToLinkReference(std::string const& input) const
-    CM_OVERRIDE;
+                                std::string const& config) override;
 
 private:
-  cmGlobalNinjaGenerator const* GG;
+  std::string Language;
 };
 
-#endif
+bool requireDeviceLinking(cmGeneratorTarget const& target,
+                          cmLocalGenerator& lg, std::string const& config,
+                          std::string const& language = "CUDA");
+
+std::string deviceLinkLanguage(cmGeneratorTarget& target, cmLocalGenerator& lg,
+                               std::string const& config);

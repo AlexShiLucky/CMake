@@ -1,34 +1,36 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
 #include "cmStateSnapshot.h"
 
 #include <algorithm>
-#include <assert.h>
-#include <iterator>
-#include <stdio.h>
+#include <array>
+#include <cassert>
+#include <set>
+#include <string>
+#include <unordered_map>
 
-#include "cmAlgorithms.h"
+#include <cm/iterator>
+#include <cmext/algorithm>
+
 #include "cmDefinitions.h"
+#include "cmLinkedTree.h"
 #include "cmListFileCache.h"
+#include "cmPackageState.h"
 #include "cmPropertyMap.h"
 #include "cmState.h"
 #include "cmStateDirectory.h"
 #include "cmStatePrivate.h"
+#include "cmSystemTools.h"
+#include "cmValue.h"
 #include "cmVersion.h"
-#include "cmake.h"
-
-#if !defined(_WIN32)
-#include <sys/utsname.h>
-#endif
 
 #if defined(__CYGWIN__)
-#include "cmSystemTools.h"
+#  include "cmStringAlgorithms.h"
 #endif
 
 cmStateSnapshot::cmStateSnapshot(cmState* state)
   : State(state)
-  , Position()
 {
 }
 
@@ -49,12 +51,32 @@ cmStateEnums::SnapshotType cmStateSnapshot::GetType() const
   return this->Position->SnapshotType;
 }
 
-void cmStateSnapshot::SetListFile(const std::string& listfile)
+cmStateEnums::SnapshotUnwindType cmStateSnapshot::GetUnwindType() const
+{
+  return this->Position->UnwindType;
+}
+
+void cmStateSnapshot::SetUnwindType(cmStateEnums::SnapshotUnwindType type)
+{
+  this->Position->UnwindType = type;
+}
+
+cmStateEnums::SnapshotUnwindState cmStateSnapshot::GetUnwindState() const
+{
+  return this->Position->UnwindState;
+}
+
+void cmStateSnapshot::SetUnwindState(cmStateEnums::SnapshotUnwindState state)
+{
+  this->Position->UnwindState = state;
+}
+
+void cmStateSnapshot::SetListFile(std::string const& listfile)
 {
   *this->Position->ExecutionListFile = listfile;
 }
 
-std::string cmStateSnapshot::GetExecutionListFile() const
+std::string const& cmStateSnapshot::GetExecutionListFile() const
 {
   return *this->Position->ExecutionListFile;
 }
@@ -66,6 +88,11 @@ bool cmStateSnapshot::IsValid() const
     : false;
 }
 
+cmStateSnapshot cmStateSnapshot::GetBuildsystemDirectory() const
+{
+  return { this->State, this->Position->BuildSystemDirectory->CurrentScope };
+}
+
 cmStateSnapshot cmStateSnapshot::GetBuildsystemDirectoryParent() const
 {
   cmStateSnapshot snapshot;
@@ -75,7 +102,7 @@ cmStateSnapshot cmStateSnapshot::GetBuildsystemDirectoryParent() const
   cmStateDetail::PositionType parentPos = this->Position->DirectoryParent;
   if (parentPos != this->State->SnapshotData.Root()) {
     snapshot = cmStateSnapshot(this->State,
-                               parentPos->BuildSystemDirectory->DirectoryEnd);
+                               parentPos->BuildSystemDirectory->CurrentScope);
   }
 
   return snapshot;
@@ -122,7 +149,7 @@ cmStateSnapshot cmStateSnapshot::GetCallStackBottom() const
          pos != this->State->SnapshotData.Root()) {
     ++pos;
   }
-  return cmStateSnapshot(this->State, pos);
+  return { this->State, pos };
 }
 
 void cmStateSnapshot::PushPolicy(cmPolicies::PolicyMap const& entry, bool weak)
@@ -142,9 +169,9 @@ bool cmStateSnapshot::PopPolicy()
   return true;
 }
 
-bool cmStateSnapshot::CanPopPolicyScope()
+bool cmStateSnapshot::CanPopPolicyScope() const
 {
-  return this->Position->Policies == this->Position->PolicyScope;
+  return this->Position->Policies != this->Position->PolicyScope;
 }
 
 void cmStateSnapshot::SetPolicy(cmPolicies::PolicyID id,
@@ -160,15 +187,14 @@ void cmStateSnapshot::SetPolicy(cmPolicies::PolicyID id,
   }
 }
 
-cmPolicies::PolicyStatus cmStateSnapshot::GetPolicy(
-  cmPolicies::PolicyID id) const
+cmPolicies::PolicyStatus cmStateSnapshot::GetPolicy(cmPolicies::PolicyID id,
+                                                    bool parent_scope) const
 {
-  cmPolicies::PolicyStatus status = cmPolicies::GetPolicyStatus(id);
-
-  if (status == cmPolicies::REQUIRED_ALWAYS ||
-      status == cmPolicies::REQUIRED_IF_USED) {
-    return status;
+  if (cmPolicies::IsRemoved(id)) {
+    return cmPolicies::NEW;
   }
+
+  cmPolicies::PolicyStatus status = cmPolicies::WARN;
 
   cmLinkedTree<cmStateDetail::BuildsystemDirectoryStateType>::iterator dir =
     this->Position->BuildSystemDirectory;
@@ -176,16 +202,20 @@ cmPolicies::PolicyStatus cmStateSnapshot::GetPolicy(
   while (true) {
     assert(dir.IsValid());
     cmLinkedTree<cmStateDetail::PolicyStackEntry>::iterator leaf =
-      dir->DirectoryEnd->Policies;
+      dir->CurrentScope->Policies;
     cmLinkedTree<cmStateDetail::PolicyStackEntry>::iterator root =
-      dir->DirectoryEnd->PolicyRoot;
+      dir->CurrentScope->PolicyRoot;
     for (; leaf != root; ++leaf) {
+      if (parent_scope) {
+        parent_scope = false;
+        continue;
+      }
       if (leaf->IsDefined(id)) {
         status = leaf->Get(id);
         return status;
       }
     }
-    cmStateDetail::PositionType e = dir->DirectoryEnd;
+    cmStateDetail::PositionType e = dir->CurrentScope;
     cmStateDetail::PositionType p = e->DirectoryParent;
     if (p == this->State->SnapshotData.Root()) {
       break;
@@ -195,12 +225,167 @@ cmPolicies::PolicyStatus cmStateSnapshot::GetPolicy(
   return status;
 }
 
-bool cmStateSnapshot::HasDefinedPolicyCMP0011()
+cmPolicies::PolicyStatus cmStateSnapshot::GetScopePolicy(
+  cmPolicies::PolicyID id) const
 {
-  return !this->Position->Policies->IsEmpty();
+  if (cmPolicies::IsRemoved(id)) {
+    return cmPolicies::NEW;
+  }
+
+  cmPolicies::PolicyStatus status = cmPolicies::WARN;
+
+  cmLinkedTree<cmStateDetail::BuildsystemDirectoryStateType>::iterator dir =
+    this->Position->BuildSystemDirectory;
+
+  // Logic mirrors GetPolicy(), except that the search starts at this
+  // snapshot's exact scope rather than the directory's current top scope.
+  cmLinkedTree<cmStateDetail::PolicyStackEntry>::iterator leaf =
+    this->Position->Policies;
+  cmLinkedTree<cmStateDetail::PolicyStackEntry>::iterator root =
+    this->Position->PolicyRoot;
+  while (true) {
+    assert(dir.IsValid());
+    for (; leaf != root; ++leaf) {
+      if (leaf->IsDefined(id)) {
+        return leaf->Get(id);
+      }
+    }
+    cmStateDetail::PositionType e = dir->CurrentScope;
+    cmStateDetail::PositionType p = e->DirectoryParent;
+    if (p == this->State->SnapshotData.Root()) {
+      break;
+    }
+    dir = p->BuildSystemDirectory;
+    leaf = dir->CurrentScope->Policies;
+    root = dir->CurrentScope->PolicyRoot;
+  }
+  return status;
 }
 
-const char* cmStateSnapshot::GetDefinition(std::string const& name) const
+void cmStateSnapshot::PushDiagnostic(cmDiagnostics::DiagnosticMap entry,
+                                     bool weak)
+{
+  cmStateDetail::PositionType pos = this->Position;
+  pos->Diagnostics = this->State->DiagnosticStack.Push(
+    pos->Diagnostics, cmStateDetail::DiagnosticStackEntry(entry, weak));
+}
+
+bool cmStateSnapshot::PopDiagnostic()
+{
+  cmStateDetail::PositionType pos = this->Position;
+  if (pos->Diagnostics == pos->DiagnosticScope) {
+    return false;
+  }
+  pos->Diagnostics = this->State->DiagnosticStack.Pop(pos->Diagnostics);
+  return true;
+}
+
+bool cmStateSnapshot::CanPopDiagnosticScope() const
+{
+  return this->Position->Diagnostics != this->Position->DiagnosticScope;
+}
+
+void cmStateSnapshot::SetDiagnostic(cmDiagnosticCategory category,
+                                    cmDiagnosticAction action, bool recursive)
+{
+  assert(action != cmDiagnostics::Undefined);
+
+  auto function = [](cmDiagnosticAction, cmDiagnosticAction) -> bool {
+    return true;
+  };
+
+  this->AlterDiagnostic(category, action, function, recursive);
+}
+
+void cmStateSnapshot::PromoteDiagnostic(cmDiagnosticCategory category,
+                                        cmDiagnosticAction action,
+                                        bool recursive)
+{
+  assert(action != cmDiagnostics::Undefined);
+
+  auto function = [](cmDiagnosticAction current,
+                     cmDiagnosticAction desired) -> bool {
+    return (current < desired);
+  };
+
+  this->AlterDiagnostic(category, action, function, recursive);
+}
+
+void cmStateSnapshot::DemoteDiagnostic(cmDiagnosticCategory category,
+                                       cmDiagnosticAction action,
+                                       bool recursive)
+{
+  assert(action != cmDiagnostics::Undefined);
+
+  auto function = [](cmDiagnosticAction current,
+                     cmDiagnosticAction desired) -> bool {
+    return (current > desired);
+  };
+
+  this->AlterDiagnostic(category, action, function, recursive);
+}
+
+void cmStateSnapshot::AlterDiagnostic(cmDiagnosticCategory category,
+                                      cmDiagnosticAction action,
+                                      AlterDiagnosticFunction function,
+                                      bool recursive)
+{
+  if (recursive) {
+    unsigned i = category;
+    for (;;) {
+      this->AlterDiagnostic(static_cast<cmDiagnosticCategory>(i), action,
+                            function, false);
+      if (++i >= cmDiagnostics::CategoryCount) {
+        break;
+      }
+      if (cmDiagnostics::CategoryInfo[i].Parent < category) {
+        break;
+      }
+    }
+  } else {
+    cmDiagnosticAction const oldAction = this->GetDiagnostic(category);
+    if (function(oldAction, action)) {
+      // Update the policy stack from the top to the top-most strong entry.
+      bool previous_was_weak = true;
+      for (cmLinkedTree<cmStateDetail::DiagnosticStackEntry>::iterator dsi =
+             this->Position->Diagnostics;
+           previous_was_weak && dsi != this->Position->DiagnosticRoot; ++dsi) {
+        (*dsi)[category] = action;
+        previous_was_weak = dsi->Weak;
+      }
+    }
+  }
+}
+
+cmDiagnosticAction cmStateSnapshot::GetDiagnostic(
+  cmDiagnosticCategory category, cmDiagnosticAction defaultAction) const
+{
+  cmLinkedTree<cmStateDetail::BuildsystemDirectoryStateType>::iterator dir =
+    this->Position->BuildSystemDirectory;
+
+  while (true) {
+    assert(dir.IsValid());
+    cmLinkedTree<cmStateDetail::DiagnosticStackEntry>::iterator leaf =
+      dir->CurrentScope->Diagnostics;
+    cmLinkedTree<cmStateDetail::DiagnosticStackEntry>::iterator root =
+      dir->CurrentScope->DiagnosticRoot;
+    for (; leaf != root; ++leaf) {
+      cmDiagnosticAction const action = (*leaf)[category];
+      if (action != cmDiagnostics::Undefined) {
+        return action;
+      }
+    }
+    cmStateDetail::PositionType e = dir->CurrentScope;
+    cmStateDetail::PositionType p = e->DirectoryParent;
+    if (p == this->State->SnapshotData.Root()) {
+      break;
+    }
+    dir = p->BuildSystemDirectory;
+  }
+  return defaultAction;
+}
+
+cmValue cmStateSnapshot::GetDefinition(std::string const& name) const
 {
   assert(this->Position->Vars.IsValid());
   return cmDefinitions::Get(name, this->Position->Vars, this->Position->Root);
@@ -213,19 +398,14 @@ bool cmStateSnapshot::IsInitialized(std::string const& name) const
 }
 
 void cmStateSnapshot::SetDefinition(std::string const& name,
-                                    std::string const& value)
+                                    cm::string_view value)
 {
-  this->Position->Vars->Set(name, value.c_str());
+  this->Position->Vars->Set(name, value);
 }
 
 void cmStateSnapshot::RemoveDefinition(std::string const& name)
 {
-  this->Position->Vars->Set(name, nullptr);
-}
-
-std::vector<std::string> cmStateSnapshot::UnusedKeys() const
-{
-  return this->Position->Vars->UnusedKeys();
+  this->Position->Vars->Unset(name);
 }
 
 std::vector<std::string> cmStateSnapshot::ClosureKeys() const
@@ -234,7 +414,29 @@ std::vector<std::string> cmStateSnapshot::ClosureKeys() const
                                     this->Position->Root);
 }
 
-bool cmStateSnapshot::RaiseScope(std::string const& var, const char* varDef)
+std::vector<std::string> cmStateSnapshot::LocalKeys() const
+{
+  std::vector<std::string> keys = cmDefinitions::ClosureKeys(
+    this->Position->Vars, this->Position->ScopeParent->Vars,
+    cmDefinitions::UnsetKeys::Include);
+
+  // Remove keys that are the same in the parent scope to avoid propagating
+  // logic meant to restore variables back to their original value.
+  keys.erase(std::remove_if(
+               keys.begin(), keys.end(),
+               [this](std::string const& key) {
+                 return cmDefinitions::Get(key, this->Position->Vars,
+                                           this->Position->Root) ==
+                   cmDefinitions::Get(key, this->Position->ScopeParent->Vars,
+                                      this->Position->ScopeParent->Root);
+               }),
+             keys.end());
+  std::sort(keys.begin(), keys.end());
+
+  return keys;
+}
+
+bool cmStateSnapshot::RaiseScope(std::string const& var, char const* varDef)
 {
   if (this->Position->ScopeParent == this->Position->DirectoryParent) {
     cmStateSnapshot parentDir = this->GetBuildsystemDirectoryParent();
@@ -255,71 +457,89 @@ bool cmStateSnapshot::RaiseScope(std::string const& var, const char* varDef)
   cmDefinitions::Raise(var, this->Position->Vars, this->Position->Root);
 
   // Now update the definition in the parent scope.
-  this->Position->Parent->Set(var, varDef);
+  if (varDef) {
+    this->Position->Parent->Set(var, varDef);
+  } else {
+    this->Position->Parent->Unset(var);
+  }
   return true;
 }
 
-template <typename T, typename U, typename V>
-void InitializeContentFromParent(T& parentContent, T& thisContent,
-                                 U& parentBacktraces, U& thisBacktraces,
-                                 V& contentEndPosition)
+cmStateSnapshot::WarnCMP0220 cmStateSnapshot::RaiseToRoot(
+  std::string const& var, char const* varDef, CheckCMP0220 checkCMP0220)
 {
-  std::vector<std::string>::const_iterator parentBegin = parentContent.begin();
-  std::vector<std::string>::const_iterator parentEnd = parentContent.end();
+  // If we are at the top of a directory, propagate to the parent directory (if
+  // any).
+  cmStateSnapshot parentScope =
+    this->Position->ScopeParent == this->Position->DirectoryParent
+    ? this->GetBuildsystemDirectoryParent()
+    : cmStateSnapshot(this->State, this->Position->ScopeParent);
 
-  std::vector<std::string>::const_reverse_iterator parentRbegin =
-    cmMakeReverseIterator(parentEnd);
-  std::vector<std::string>::const_reverse_iterator parentRend =
-    parentContent.rend();
-  parentRbegin = std::find(parentRbegin, parentRend, cmPropertySentinal);
-  std::vector<std::string>::const_iterator parentIt = parentRbegin.base();
+  if (!parentScope.IsValid()) {
+    return WarnCMP0220::No;
+  }
 
-  thisContent = std::vector<std::string>(parentIt, parentEnd);
+  // First raise always occurs to propagate out of capturing variable scope.
+  if (checkCMP0220 == CheckCMP0220::Yes) {
+    switch (parentScope.GetScopePolicy(cmPolicies::CMP0220)) {
+      case cmPolicies::NEW:
+        break;
+      case cmPolicies::OLD:
+        return WarnCMP0220::No;
+      case cmPolicies::WARN:
+        return WarnCMP0220::Yes;
+    }
+  }
 
-  std::vector<cmListFileBacktrace>::const_iterator btIt =
-    parentBacktraces.begin() + std::distance(parentBegin, parentIt);
-  std::vector<cmListFileBacktrace>::const_iterator btEnd =
-    parentBacktraces.end();
+  if (varDef) {
+    parentScope.SetDefinition(var, varDef);
+  } else {
+    parentScope.RemoveDefinition(var);
+  }
+  return parentScope.RaiseToRoot(var, varDef, CheckCMP0220::Yes);
+}
 
-  thisBacktraces = std::vector<cmListFileBacktrace>(btIt, btEnd);
+template <typename T, typename U>
+void InitializeContentFromParent(T& parentContent, T& thisContent,
+                                 U& contentEndPosition)
+{
+  auto parentEnd = parentContent.end();
+
+  auto parentRbegin = cm::make_reverse_iterator(parentEnd);
+  auto parentRend = parentContent.rend();
+  parentRbegin =
+    std::find(parentRbegin, parentRend, cmStateDetail::PropertySentinel);
+  auto parentIt = parentRbegin.base();
+
+  thisContent = std::vector<BT<std::string>>(parentIt, parentEnd);
 
   contentEndPosition = thisContent.size();
 }
 
 void cmStateSnapshot::SetDefaultDefinitions()
 {
-/* Up to CMake 2.4 here only WIN32, UNIX and APPLE were set.
-  With CMake must separate between target and host platform. In most cases
-  the tests for WIN32, UNIX and APPLE will be for the target system, so an
-  additional set of variables for the host system is required ->
-  CMAKE_HOST_WIN32, CMAKE_HOST_UNIX, CMAKE_HOST_APPLE.
-  WIN32, UNIX and APPLE are now set in the platform files in
-  Modules/Platforms/.
-  To keep cmake scripts (-P) and custom language and compiler modules
-  working, these variables are still also set here in this place, but they
-  will be reset in CMakeSystemSpecificInformation.cmake before the platform
-  files are executed. */
-#if defined(_WIN32)
-  this->SetDefinition("WIN32", "1");
-  this->SetDefinition("CMAKE_HOST_WIN32", "1");
-  this->SetDefinition("CMAKE_HOST_SYSTEM_NAME", "Windows");
-#else
-  this->SetDefinition("UNIX", "1");
-  this->SetDefinition("CMAKE_HOST_UNIX", "1");
-
-  struct utsname uts_name;
-  if (uname(&uts_name) >= 0) {
-    this->SetDefinition("CMAKE_HOST_SYSTEM_NAME", uts_name.sysname);
-  }
-#endif
-#if defined(__CYGWIN__)
-  std::string legacy;
-  if (cmSystemTools::GetEnv("CMAKE_LEGACY_CYGWIN_WIN32", legacy) &&
-      cmSystemTools::IsOn(legacy.c_str())) {
+  /* Up to CMake 2.4 here only WIN32, UNIX and APPLE were set.
+    With CMake must separate between target and host platform. In most cases
+    the tests for WIN32, UNIX and APPLE will be for the target system, so an
+    additional set of variables for the host system is required ->
+    CMAKE_HOST_WIN32, CMAKE_HOST_UNIX, CMAKE_HOST_APPLE.
+    WIN32, UNIX and APPLE are now set in the platform files in
+    Modules/Platforms/.
+    To keep cmake scripts (-P) and custom language and compiler modules
+    working, these variables are still also set here in this place, but they
+    will be reset in CMakeSystemSpecificInformation.cmake before the platform
+    files are executed. */
+  cm::string_view hostSystemName = cmSystemTools::GetSystemName();
+  this->SetDefinition("CMAKE_HOST_SYSTEM_NAME", hostSystemName);
+  if (hostSystemName == "Windows") {
     this->SetDefinition("WIN32", "1");
     this->SetDefinition("CMAKE_HOST_WIN32", "1");
+    this->SetDefinition("CMAKE_HOST_EXECUTABLE_SUFFIX", ".exe");
+  } else {
+    this->SetDefinition("UNIX", "1");
+    this->SetDefinition("CMAKE_HOST_UNIX", "1");
+    this->SetDefinition("CMAKE_HOST_EXECUTABLE_SUFFIX", "");
   }
-#endif
 #if defined(__APPLE__)
   this->SetDefinition("APPLE", "1");
   this->SetDefinition("CMAKE_HOST_APPLE", "1");
@@ -328,19 +548,41 @@ void cmStateSnapshot::SetDefaultDefinitions()
   this->SetDefinition("CMAKE_HOST_SOLARIS", "1");
 #endif
 
-  char temp[1024];
-  sprintf(temp, "%d", cmVersion::GetMinorVersion());
-  this->SetDefinition("CMAKE_MINOR_VERSION", temp);
-  sprintf(temp, "%d", cmVersion::GetMajorVersion());
-  this->SetDefinition("CMAKE_MAJOR_VERSION", temp);
-  sprintf(temp, "%d", cmVersion::GetPatchVersion());
-  this->SetDefinition("CMAKE_PATCH_VERSION", temp);
-  sprintf(temp, "%d", cmVersion::GetTweakVersion());
-  this->SetDefinition("CMAKE_TWEAK_VERSION", temp);
+#if defined(__OpenBSD__)
+  this->SetDefinition("BSD", "OpenBSD");
+  this->SetDefinition("CMAKE_HOST_BSD", "OpenBSD");
+#elif defined(__FreeBSD__)
+  this->SetDefinition("BSD", "FreeBSD");
+  this->SetDefinition("CMAKE_HOST_BSD", "FreeBSD");
+#elif defined(__NetBSD__)
+  this->SetDefinition("BSD", "NetBSD");
+  this->SetDefinition("CMAKE_HOST_BSD", "NetBSD");
+#elif defined(__DragonFly__)
+  this->SetDefinition("BSD", "DragonFlyBSD");
+  this->SetDefinition("CMAKE_HOST_BSD", "DragonFlyBSD");
+#endif
+
+#if defined(__linux__)
+  this->SetDefinition("LINUX", "1");
+  this->SetDefinition("CMAKE_HOST_LINUX", "1");
+#endif
+
+#if defined(_AIX)
+  this->SetDefinition("AIX", "1");
+  this->SetDefinition("CMAKE_HOST_AIX", "1");
+#endif
+
+  this->SetDefinition("CMAKE_MAJOR_VERSION",
+                      std::to_string(cmVersion::GetMajorVersion()));
+  this->SetDefinition("CMAKE_MINOR_VERSION",
+                      std::to_string(cmVersion::GetMinorVersion()));
+  this->SetDefinition("CMAKE_PATCH_VERSION",
+                      std::to_string(cmVersion::GetPatchVersion()));
+  this->SetDefinition("CMAKE_TWEAK_VERSION",
+                      std::to_string(cmVersion::GetTweakVersion()));
   this->SetDefinition("CMAKE_VERSION", cmVersion::GetCMakeVersion());
 
-  this->SetDefinition("CMAKE_FILES_DIRECTORY",
-                      cmake::GetCMakeFilesDirectory());
+  this->SetDefinition("CMAKE_FILES_DIRECTORY", "/CMakeFiles");
 
   // Setup the default include file regular expression (match everything).
   this->Position->BuildSystemDirectory->Properties.SetProperty(
@@ -369,23 +611,33 @@ void cmStateSnapshot::InitializeFromParent()
   InitializeContentFromParent(
     parent->BuildSystemDirectory->IncludeDirectories,
     this->Position->BuildSystemDirectory->IncludeDirectories,
-    parent->BuildSystemDirectory->IncludeDirectoryBacktraces,
-    this->Position->BuildSystemDirectory->IncludeDirectoryBacktraces,
     this->Position->IncludeDirectoryPosition);
 
   InitializeContentFromParent(
     parent->BuildSystemDirectory->CompileDefinitions,
     this->Position->BuildSystemDirectory->CompileDefinitions,
-    parent->BuildSystemDirectory->CompileDefinitionsBacktraces,
-    this->Position->BuildSystemDirectory->CompileDefinitionsBacktraces,
     this->Position->CompileDefinitionsPosition);
 
   InitializeContentFromParent(
     parent->BuildSystemDirectory->CompileOptions,
     this->Position->BuildSystemDirectory->CompileOptions,
-    parent->BuildSystemDirectory->CompileOptionsBacktraces,
-    this->Position->BuildSystemDirectory->CompileOptionsBacktraces,
     this->Position->CompileOptionsPosition);
+
+  InitializeContentFromParent(
+    parent->BuildSystemDirectory->LinkOptions,
+    this->Position->BuildSystemDirectory->LinkOptions,
+    this->Position->LinkOptionsPosition);
+
+  InitializeContentFromParent(
+    parent->BuildSystemDirectory->LinkDirectories,
+    this->Position->BuildSystemDirectory->LinkDirectories,
+    this->Position->LinkDirectoriesPosition);
+
+  cmValue include_regex =
+    parent->BuildSystemDirectory->Properties.GetPropertyValue(
+      "INCLUDE_REGULAR_EXPRESSION");
+  this->Position->BuildSystemDirectory->Properties.SetProperty(
+    "INCLUDE_REGULAR_EXPRESSION", include_regex);
 }
 
 cmState* cmStateSnapshot::GetState() const
@@ -395,12 +647,13 @@ cmState* cmStateSnapshot::GetState() const
 
 cmStateDirectory cmStateSnapshot::GetDirectory() const
 {
-  return cmStateDirectory(this->Position->BuildSystemDirectory, *this);
+  return { this->Position->BuildSystemDirectory, *this };
 }
 
-void cmStateSnapshot::SetProjectName(const std::string& name)
+void cmStateSnapshot::SetProjectName(std::string const& name)
 {
   this->Position->BuildSystemDirectory->ProjectName = name;
+  this->Position->BuildSystemDirectory->Projects.insert(name);
 }
 
 std::string cmStateSnapshot::GetProjectName() const
@@ -408,10 +661,21 @@ std::string cmStateSnapshot::GetProjectName() const
   return this->Position->BuildSystemDirectory->ProjectName;
 }
 
+bool cmStateSnapshot::CheckProjectName(std::string const& name) const
+{
+  return cm::contains(this->Position->BuildSystemDirectory->Projects, name);
+}
+
+cmPackageState& cmStateSnapshot::GetPackageState(
+  std::string const& packagePath)
+{
+  return this->Position->BuildSystemDirectory->Packages[packagePath];
+}
+
 void cmStateSnapshot::InitializeFromParent_ForSubdirsCommand()
 {
-  std::string currentSrcDir = this->GetDefinition("CMAKE_CURRENT_SOURCE_DIR");
-  std::string currentBinDir = this->GetDefinition("CMAKE_CURRENT_BINARY_DIR");
+  std::string currentSrcDir = *this->GetDefinition("CMAKE_CURRENT_SOURCE_DIR");
+  std::string currentBinDir = *this->GetDefinition("CMAKE_CURRENT_BINARY_DIR");
   this->InitializeFromParent();
   this->SetDefinition("CMAKE_SOURCE_DIR", this->State->GetSourceDirectory());
   this->SetDefinition("CMAKE_BINARY_DIR", this->State->GetBinaryDirectory());
@@ -421,17 +685,17 @@ void cmStateSnapshot::InitializeFromParent_ForSubdirsCommand()
 }
 
 bool cmStateSnapshot::StrictWeakOrder::operator()(
-  const cmStateSnapshot& lhs, const cmStateSnapshot& rhs) const
+  cmStateSnapshot const& lhs, cmStateSnapshot const& rhs) const
 {
   return lhs.Position.StrictWeakOrdered(rhs.Position);
 }
 
-bool operator==(const cmStateSnapshot& lhs, const cmStateSnapshot& rhs)
+bool operator==(cmStateSnapshot const& lhs, cmStateSnapshot const& rhs)
 {
   return lhs.Position == rhs.Position;
 }
 
-bool operator!=(const cmStateSnapshot& lhs, const cmStateSnapshot& rhs)
+bool operator!=(cmStateSnapshot const& lhs, cmStateSnapshot const& rhs)
 {
   return lhs.Position != rhs.Position;
 }

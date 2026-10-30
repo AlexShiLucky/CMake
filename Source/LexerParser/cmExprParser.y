@@ -1,16 +1,13 @@
 %{
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 /*
 
 This file must be translated to C and modified to build everywhere.
 
 Run bison like this:
 
-  bison --yacc --name-prefix=cmExpr_yy --defines=cmExprParserTokens.h -ocmExprParser.cxx cmExprParser.y
-
-Modify cmExprParser.cxx:
-  - "#if 0" out yyerrorlab block in range ["goto yyerrlab1", "yyerrlab1:"]
+  bison --name-prefix=cmExpr_yy --defines=cmExprParserTokens.h -ocmExprParser.cxx cmExprParser.y
 
 */
 
@@ -35,6 +32,25 @@ static void cmExpr_yyerror(yyscan_t yyscanner, const char* message);
 #ifdef _MSC_VER
 # pragma warning (disable: 4102) /* Unused goto label.  */
 # pragma warning (disable: 4065) /* Switch statement contains default but no case. */
+#endif
+#if defined(__GNUC__) && __GNUC__ >= 8
+# pragma GCC diagnostic ignored "-Wconversion"
+# pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif
+#if defined(__GNUC__) && __GNUC__ >= 16
+# pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#endif
+#if defined(__clang__) && defined(__has_warning)
+# if __has_warning("-Wunused-but-set-variable")
+#  pragma clang diagnostic ignored "-Wunused-but-set-variable"
+# endif
+# if __has_warning("-Wused-but-marked-unused")
+#  pragma clang diagnostic ignored "-Wused-but-marked-unused"
+# endif
+#endif
+
+#if defined(__NVCOMPILER)
+#  pragma diag_suppress 550 /* variable set but never used */
 #endif
 %}
 
@@ -103,10 +119,12 @@ bitwiseand:
     $<Number>$ = $<Number>1;
   }
 | bitwiseand exp_SHIFTLEFT shift {
-    $<Number>$ = $<Number>1 << $<Number>3;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->ShL($<Number>1, $<Number>3);
   }
 | bitwiseand exp_SHIFTRIGHT shift {
-    $<Number>$ = $<Number>1 >> $<Number>3;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->ShR($<Number>1, $<Number>3);
   }
 
 shift:
@@ -114,10 +132,12 @@ shift:
     $<Number>$ = $<Number>1;
   }
 | shift exp_PLUS term {
-    $<Number>$ = $<Number>1 + $<Number>3;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->Add($<Number>1, $<Number>3);
   }
 | shift exp_MINUS term {
-    $<Number>$ = $<Number>1 - $<Number>3;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->Sub($<Number>1, $<Number>3);
   }
 
 term:
@@ -125,13 +145,16 @@ term:
     $<Number>$ = $<Number>1;
   }
 | term exp_TIMES unary {
-    $<Number>$ = $<Number>1 * $<Number>3;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->Mul($<Number>1, $<Number>3);
   }
 | term exp_DIVIDE unary {
-    $<Number>$ = $<Number>1 / $<Number>3;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->Div($<Number>1, $<Number>3);
   }
 | term exp_MOD unary {
-    $<Number>$ = $<Number>1 % $<Number>3;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->Mod($<Number>1, $<Number>3);
   }
 
 unary:
@@ -142,7 +165,11 @@ unary:
     $<Number>$ = + $<Number>2;
   }
 | exp_MINUS unary {
-    $<Number>$ = - $<Number>2;
+    $<Number>$ = cmExpr_yyget_extra(yyscanner)
+      ->Neg($<Number>2);
+  }
+| exp_NOT unary {
+    $<Number>$ = ~ $<Number>2;
   }
 
 factor:

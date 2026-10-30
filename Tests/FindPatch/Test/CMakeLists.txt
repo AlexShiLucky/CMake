@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(TestFindPatch VERSION 1.0 LANGUAGES NONE)
 
 macro(_check)
@@ -6,8 +6,8 @@ macro(_check)
     message(FATAL_ERROR "Failed to lookup Patch_EXECUTABLE [${Patch_EXECUTABLE}]")
   endif()
 
-  if(NOT DEFINED PATCH_FOUND)
-    message(FATAL_ERROR "Variable PATCH_FOUND is not defined")
+  if(NOT DEFINED Patch_FOUND)
+    message(FATAL_ERROR "Variable Patch_FOUND is not defined")
   endif()
 
   # Is import target available ?
@@ -70,8 +70,8 @@ index 68059b3..c6f30c2 100644
 )
 
 add_custom_target(TestPatch ALL
-  COMMAND ${Patch_EXECUTABLE} -p1 -i quote-add-author.patch
-  COMMAND Patch::patch -p1 -i quote-add-date.patch
+  COMMAND ${Patch_EXECUTABLE} -p1 -i quote-add-author.patch --binary
+  COMMAND Patch::patch -p1 -i quote-add-date.patch --binary
   COMMAND ${CMAKE_COMMAND} -E compare_files QUOTE.txt QUOTE.txt.baseline
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )

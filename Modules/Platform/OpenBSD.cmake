@@ -7,13 +7,20 @@ include(Platform/NetBSD)
 if(NOT CMAKE_PLATFORM_RUNTIME_PATH)
   execute_process(COMMAND /sbin/ldconfig -r
                   OUTPUT_VARIABLE LDCONFIG_HINTS
-                  ERROR_QUIET)
-  string(REGEX REPLACE ".*search\\ directories:\\ ([^\n]*).*" "\\1"
-         LDCONFIG_HINTS "${LDCONFIG_HINTS}")
-  string(REPLACE ":" ";"
-         CMAKE_PLATFORM_RUNTIME_PATH
-         "${LDCONFIG_HINTS}")
+                  ERROR_QUIET
+                  RESULT_VARIABLE _res)
+  if(_res EQUAL 0)
+    string(REGEX REPLACE ".*search\\ directories:\\ ([^\n]*).*" "\\1"
+           LDCONFIG_HINTS "${LDCONFIG_HINTS}")
+    string(REPLACE ":" ";"
+           CMAKE_PLATFORM_RUNTIME_PATH
+           "${LDCONFIG_HINTS}")
+  endif()
 endif()
+
+# OpenBSD requires -z origin to enable $ORIGIN expansion in RPATH.
+# This is not required for NetBSD.
+set(CMAKE_SHARED_LIBRARY_RUNTIME_C_FLAG "-Wl,-z,origin,-rpath,")
 
 set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_OPENBSD_VERSIONING 1)
 

@@ -1,16 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#include "cmGeneratedFileStream.h"
-#include "cmSystemTools.h"
-
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include <iostream>
 #include <string>
+
+#include "cmGeneratedFileStream.h"
+#include "cmSystemTools.h"
 
 #define cmFailed(m1, m2)                                                      \
   std::cout << "FAILED: " << (m1) << (m2) << "\n";                            \
   failed = 1
 
-int testGeneratedFileStream(int /*unused*/, char* /*unused*/ [])
+int testGeneratedFileStream(int /*unused*/, char* /*unused*/[])
 {
   int failed = 0;
   cmGeneratedFileStream gm;

@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_string_sprintf.c 189435 2009-03-06 05:14:55Z kientzle $");
 
 /*
  * The use of printf()-family functions can be troublesome
@@ -51,11 +50,15 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_string_sprintf.c 189435 2009-03-
  * them to an archive_string.
  */
 static void
-append_uint(struct archive_string *as, uintmax_t d, unsigned base)
+append_uint(struct archive_string *as, uintmax_t d, unsigned base,
+    int upper)
 {
-	static const char digits[] = "0123456789abcdef";
+	static const char digits_lower[] = "0123456789abcdef";
+	static const char digits_upper[] = "0123456789ABCDEF";
+	const char *digits = upper ? digits_upper : digits_lower;
+
 	if (d >= base)
-		append_uint(as, d/base, base);
+		append_uint(as, d/base, base, upper);
 	archive_strappend_char(as, digits[d % base]);
 }
 
@@ -69,7 +72,7 @@ append_int(struct archive_string *as, intmax_t d, unsigned base)
 		ud = (d == INTMAX_MIN) ? (uintmax_t)(INTMAX_MAX) + 1 : (uintmax_t)(-d);
 	} else
 		ud = d;
-	append_uint(as, ud, base);
+	append_uint(as, ud, base, 0);
 }
 
 
@@ -117,8 +120,14 @@ archive_string_vsprintf(struct archive_string *as, const char *fmt,
 
 		long_flag = '\0';
 		switch(*p) {
-		case 'j':
 		case 'l':
+			if (p[1] == 'l') {
+				long_flag = 'L';
+				p += 2;
+				break;
+			}
+			__LA_FALLTHROUGH;
+		case 'j':
 		case 'z':
 			long_flag = *p;
 			p++;
@@ -137,14 +146,16 @@ archive_string_vsprintf(struct archive_string *as, const char *fmt,
 			switch(long_flag) {
 			case 'j': s = va_arg(ap, intmax_t); break;
 			case 'l': s = va_arg(ap, long); break;
+			case 'L': s = va_arg(ap, long long); break;
 			case 'z': s = va_arg(ap, ssize_t); break;
 			default:  s = va_arg(ap, int); break;
 			}
-		        append_int(as, s, 10);
+			append_int(as, s, 10);
 			break;
 		case 's':
 			switch(long_flag) {
 			case 'l':
+			case 'L':
 				pw = va_arg(ap, wchar_t *);
 				if (pw == NULL)
 					pw = L"(null)";
@@ -173,14 +184,16 @@ archive_string_vsprintf(struct archive_string *as, const char *fmt,
 			switch(long_flag) {
 			case 'j': u = va_arg(ap, uintmax_t); break;
 			case 'l': u = va_arg(ap, unsigned long); break;
+			case 'L': u = va_arg(ap, unsigned long long); break;
 			case 'z': u = va_arg(ap, size_t); break;
 			default:  u = va_arg(ap, unsigned int); break;
 			}
 			/* Format it in the correct base. */
 			switch (*p) {
-			case 'o': append_uint(as, u, 8); break;
-			case 'u': append_uint(as, u, 10); break;
-			default: append_uint(as, u, 16); break;
+			case 'o': append_uint(as, u, 8, 0); break;
+			case 'u': append_uint(as, u, 10, 0); break;
+			case 'x': append_uint(as, u, 16, 0); break;
+			case 'X': append_uint(as, u, 16, 1); break;
 			}
 			break;
 		default:

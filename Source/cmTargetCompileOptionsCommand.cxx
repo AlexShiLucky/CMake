@@ -1,51 +1,59 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmTargetCompileOptionsCommand.h"
 
-#include <sstream>
-
-#include "cmAlgorithms.h"
+#include "cmList.h"
 #include "cmListFileCache.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
+#include "cmPolicies.h"
+#include "cmStringAlgorithms.h"
 #include "cmTarget.h"
-#include "cmake.h"
+#include "cmTargetPropCommandBase.h"
 
-class cmExecutionStatus;
+namespace {
 
-bool cmTargetCompileOptionsCommand::InitialPass(
-  std::vector<std::string> const& args, cmExecutionStatus&)
+class TargetCompileOptionsImpl : public cmTargetPropCommandBase
 {
-  return this->HandleArguments(args, "COMPILE_OPTIONS", PROCESS_BEFORE);
-}
+public:
+  using cmTargetPropCommandBase::cmTargetPropCommandBase;
 
-void cmTargetCompileOptionsCommand::HandleImportedTarget(
-  const std::string& tgt)
-{
-  std::ostringstream e;
-  e << "Cannot specify compile options for imported target \"" << tgt << "\".";
-  this->Makefile->IssueMessage(cmake::FATAL_ERROR, e.str());
-}
+private:
+  void HandleMissingTarget(std::string const& name) override
+  {
+    this->Makefile->IssueMessage(
+      MessageType::FATAL_ERROR,
+      cmStrCat("Cannot specify compile options for target \"", name,
+               "\" which is not built by this project."));
+  }
 
-void cmTargetCompileOptionsCommand::HandleMissingTarget(
-  const std::string& name)
-{
-  std::ostringstream e;
-  e << "Cannot specify compile options for target \"" << name
-    << "\" "
-       "which is not built by this project.";
-  this->Makefile->IssueMessage(cmake::FATAL_ERROR, e.str());
-}
+  bool HandleDirectContent(cmTarget* tgt,
+                           std::vector<std::string> const& content,
+                           bool prepend, bool /*system*/) override
+  {
+    cmPolicies::PolicyStatus policyStatus =
+      this->Makefile->GetPolicyStatus(cmPolicies::CMP0101);
+    if (policyStatus == cmPolicies::OLD || policyStatus == cmPolicies::WARN) {
+      prepend = false;
+    }
 
-std::string cmTargetCompileOptionsCommand::Join(
-  const std::vector<std::string>& content)
-{
-  return cmJoin(content, ";");
-}
+    cmListFileBacktrace lfbt = this->Makefile->GetBacktrace();
+    tgt->InsertCompileOption(BT<std::string>(this->Join(content), lfbt),
+                             prepend);
+    return true; // Successfully handled.
+  }
 
-bool cmTargetCompileOptionsCommand::HandleDirectContent(
-  cmTarget* tgt, const std::vector<std::string>& content, bool, bool)
+  std::string Join(std::vector<std::string> const& content) override
+  {
+    return cmList::to_string(content);
+  }
+};
+
+} // namespace
+
+bool cmTargetCompileOptionsCommand(std::vector<std::string> const& args,
+                                   cmExecutionStatus& status)
 {
-  cmListFileBacktrace lfbt = this->Makefile->GetBacktrace();
-  tgt->InsertCompileOption(this->Join(content), lfbt);
-  return true;
+  return TargetCompileOptionsImpl(status).HandleArguments(
+    args, "COMPILE_OPTIONS", TargetCompileOptionsImpl::PROCESS_BEFORE);
 }

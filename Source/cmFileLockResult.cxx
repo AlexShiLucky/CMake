@@ -1,44 +1,47 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmFileLockResult.h"
 
-#include <errno.h>
-#include <string.h>
+#include <cerrno>
+#include <cstring>
 
-#define WINMSG_BUF_LEN (1024)
+#ifdef _WIN32
+#  include <windows.h>
+#endif
+
 cmFileLockResult cmFileLockResult::MakeOk()
 {
-  return cmFileLockResult(OK, 0);
+  return { OK, 0 };
 }
 
 cmFileLockResult cmFileLockResult::MakeSystem()
 {
 #if defined(_WIN32)
-  const Error lastError = GetLastError();
+  Error const lastError = GetLastError();
 #else
-  const Error lastError = errno;
+  Error const lastError = errno;
 #endif
-  return cmFileLockResult(SYSTEM, lastError);
+  return { SYSTEM, lastError };
 }
 
 cmFileLockResult cmFileLockResult::MakeTimeout()
 {
-  return cmFileLockResult(TIMEOUT, 0);
+  return { TIMEOUT, 0 };
 }
 
 cmFileLockResult cmFileLockResult::MakeAlreadyLocked()
 {
-  return cmFileLockResult(ALREADY_LOCKED, 0);
+  return { ALREADY_LOCKED, 0 };
 }
 
 cmFileLockResult cmFileLockResult::MakeInternal()
 {
-  return cmFileLockResult(INTERNAL, 0);
+  return { INTERNAL, 0 };
 }
 
 cmFileLockResult cmFileLockResult::MakeNoFunction()
 {
-  return cmFileLockResult(NO_FUNCTION, 0);
+  return { NO_FUNCTION, 0 };
 }
 
 bool cmFileLockResult::IsOk() const
@@ -54,12 +57,13 @@ std::string cmFileLockResult::GetOutputMessage() const
     case SYSTEM:
 #if defined(_WIN32)
     {
+#  define WINMSG_BUF_LEN (1024)
       char winmsg[WINMSG_BUF_LEN];
       DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
-      if (FormatMessageA(flags, NULL, this->ErrorValue,
+      if (FormatMessageA(flags, nullptr, this->ErrorValue,
                          MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                         (LPSTR)winmsg, WINMSG_BUF_LEN, NULL)) {
-        const std::string message = winmsg;
+                         (LPSTR)winmsg, WINMSG_BUF_LEN, nullptr)) {
+        std::string const message = winmsg;
         return message;
       } else {
         return "Internal error (FormatMessageA failed)";

@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 # Block multiple inclusion because "CMakeCInformation.cmake" includes
@@ -24,6 +24,10 @@ set(__WINDOWS_PATHS_INCLUDED 1)
 #   ENV{ProgramFiles(x86)} = [C:\Program Files (x86)]
 #   ENV{ProgramFiles} = [C:\Program Files (x86)]
 #   ENV{ProgramW6432} = [C:\Program Files]
+#
+# Reminder when adding new locations computed from environment variables
+# please make sure to keep Help/variable/CMAKE_SYSTEM_PREFIX_PATH.rst
+# synchronized
 set(_programfiles "")
 foreach(v "ProgramW6432" "ProgramFiles" "ProgramFiles(x86)")
   if(DEFINED "ENV{${v}}")
@@ -46,9 +50,19 @@ endif()
 unset(_programfiles)
 
 # Add the CMake install location.
+# CMAKE_ROOT is CMAKE_INSTALL_PREFIX/share/cmake, so we need to go two levels up.
+# When CMake runs from its build tree, CMAKE_ROOT is the source tree instead.
 get_filename_component(_CMAKE_INSTALL_DIR "${CMAKE_ROOT}" PATH)
 get_filename_component(_CMAKE_INSTALL_DIR "${_CMAKE_INSTALL_DIR}" PATH)
-list(APPEND CMAKE_SYSTEM_PREFIX_PATH "${_CMAKE_INSTALL_DIR}")
+get_property(_cmake_running_in_build_tree GLOBAL PROPERTY
+  _CMAKE_RUNNING_IN_BUILD_TREE)
+if(_cmake_running_in_build_tree)
+  set(_CMAKE_INSTALL_DIR "")
+endif()
+unset(_cmake_running_in_build_tree)
+if(_CMAKE_INSTALL_DIR)
+  list(APPEND CMAKE_SYSTEM_PREFIX_PATH "${_CMAKE_INSTALL_DIR}")
+endif()
 
 if (NOT CMAKE_FIND_NO_INSTALL_PREFIX)
   # Add other locations.
@@ -63,6 +77,7 @@ if (NOT CMAKE_FIND_NO_INSTALL_PREFIX)
     )
   endif()
 endif()
+_cmake_record_install_prefix()
 
 if(CMAKE_CROSSCOMPILING AND NOT CMAKE_HOST_SYSTEM_NAME MATCHES "Windows")
   # MinGW (useful when cross compiling from linux with CMAKE_FIND_ROOT_PATH set)
@@ -83,8 +98,12 @@ if (NOT CMAKE_FIND_NO_INSTALL_PREFIX)
     )
   endif()
 endif()
+if(_CMAKE_INSTALL_DIR)
+  list(APPEND CMAKE_SYSTEM_LIBRARY_PATH
+    "${_CMAKE_INSTALL_DIR}/bin"
+    )
+endif()
 list(APPEND CMAKE_SYSTEM_LIBRARY_PATH
-  "${_CMAKE_INSTALL_DIR}/bin"
   /bin
   )
 

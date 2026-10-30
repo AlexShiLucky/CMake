@@ -1,58 +1,85 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmExportTryCompileFileGenerator_h
-#define cmExportTryCompileFileGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmExportFileGenerator.h"
 
 #include <iosfwd>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "cmDiagnostics.h"
+#include "cmExportCMakeConfigGenerator.h"
+
 class cmGeneratorTarget;
 class cmGlobalGenerator;
 class cmMakefile;
 
-class cmExportTryCompileFileGenerator : public cmExportFileGenerator
+class cmExportTryCompileFileGenerator : public cmExportCMakeConfigGenerator
 {
 public:
   cmExportTryCompileFileGenerator(cmGlobalGenerator* gg,
                                   std::vector<std::string> const& targets,
-                                  cmMakefile* mf);
+                                  cmMakefile* mf,
+                                  std::set<std::string> const& langs);
 
   /** Set the list of targets to export.  */
-  void SetConfig(const std::string& config) { this->Config = config; }
+  void SetConfig(std::string const& config) { this->Config = config; }
+
 protected:
   // Implement virtual methods from the superclass.
-  bool GenerateMainFile(std::ostream& os) CM_OVERRIDE;
+  void ComplainAboutDuplicateTarget(
+    std::string const& /*targetName*/) const override {};
+  void IssueMessage(MessageType type,
+                    std::string const& message) const override;
+  void IssueDiagnostic(cmDiagnosticCategory category,
+                       std::string const& message) const override;
 
-  void GenerateImportTargetsConfig(std::ostream&, const std::string&,
-                                   std::string const&,
-                                   std::vector<std::string>&) CM_OVERRIDE
+  bool GenerateMainFile(std::ostream& os) override;
+
+  void GenerateImportTargetsConfig(std::ostream&, std::string const&,
+                                   std::string const&) override
   {
   }
-  void HandleMissingTarget(std::string&, std::vector<std::string>&,
-                           cmGeneratorTarget*, cmGeneratorTarget*) CM_OVERRIDE
+  void HandleMissingTarget(std::string&, cmGeneratorTarget const*,
+                           cmGeneratorTarget*) override
   {
+  }
+
+  ExportInfo FindExportInfo(cmGeneratorTarget const* /*target*/) const override
+  {
+    return { {}, {}, {} };
   }
 
   void PopulateProperties(cmGeneratorTarget const* target,
                           ImportPropertyMap& properties,
-                          std::set<const cmGeneratorTarget*>& emitted);
+                          std::set<cmGeneratorTarget const*>& emitted);
 
-  std::string InstallNameDir(cmGeneratorTarget* target,
-                             const std::string& config) CM_OVERRIDE;
+  std::string InstallNameDir(cmGeneratorTarget const* target,
+                             std::string const& config) override;
+
+  std::string GetFileSetDirectories(cmGeneratorTarget* target,
+                                    cmGeneratorFileSet const* fileSet,
+                                    cmTargetExport const* te) override;
+
+  std::string GetFileSetFiles(cmGeneratorTarget* target,
+                              cmGeneratorFileSet const* fileSet,
+                              cmTargetExport const* te) override;
+
+  std::string GetCxxModulesDirectory() const override { return {}; }
+  void GenerateCxxModuleConfigInformation(std::string const&,
+                                          std::ostream&) const override
+  {
+  }
 
 private:
-  std::string FindTargets(const std::string& prop,
-                          const cmGeneratorTarget* tgt,
-                          std::set<const cmGeneratorTarget*>& emitted);
+  std::string FindTargets(std::string const& prop,
+                          cmGeneratorTarget const* tgt,
+                          std::string const& language,
+                          std::set<cmGeneratorTarget const*>& emitted);
 
   std::vector<cmGeneratorTarget const*> Exports;
   std::string Config;
+  std::vector<std::string> Languages;
 };
-
-#endif

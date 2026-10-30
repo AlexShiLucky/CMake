@@ -1,24 +1,24 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCursesWidget_h
-#define cmCursesWidget_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <string>
+
 #include "cmCursesStandardIncludes.h"
 #include "cmStateTypes.h"
-
-#include <string>
 
 class cmCursesMainForm;
 
 class cmCursesWidget
 {
-  CM_DISABLE_COPY(cmCursesWidget)
-
 public:
   cmCursesWidget(int width, int height, int left, int top);
   virtual ~cmCursesWidget();
+
+  cmCursesWidget(cmCursesWidget const&) = delete;
+  cmCursesWidget& operator=(cmCursesWidget const&) = delete;
 
   /**
    * Handle user input. Called by the container of this widget
@@ -37,8 +37,8 @@ public:
    * Set/Get the value (setting the value also changes the contents
    * of the field buffer).
    */
-  virtual void SetValue(const std::string& value);
-  virtual const char* GetValue();
+  virtual void SetValue(std::string const& value);
+  virtual char const* GetValue();
 
   /**
    * Get the type of the widget (STRING, PATH etc...)
@@ -67,5 +67,3 @@ protected:
   // The page in the main form this widget is in
   int Page;
 };
-
-#endif // cmCursesWidget_h

@@ -1,7 +1,7 @@
-set(ALL_FILES_GLOB "*.deb")
+set(ALL_FILES_GLOB "*.deb" "*.ddeb")
 
 function(getPackageContent FILE RESULT_VAR)
-  execute_process(COMMAND ${DPKG_EXECUTABLE} -c "${FILE}"
+  execute_process(COMMAND ${CMAKE_COMMAND} -E env TZ=Etc/UTC ${DPKG_EXECUTABLE} -c "${FILE}"
           OUTPUT_VARIABLE package_content_
           ERROR_QUIET
           OUTPUT_STRIP_TRAILING_WHITESPACE)
@@ -23,7 +23,7 @@ function(getPackageNameGlobexpr NAME COMPONENT VERSION REVISION FILE_NO RESULT_V
   endif()
 
   if(GENERATOR_SPECIFIC_FORMAT)
-    set(${RESULT_VAR} "${NAME}${COMPONENT}_${VERSION}-${REVISION}_*.deb" PARENT_SCOPE)
+    set(${RESULT_VAR} "${NAME}${COMPONENT}_${VERSION}_*.deb" PARENT_SCOPE)
   else()
     set(${RESULT_VAR} "${NAME}-${VERSION}-*${COMPONENT}.deb" PARENT_SCOPE)
   endif()
@@ -47,7 +47,20 @@ function(getPackageContentList FILE RESULT_VAR)
 endfunction()
 
 function(toExpectedContentList FILE_NO CONTENT_VAR)
-  # no need to do anything
+  # add install prefix to expected paths
+  if(DEFINED EXPECTED_FILE_${FILE_NO}_PACKAGING_PREFIX)
+    set(EXPECTED_FILE_PACKAGING_PREFIX
+      "${EXPECTED_FILE_${FILE_NO}_PACKAGING_PREFIX}")
+  elseif(NOT DEFINED EXPECTED_FILE_PACKAGING_PREFIX)
+    # default CPackDeb packaging install prefix
+    set(EXPECTED_FILE_PACKAGING_PREFIX "/usr")
+  endif()
+  set(prepared_ "${EXPECTED_FILE_PACKAGING_PREFIX}")
+  foreach(part_ IN LISTS ${CONTENT_VAR})
+    list(APPEND prepared_ "${EXPECTED_FILE_PACKAGING_PREFIX}${part_}")
+  endforeach()
+
+  set(${CONTENT_VAR} "${prepared_}" PARENT_SCOPE)
 endfunction()
 
 function(getMissingShlibsErrorExtra FILE RESULT_VAR)
@@ -57,12 +70,7 @@ function(getMissingShlibsErrorExtra FILE RESULT_VAR)
     if(err_)
       set(error_extra " Extra: Could not unpack package content: '${err}'")
     else()
-      cmake_policy(PUSH)
-        # Tell file(GLOB_RECURSE) not to follow directory symlinks
-        # even if the project does not set this policy to NEW.
-        cmake_policy(SET CMP0009 NEW)
-        file(GLOB_RECURSE FILE_PATHS_ LIST_DIRECTORIES false "${CMAKE_CURRENT_BINARY_DIR}/data_${PREFIX}/*")
-      cmake_policy(POP)
+      file(GLOB_RECURSE FILE_PATHS_ LIST_DIRECTORIES false "${CMAKE_CURRENT_BINARY_DIR}/data_${PREFIX}/*")
 
       # get file info so that we can determine if file is executable or not
       foreach(FILE_ IN LISTS FILE_PATHS_)
@@ -84,16 +92,16 @@ function(getMissingShlibsErrorExtra FILE RESULT_VAR)
         string(APPEND error_extra "; errors \"${deb_install_files_errors}\"")
       endif()
 
-      if(READELF_EXECUTABLE)
+      if(CPACK_READELF_EXECUTABLE)
         string(APPEND error_extra "; readelf \"\n")
 
         # Only dynamically linked ELF files are included
-        # Extract only file name infront of ":"
+        # Extract only file name in front of ":"
         foreach(_FILE IN LISTS deb_install_files)
           if(_FILE MATCHES "ELF.*shared object")
             string(REGEX MATCH "(^.*):" _FILE_NAME "${_FILE}")
 
-            execute_process(COMMAND ${READELF_EXECUTABLE} -d "${CMAKE_MATCH_1}"
+            execute_process(COMMAND ${CPACK_READELF_EXECUTABLE} -d "${CMAKE_MATCH_1}"
               WORKING_DIRECTORY "${CPACK_TEMPORARY_DIRECTORY}"
               RESULT_VARIABLE result
               OUTPUT_VARIABLE output
@@ -137,13 +145,14 @@ function(verifyDebControl FILE PREFIX VERIFY_FILES)
           " Content: '${content_}'")
     endif()
 
-    execute_process(COMMAND ls -l "${CMAKE_CURRENT_BINARY_DIR}/control_${PREFIX}/${FILE_}"
-          OUTPUT_VARIABLE package_permissions_
-          ERROR_VARIABLE package_permissions_error_
-          OUTPUT_STRIP_TRAILING_WHITESPACE)
-
+    execute_process(
+      COMMAND stat --format=%A "${CMAKE_CURRENT_BINARY_DIR}/control_${PREFIX}/${FILE_}"
+      OUTPUT_VARIABLE package_permissions_
+      ERROR_VARIABLE package_permissions_error_
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
     if(NOT package_permissions_error_)
-      if(NOT package_permissions_ MATCHES "${${PREFIX}_${FILE_}_permissions_regex}")
+      if(NOT package_permissions_ STREQUAL ${PREFIX}_${FILE_}_permissions)
         message(FATAL_ERROR "Unexpected file permissions for ${PREFIX}_${FILE_}: '${package_permissions_}'!")
       endif()
     else()

@@ -1,8 +1,11 @@
 CTEST_COVERAGE_COMMAND
 ----------------------
 
+.. versionadded:: 3.1
+
 Specify the CTest ``CoverageCommand`` setting
-in a :manual:`ctest(1)` dashboard client script.
+in a :manual:`ctest(1)` :ref:`Dashboard Client` script,
+or on the :program:`ctest` command line via the :ctest-dashboard-option:`-D` option.
 
 Cobertura
 '''''''''
@@ -57,4 +60,4 @@ The rest of the supplied arguments consist of the full paths to the
 ``/src/main/java`` directories of each module within the source tree. These
 directories are needed and should not be forgotten.
 
-.. _`Cobertura`: http://cobertura.github.io/cobertura/
+.. _`Cobertura`: https://cobertura.github.io/cobertura/

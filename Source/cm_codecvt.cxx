@@ -1,27 +1,33 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cm_codecvt.hxx"
 
 #if defined(_WIN32)
-#include <assert.h>
-#include <string.h>
-#include <windows.h>
-#undef max
-#include "cmsys/Encoding.hxx"
+#  include <cassert>
+#  include <cstring>
+
+#  include <windows.h>
+#  undef max
+#  include "cmsys/Encoding.hxx"
+
+#  include "cm_utf8.h"
 #endif
 
-#if defined(_WIN32)
-/* Number of leading ones before a zero in the byte (see cm_utf8.c).  */
-extern "C" unsigned char const cm_utf8_ones[256];
-#endif
+#include "cm_codecvt_Encoding.hxx"
 
-codecvt::codecvt(Encoding e)
+codecvt::codecvt(codecvt_Encoding e)
 #if defined(_WIN32)
   : m_codepage(0)
 #endif
 {
   switch (e) {
-    case codecvt::ANSI:
+    case codecvt_Encoding::ConsoleOutput:
+#if defined(_WIN32)
+      m_noconv = false;
+      m_codepage = GetConsoleOutputCP();
+      break;
+#endif
+    case codecvt_Encoding::ANSI:
 #if defined(_WIN32)
       m_noconv = false;
       m_codepage = CP_ACP;
@@ -29,30 +35,31 @@ codecvt::codecvt(Encoding e)
 #endif
     // We don't know which ANSI encoding to use for other platforms than
     // Windows so we don't do any conversion there
-    case codecvt::UTF8:
+    case codecvt_Encoding::UTF8:
+    case codecvt_Encoding::UTF8_WITH_BOM:
     // Assume internal encoding is UTF-8
-    case codecvt::None:
+    case codecvt_Encoding::None:
     // No encoding
     default:
-      m_noconv = true;
+      this->m_noconv = true;
   }
 }
 
-codecvt::~codecvt(){};
+codecvt::~codecvt() = default;
 
-bool codecvt::do_always_noconv() const throw()
+bool codecvt::do_always_noconv() const noexcept
 {
-  return m_noconv;
-};
+  return this->m_noconv;
+}
 
-std::codecvt_base::result codecvt::do_out(mbstate_t& state, const char* from,
-                                          const char* from_end,
-                                          const char*& from_next, char* to,
+std::codecvt_base::result codecvt::do_out(mbstate_t& state, char const* from,
+                                          char const* from_end,
+                                          char const*& from_next, char* to,
                                           char* to_end, char*& to_next) const
 {
   from_next = from;
   to_next = to;
-  if (m_noconv) {
+  if (this->m_noconv) {
     return std::codecvt_base::noconv;
   }
 #if defined(_WIN32)
@@ -122,14 +129,14 @@ std::codecvt_base::result codecvt::do_out(mbstate_t& state, const char* from,
   static_cast<void>(to_next);
   return std::codecvt_base::noconv;
 #endif
-};
+}
 
 std::codecvt_base::result codecvt::do_unshift(mbstate_t& state, char* to,
                                               char* to_end,
                                               char*& to_next) const
 {
   to_next = to;
-  if (m_noconv) {
+  if (this->m_noconv) {
     return std::codecvt_base::noconv;
   }
 #if defined(_WIN32)
@@ -143,11 +150,11 @@ std::codecvt_base::result codecvt::do_unshift(mbstate_t& state, char* to,
   static_cast<void>(to_end);
   return std::codecvt_base::ok;
 #endif
-};
+}
 
 #if defined(_WIN32)
 std::codecvt_base::result codecvt::Decode(mbstate_t& state, int size,
-                                          const char*& from_next,
+                                          char const*& from_next,
                                           char*& to_next, char* to_end) const
 {
   State& lstate = reinterpret_cast<State&>(state);
@@ -166,7 +173,7 @@ std::codecvt_base::result codecvt::Decode(mbstate_t& state, int size,
   }
 
   int tlen = WideCharToMultiByte(m_codepage, 0, wbuf, wlen, to_next,
-                                 to_end - to_next, NULL, NULL);
+                                 to_end - to_next, nullptr, nullptr);
   if (tlen <= 0) {
     if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
       return std::codecvt_base::partial;
@@ -201,7 +208,7 @@ std::codecvt_base::result codecvt::DecodePartial(mbstate_t& state,
   }
 
   int tlen = WideCharToMultiByte(m_codepage, 0, wbuf, wlen, to_next,
-                                 to_end - to_next, NULL, NULL);
+                                 to_end - to_next, nullptr, nullptr);
   if (tlen <= 0) {
     if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
       return std::codecvt_base::partial;
@@ -219,7 +226,7 @@ std::codecvt_base::result codecvt::DecodePartial(mbstate_t& state,
 }
 
 void codecvt::BufferPartial(mbstate_t& state, int size,
-                            const char*& from_next) const
+                            char const*& from_next) const
 {
   State& lstate = reinterpret_cast<State&>(state);
 
@@ -232,12 +239,12 @@ void codecvt::BufferPartial(mbstate_t& state, int size,
 }
 #endif
 
-int codecvt::do_max_length() const throw()
+int codecvt::do_max_length() const noexcept
 {
   return 4;
-};
+}
 
-int codecvt::do_encoding() const throw()
+int codecvt::do_encoding() const noexcept
 {
   return 0;
-};
+}

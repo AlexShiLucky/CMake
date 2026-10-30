@@ -1,14 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackWIXPatchParser_h
-#define cmCPackWIXPatchParser_h
-
-#include "cmCPackLog.h"
-
-#include "cmXMLParser.h"
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include <map>
+#include <memory>
 #include <vector>
+
+#include "cmCPackLog.h"
+#include "cmXMLParser.h"
 
 struct cmWIXPatchNode
 {
@@ -34,10 +33,15 @@ struct cmWIXPatchElement : cmWIXPatchNode
 {
   virtual Type type();
 
+  cmWIXPatchElement();
+
+  cmWIXPatchElement(cmWIXPatchElement const&) = delete;
+  cmWIXPatchElement const& operator=(cmWIXPatchElement const&) = delete;
+
   ~cmWIXPatchElement();
 
-  typedef std::vector<cmWIXPatchNode*> child_list_t;
-  typedef std::map<std::string, std::string> attributes_t;
+  using child_list_t = std::vector<std::unique_ptr<cmWIXPatchNode>>;
+  using attributes_t = std::map<std::string, std::string>;
 
   std::string name;
   child_list_t children;
@@ -50,20 +54,20 @@ struct cmWIXPatchElement : cmWIXPatchNode
 class cmWIXPatchParser : public cmXMLParser
 {
 public:
-  typedef std::map<std::string, cmWIXPatchElement> fragment_map_t;
+  using fragment_map_t = std::map<std::string, cmWIXPatchElement>;
 
   cmWIXPatchParser(fragment_map_t& Fragments, cmCPackLog* logger);
 
 private:
-  virtual void StartElement(const std::string& name, const char** atts);
+  virtual void StartElement(std::string const& name, char const** atts);
 
-  void StartFragment(const char** attributes);
+  void StartFragment(char const** attributes);
 
-  virtual void EndElement(const std::string& name);
+  virtual void EndElement(std::string const& name);
 
-  virtual void CharacterDataHandler(const char* data, int length);
+  virtual void CharacterDataHandler(char const* data, int length);
 
-  virtual void ReportError(int line, int column, const char* msg);
+  virtual void ReportError(int line, int column, char const* msg);
 
   void ReportValidationError(std::string const& message);
 
@@ -86,5 +90,3 @@ private:
 
   std::vector<cmWIXPatchElement*> ElementStack;
 };
-
-#endif

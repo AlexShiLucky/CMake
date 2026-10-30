@@ -1,68 +1,108 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# CheckPrototypeDefinition
-# ------------------------
-#
-# Check if the protoype we expect is correct.
-#
-# check_prototype_definition(FUNCTION PROTOTYPE RETURN HEADER VARIABLE)
-#
-# ::
-#
-#   FUNCTION - The name of the function (used to check if prototype exists)
-#   PROTOTYPE- The prototype to check.
-#   RETURN - The return value of the function.
-#   HEADER - The header files required.
-#   VARIABLE - The variable to store the result.
-#              Will be created as an internal cache variable.
-#
-# Example:
-#
-# ::
-#
-#   check_prototype_definition(getpwent_r
-#    "struct passwd *getpwent_r(struct passwd *src, char *buf, int buflen)"
-#    "NULL"
-#    "unistd.h;pwd.h"
-#    SOLARIS_GETPWENT_R)
-#
-# The following variables may be set before calling this macro to modify
-# the way the check is run:
-#
-# ::
-#
-#   CMAKE_REQUIRED_FLAGS = string of compile command line flags
-#   CMAKE_REQUIRED_DEFINITIONS = list of macros to define (-DFOO=bar)
-#   CMAKE_REQUIRED_INCLUDES = list of include directories
-#   CMAKE_REQUIRED_LIBRARIES = list of libraries to link
-#   CMAKE_REQUIRED_QUIET = execute quietly without messages
+#[=======================================================================[.rst:
+CheckPrototypeDefinition
+------------------------
 
-#
+This module provides a command to check if a C function has the expected
+prototype.
 
+Load this module in a CMake project with:
 
-get_filename_component(__check_proto_def_dir "${CMAKE_CURRENT_LIST_FILE}" PATH)
+.. code-block:: cmake
 
+  include(CheckPrototypeDefinition)
 
-function(CHECK_PROTOTYPE_DEFINITION _FUNCTION _PROTOTYPE _RETURN _HEADER _VARIABLE)
+Commands
+^^^^^^^^
+
+This module provides the following command:
+
+.. command:: check_prototype_definition
+
+  Checks if a C function has the expected prototype:
+
+  .. code-block:: cmake
+
+    check_prototype_definition(<function> <prototype> <return> <headers> <variable>)
+
+  ``<function>``
+    The name of the function whose prototype is being checked.
+  ``<prototype>``
+    The expected prototype of the function, provided as a string.
+  ``<return>``
+    The return value of the function.  This will be used as a return value in
+    the function definition body of the generated test program to verify that
+    the function's return type matches the expected type.
+  ``<headers>``
+    A :ref:`semicolon-separated list <CMake Language Lists>` of header file
+    names required for checking the function prototype.
+  ``<variable>``
+    The name of the variable to store the check result.  This variable will be
+    created as an internal cache variable.
+
+  This command generates a test program and verifies that it builds without
+  errors.  The generated test program includes specified ``<headers>``, defines
+  a function with given literal ``<prototype>`` and ``<return>`` value and
+  then uses the specified ``<function>``.  The simplified test program can be
+  illustrated as:
+
+  .. code-block:: c
+
+    #include <headers>
+    // ...
+    <prototype> { return <return>; }
+    int main(...) { ...<function>()... }
+
+  .. rubric:: Variables Affecting the Check
+
+  The following variables may be set before calling this command to modify
+  the way the check is run:
+
+  .. include:: /module/include/CMAKE_REQUIRED_FLAGS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_DEFINITIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_INCLUDES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_OPTIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LIBRARIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_DIRECTORIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_QUIET.rst
+
+Examples
+^^^^^^^^
+
+Checking if the ``getpwent_r()`` function on Solaris/illumos systems has the
+expected prototype:
+
+.. code-block:: cmake
+
+  include(CheckPrototypeDefinition)
+
+  check_prototype_definition(
+    getpwent_r
+    "struct passwd *getpwent_r(struct passwd *src, char *buf, int buflen)"
+    "NULL"
+    "unistd.h;pwd.h"
+    HAVE_SOLARIS_GETPWENT_R
+  )
+#]=======================================================================]
+
+include_guard(GLOBAL)
+include(Internal/CheckCommon)
+
+function(check_prototype_definition _FUNCTION _PROTOTYPE _RETURN _HEADER _VARIABLE)
 
   if (NOT DEFINED ${_VARIABLE})
+    if(NOT CMAKE_REQUIRED_QUIET)
+      message(CHECK_START "Checking prototype ${_FUNCTION} for ${_VARIABLE}")
+    endif()
     set(CHECK_PROTOTYPE_DEFINITION_CONTENT "/* */\n")
-
-    set(CHECK_PROTOTYPE_DEFINITION_FLAGS ${CMAKE_REQUIRED_FLAGS})
-    if (CMAKE_REQUIRED_LIBRARIES)
-      set(CHECK_PROTOTYPE_DEFINITION_LIBS
-        LINK_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-    else()
-      set(CHECK_PROTOTYPE_DEFINITION_LIBS)
-    endif()
-    if (CMAKE_REQUIRED_INCLUDES)
-      set(CMAKE_SYMBOL_EXISTS_INCLUDES
-        "-DINCLUDE_DIRECTORIES:STRING=${CMAKE_REQUIRED_INCLUDES}")
-    else()
-      set(CMAKE_SYMBOL_EXISTS_INCLUDES)
-    endif()
 
     foreach(_FILE ${_HEADER})
       string(APPEND CHECK_PROTOTYPE_DEFINITION_HEADER
@@ -73,37 +113,33 @@ function(CHECK_PROTOTYPE_DEFINITION _FUNCTION _PROTOTYPE _RETURN _HEADER _VARIAB
     set(CHECK_PROTOTYPE_DEFINITION_PROTO ${_PROTOTYPE})
     set(CHECK_PROTOTYPE_DEFINITION_RETURN ${_RETURN})
 
-    configure_file("${__check_proto_def_dir}/CheckPrototypeDefinition.c.in"
-      "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckPrototypeDefinition.c" @ONLY)
+    file(READ ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CheckPrototypeDefinition.c.in _SOURCE)
+    string(CONFIGURE "${_SOURCE}" _SOURCE @ONLY)
 
-    file(READ ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckPrototypeDefinition.c _SOURCE)
+    cmake_check_common_init_args(_CPD)
 
     try_compile(${_VARIABLE}
-      ${CMAKE_BINARY_DIR}
-      ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckPrototypeDefinition.c
+      SOURCE_FROM_VAR CheckPrototypeDefinition.c _SOURCE
       COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
-      ${CHECK_PROTOTYPE_DEFINITION_LIBS}
-      CMAKE_FLAGS -DCOMPILE_DEFINITIONS:STRING=${CHECK_PROTOTYPE_DEFINITION_FLAGS}
-      "${CMAKE_SYMBOL_EXISTS_INCLUDES}"
-      OUTPUT_VARIABLE OUTPUT)
+      ${_CPD_ADD_LINK_OPTIONS}
+      ${_CPD_ADD_LINK_LIBRARIES}
+      CMAKE_FLAGS
+        -DCOMPILE_DEFINITIONS:STRING=${CMAKE_REQUIRED_FLAGS}
+        ${_CPD_EXTRA_CMAKE_ARGUMENTS}
+        "${_CPD_INCLUDE_DIRECTORIES}"
+        "${_CPD_LINK_DIRECTORIES}"
+      )
 
     if (${_VARIABLE})
       set(${_VARIABLE} 1 CACHE INTERNAL "Have correct prototype for ${_FUNCTION}")
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Checking prototype ${_FUNCTION} for ${_VARIABLE} - True")
+        message(CHECK_PASS "True")
       endif()
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Determining if the prototype ${_FUNCTION} exists for ${_VARIABLE} passed with the following output:\n"
-        "${OUTPUT}\n\n")
     else ()
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Checking prototype ${_FUNCTION} for ${_VARIABLE} - False")
+        message(CHECK_FAIL "False")
       endif()
       set(${_VARIABLE} 0 CACHE INTERNAL "Have correct prototype for ${_FUNCTION}")
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
-        "Determining if the prototype ${_FUNCTION} exists for ${_VARIABLE} failed with the following output:\n"
-        "${OUTPUT}\n\n${_SOURCE}\n\n")
     endif ()
   endif()
-
 endfunction()

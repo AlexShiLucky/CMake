@@ -1,22 +1,46 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmFileLock.h"
 
+#include <cassert>
+#include <utility>
+
 #include "cmFileLockResult.h"
-#include <assert.h>
 
 // Common implementation
+
+cmFileLock::cmFileLock(cmFileLock&& other) noexcept
+{
+  this->File = other.File;
+  other.File = (decltype(other.File))-1;
+  this->Filename = std::move(other.Filename);
+#if defined(_WIN32)
+  this->Overlapped = std::move(other.Overlapped);
+#endif
+}
 
 cmFileLock::~cmFileLock()
 {
   if (!this->Filename.empty()) {
-    const cmFileLockResult result = this->Release();
+    cmFileLockResult const result = this->Release();
     static_cast<void>(result);
     assert(result.IsOk());
   }
 }
 
-cmFileLockResult cmFileLock::Lock(const std::string& filename,
+cmFileLock& cmFileLock::operator=(cmFileLock&& other) noexcept
+{
+  this->File = other.File;
+  other.File = (decltype(other.File))-1;
+  this->Filename = std::move(other.Filename);
+#if defined(_WIN32)
+  this->Overlapped = std::move(other.Overlapped);
+#endif
+
+  return *this;
+}
+
+cmFileLockResult cmFileLock::Lock(std::string const& filename,
                                   unsigned long timeout)
 {
   if (filename.empty()) {
@@ -42,19 +66,21 @@ cmFileLockResult cmFileLock::Lock(const std::string& filename,
   }
 
   if (!result.IsOk()) {
-    this->Filename = "";
+    this->Filename.clear();
   }
 
   return result;
 }
 
-bool cmFileLock::IsLocked(const std::string& filename) const
+bool cmFileLock::IsLocked(std::string const& filename) const
 {
   return filename == this->Filename;
 }
 
 #if defined(_WIN32)
-#include "cmFileLockWin32.cxx"
+// NOLINTNEXTLINE(bugprone-suspicious-include)
+#  include "cmFileLockWin32.cxx"
 #else
-#include "cmFileLockUnix.cxx"
+// NOLINTNEXTLINE(bugprone-suspicious-include)
+#  include "cmFileLockUnix.cxx"
 #endif

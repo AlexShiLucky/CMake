@@ -1,63 +1,34 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestStartCommand_h
-#define cmCTestStartCommand_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCTestCommand.h"
-
 #include <iosfwd>
 #include <string>
-#include <vector>
 
-class cmCommand;
+#include "cmCTestCommand.h"
+
 class cmExecutionStatus;
 
 /** \class cmCTestStart
  * \brief Run a ctest script
  *
- * cmCTestStartCommand defineds the command to start the nightly testing.
+ * cmCTestStartCommand defines the command to start the nightly testing.
  */
 class cmCTestStartCommand : public cmCTestCommand
 {
 public:
-  cmCTestStartCommand();
-
-  /**
-   * This is a virtual constructor for the command.
-   */
-  cmCommand* Clone() CM_OVERRIDE
-  {
-    cmCTestStartCommand* ni = new cmCTestStartCommand;
-    ni->CTest = this->CTest;
-    ni->CTestScriptHandler = this->CTestScriptHandler;
-    ni->CreateNewTag = this->CreateNewTag;
-    ni->Quiet = this->Quiet;
-    return ni;
-  }
+  using cmCTestCommand::cmCTestCommand;
 
   /**
    * This is called when the command is first encountered in
    * the CMakeLists.txt file.
    */
   bool InitialPass(std::vector<std::string> const& args,
-                   cmExecutionStatus& status) CM_OVERRIDE;
-
-  /**
-   * Will this invocation of ctest_start create a new TAG file?
-   */
-  bool ShouldCreateNewTag() { return this->CreateNewTag; }
-
-  /**
-   * Should this invocation of ctest_start output non-error messages?
-   */
-  bool ShouldBeQuiet() { return this->Quiet; }
+                   cmExecutionStatus& status) const override;
 
 private:
-  bool InitialCheckout(std::ostream& ofs, std::string const& sourceDir);
-  bool CreateNewTag;
-  bool Quiet;
+  bool InitialCheckout(std::ostream& ofs, std::string const& sourceDir,
+                       cmExecutionStatus& status) const;
 };
-
-#endif

@@ -1,5 +1,5 @@
-# a simple test cas
-cmake_minimum_required (VERSION 2.6)
+# a simple test case
+cmake_minimum_required(VERSION 3.10)
 project (OutOfSource)
 
 add_subdirectory(SubDir)
@@ -16,3 +16,6 @@ configure_file(
   )
 
 set(KEN 1)
+
+configure_file(SubInBuildCMakeLists.cmake ${CMAKE_CURRENT_BINARY_DIR}/SubInBuild/CMakeLists.txt COPYONLY)
+add_subdirectory(${CMAKE_CURRENT_BINARY_DIR}/SubInBuild ${CMAKE_CURRENT_BINARY_DIR}/SubInBuild/Build)

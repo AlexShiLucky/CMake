@@ -1,37 +1,31 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cm_codecvt_hxx
-#define cm_codecvt_hxx
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
+#include <cwchar>
 #include <locale>
-#include <wchar.h>
+
+enum class codecvt_Encoding;
 
 class codecvt : public std::codecvt<char, char, mbstate_t>
 {
 public:
-  enum Encoding
-  {
-    None,
-    UTF8,
-    ANSI
-  };
+#ifndef CMAKE_BOOTSTRAP
 
-#ifdef CMAKE_BUILD_WITH_CMAKE
-
-  codecvt(Encoding e);
+  codecvt(codecvt_Encoding e);
 
 protected:
-  ~codecvt() CM_OVERRIDE;
-  bool do_always_noconv() const throw() CM_OVERRIDE;
-  result do_out(mbstate_t& state, const char* from, const char* from_end,
-                const char*& from_next, char* to, char* to_end,
-                char*& to_next) const CM_OVERRIDE;
+  ~codecvt() override;
+  bool do_always_noconv() const noexcept override;
+  result do_out(mbstate_t& state, char const* from, char const* from_end,
+                char const*& from_next, char* to, char* to_end,
+                char*& to_next) const override;
   result do_unshift(mbstate_t& state, char* to, char*,
-                    char*& to_next) const CM_OVERRIDE;
-  int do_max_length() const throw() CM_OVERRIDE;
-  int do_encoding() const throw() CM_OVERRIDE;
+                    char*& to_next) const override;
+  int do_max_length() const noexcept override;
+  int do_encoding() const noexcept override;
 
 private:
   // The mbstate_t argument to do_out and do_unshift is responsible
@@ -52,15 +46,13 @@ private:
   };
 
   bool m_noconv;
-#if defined(_WIN32)
+#  if defined(_WIN32)
   unsigned int m_codepage;
-  result Decode(mbstate_t& state, int need, const char*& from_next,
+  result Decode(mbstate_t& state, int need, char const*& from_next,
                 char*& to_next, char* to_end) const;
   result DecodePartial(mbstate_t& state, char*& to_next, char* to_end) const;
-  void BufferPartial(mbstate_t& state, int need, const char*& from_next) const;
-#endif
+  void BufferPartial(mbstate_t& state, int need, char const*& from_next) const;
+#  endif
 
 #endif
 };
-
-#endif

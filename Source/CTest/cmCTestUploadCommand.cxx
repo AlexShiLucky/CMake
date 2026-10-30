@@ -1,68 +1,98 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCTestUploadCommand.h"
 
-#include <sstream>
-#include <vector>
+#include <algorithm>
+#include <chrono>
+#include <string>
 
+#include <cm/vector>
+#include <cmext/string_view>
+
+#include "cmArgumentParser.h"
 #include "cmCTest.h"
-#include "cmCTestGenericHandler.h"
-#include "cmCTestUploadHandler.h"
+#include "cmExecutionStatus.h"
+#include "cmGeneratedFileStream.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
-#include "cmake.h"
+#include "cmVersion.h"
+#include "cmXMLWriter.h"
 
-cmCTestGenericHandler* cmCTestUploadCommand::InitializeHandler()
+bool cmCTestUploadCommand::ExecuteUpload(UploadArguments& args,
+                                         cmExecutionStatus& status) const
 {
-  cmCTestGenericHandler* handler =
-    this->CTest->GetInitializedHandler("upload");
-  if (!handler) {
-    this->SetError("internal CTest error. Cannot instantiate upload handler");
-    return nullptr;
-  }
-  static_cast<cmCTestUploadHandler*>(handler)->SetFiles(this->Files);
+  cmMakefile& mf = status.GetMakefile();
 
-  handler->SetQuiet(this->Quiet);
-  return handler;
-}
+  std::sort(args.Files.begin(), args.Files.end());
+  args.Files.erase(std::unique(args.Files.begin(), args.Files.end()),
+                   args.Files.end());
 
-bool cmCTestUploadCommand::CheckArgumentKeyword(std::string const& arg)
-{
-  if (arg == "FILES") {
-    this->ArgumentDoing = ArgumentDoingFiles;
-    return true;
-  }
-  if (arg == "QUIET") {
-    this->ArgumentDoing = ArgumentDoingNone;
-    this->Quiet = true;
-    return true;
-  }
-  if (arg == "CAPTURE_CMAKE_ERROR") {
-    this->ArgumentDoing = ArgumentDoingCaptureCMakeError;
-    return true;
-  }
-  return false;
-}
-
-bool cmCTestUploadCommand::CheckArgumentValue(std::string const& arg)
-{
-  if (this->ArgumentDoing == ArgumentDoingCaptureCMakeError) {
-    this->Values[ct_CAPTURE_CMAKE_ERROR] = arg.c_str();
-    return true;
-  }
-  if (this->ArgumentDoing == ArgumentDoingFiles) {
-    if (cmSystemTools::FileExists(arg.c_str())) {
-      this->Files.insert(arg);
+  cm::erase_if(args.Files, [&mf](std::string const& arg) -> bool {
+    if (!cmSystemTools::FileExists(arg)) {
+      mf.IssueMessage(
+        MessageType::FATAL_ERROR,
+        cmStrCat("File \"", arg,
+                 "\" does not exist. Cannot submit a non-existent file."));
       return true;
     }
-    std::ostringstream e;
-    e << "File \"" << arg << "\" does not exist. Cannot submit "
-      << "a non-existent file.";
-    this->Makefile->IssueMessage(cmake::FATAL_ERROR, e.str());
-    this->ArgumentDoing = ArgumentDoingError;
+    return false;
+  });
+
+  cmGeneratedFileStream ofs;
+  if (!this->CTest->OpenOutputFile(this->CTest->GetCurrentTag(), "Upload.xml",
+                                   ofs)) {
+    cmCTestLog(this->CTest, ERROR_MESSAGE, "Cannot open Upload.xml file\n");
     return false;
   }
+  std::string buildname =
+    cmCTest::SafeBuildIdField(mf.GetSafeDefinition("CTEST_BUILD_NAME"));
 
-  // Look for other arguments.
-  return this->Superclass::CheckArgumentValue(arg);
+  cmXMLWriter xml(ofs);
+  xml.StartDocument();
+  xml.ProcessingInstruction("xml-stylesheet",
+                            "type=\"text/xsl\" "
+                            "href=\"Dart/Source/Server/XSL/Build.xsl "
+                            "<file:///Dart/Source/Server/XSL/Build.xsl> \"");
+  xml.StartElement("Site");
+  xml.Attribute("BuildName", buildname);
+  xml.Attribute("BuildStamp",
+                cmStrCat(this->CTest->GetCurrentTag(), '-',
+                         this->CTest->GetTestGroupString()));
+  xml.Attribute("Name", mf.GetSafeDefinition("CTEST_SITE"));
+  xml.Attribute("Generator",
+                std::string("ctest-") + cmVersion::GetCMakeVersion());
+  this->CTest->AddSiteProperties(xml, mf.GetCMakeInstance());
+  xml.StartElement("Upload");
+  xml.Element("Time", std::chrono::system_clock::now());
+
+  for (std::string const& file : args.Files) {
+    cmCTestOptionalLog(this->CTest, OUTPUT, args.Quiet,
+                       "\tUpload file: ", file, '\n');
+    xml.StartElement("File");
+    xml.Attribute("filename", file);
+    xml.StartElement("Content");
+    xml.Attribute("encoding", "base64");
+    xml.Content(this->CTest->Base64EncodeFile(file));
+    xml.EndElement(); // Content
+    xml.EndElement(); // File
+  }
+  xml.EndElement(); // Upload
+  xml.EndElement(); // Site
+  xml.EndDocument();
+  return true;
+}
+
+bool cmCTestUploadCommand::InitialPass(std::vector<std::string> const& args,
+                                       cmExecutionStatus& status) const
+{
+  static auto const parser =
+    cmArgumentParser<UploadArguments>{ MakeBasicParser<UploadArguments>() }
+      .Bind("FILES"_s, &UploadArguments::Files)
+      .Bind("QUIET"_s, &UploadArguments::Quiet);
+
+  return this->Invoke(parser, args, status, [&](UploadArguments& a) {
+    return this->ExecuteUpload(a, status);
+  });
 }

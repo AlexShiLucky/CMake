@@ -1,10 +1,21 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmWIXPatchParser.h"
 
-#include "cmCPackGenerator.h"
+#include <utility>
 
-#include "cm_expat.h"
+#include <cm/memory>
+#include <cmext/string_view>
+
+#include <cm3p/expat.h>
+
+#include "cmCPackGenerator.h"
+#include "cmStringAlgorithms.h"
+
+#if XML_MAJOR_VERSION < 2 || (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION < 9)
+#  define XML_GetCurrentLineNumber64 XML_GetCurrentLineNumber
+#  define XML_GetCurrentColumnNumber64 XML_GetCurrentColumnNumber
+#endif
 
 cmWIXPatchNode::Type cmWIXPatchText::type()
 {
@@ -16,16 +27,10 @@ cmWIXPatchNode::Type cmWIXPatchElement::type()
   return cmWIXPatchNode::ELEMENT;
 }
 
-cmWIXPatchNode::~cmWIXPatchNode()
-{
-}
+cmWIXPatchNode::~cmWIXPatchNode() = default;
 
-cmWIXPatchElement::~cmWIXPatchElement()
-{
-  for (child_list_t::iterator i = children.begin(); i != children.end(); ++i) {
-    delete *i;
-  }
-}
+cmWIXPatchElement::cmWIXPatchElement() = default;
+cmWIXPatchElement::~cmWIXPatchElement() = default;
 
 cmWIXPatchParser::cmWIXPatchParser(fragment_map_t& fragments,
                                    cmCPackLog* logger)
@@ -36,16 +41,16 @@ cmWIXPatchParser::cmWIXPatchParser(fragment_map_t& fragments,
 {
 }
 
-void cmWIXPatchParser::StartElement(const std::string& name, const char** atts)
+void cmWIXPatchParser::StartElement(std::string const& name, char const** atts)
 {
   if (State == BEGIN_DOCUMENT) {
-    if (name == "CPackWiXPatch") {
+    if (name == "CPackWiXPatch"_s) {
       State = BEGIN_FRAGMENTS;
     } else {
       ReportValidationError("Expected root element 'CPackWiXPatch'");
     }
   } else if (State == BEGIN_FRAGMENTS) {
-    if (name == "CPackWiXFragment") {
+    if (name == "CPackWiXFragment"_s) {
       State = INSIDE_FRAGMENT;
       StartFragment(atts);
     } else {
@@ -54,8 +59,7 @@ void cmWIXPatchParser::StartElement(const std::string& name, const char** atts)
   } else if (State == INSIDE_FRAGMENT) {
     cmWIXPatchElement& parent = *ElementStack.back();
 
-    cmWIXPatchElement* element = new cmWIXPatchElement;
-    parent.children.push_back(element);
+    auto element = cm::make_unique<cmWIXPatchElement>();
 
     element->name = name;
 
@@ -66,23 +70,23 @@ void cmWIXPatchParser::StartElement(const std::string& name, const char** atts)
       element->attributes[key] = value;
     }
 
-    ElementStack.push_back(element);
+    ElementStack.push_back(element.get());
+    parent.children.push_back(std::move(element));
   }
 }
 
-void cmWIXPatchParser::StartFragment(const char** attributes)
+void cmWIXPatchParser::StartFragment(char const** attributes)
 {
   cmWIXPatchElement* new_element = nullptr;
   /* find the id of for fragment */
   for (size_t i = 0; attributes[i]; i += 2) {
-    const std::string key = attributes[i];
-    const std::string value = attributes[i + 1];
+    std::string const key = attributes[i];
+    std::string const value = attributes[i + 1];
 
-    if (key == "Id") {
+    if (key == "Id"_s) {
       if (Fragments.find(value) != Fragments.end()) {
-        std::ostringstream tmp;
-        tmp << "Invalid reuse of 'CPackWixFragment' 'Id': " << value;
-        ReportValidationError(tmp.str());
+        ReportValidationError(
+          cmStrCat("Invalid reuse of 'CPackWixFragment' 'Id': ", value));
       }
 
       new_element = &Fragments[value];
@@ -90,25 +94,25 @@ void cmWIXPatchParser::StartFragment(const char** attributes)
     }
   }
 
-  /* add any additional attributes for the fragement */
+  /* add any additional attributes for the fragment */
   if (!new_element) {
     ReportValidationError("No 'Id' specified for 'CPackWixFragment' element");
   } else {
     for (size_t i = 0; attributes[i]; i += 2) {
-      const std::string key = attributes[i];
-      const std::string value = attributes[i + 1];
+      std::string const key = attributes[i];
+      std::string const value = attributes[i + 1];
 
-      if (key != "Id") {
+      if (key != "Id"_s) {
         new_element->attributes[key] = value;
       }
     }
   }
 }
 
-void cmWIXPatchParser::EndElement(const std::string& name)
+void cmWIXPatchParser::EndElement(std::string const& name)
 {
   if (State == INSIDE_FRAGMENT) {
-    if (name == "CPackWiXFragment") {
+    if (name == "CPackWiXFragment"_s) {
       State = BEGIN_FRAGMENTS;
       ElementStack.clear();
     } else {
@@ -117,9 +121,9 @@ void cmWIXPatchParser::EndElement(const std::string& name)
   }
 }
 
-void cmWIXPatchParser::CharacterDataHandler(const char* data, int length)
+void cmWIXPatchParser::CharacterDataHandler(char const* data, int length)
 {
-  const char* whitespace = "\x20\x09\x0d\x0a";
+  char const* whitespace = "\x20\x09\x0d\x0a";
 
   if (State == INSIDE_FRAGMENT) {
     cmWIXPatchElement& parent = *ElementStack.back();
@@ -130,28 +134,28 @@ void cmWIXPatchParser::CharacterDataHandler(const char* data, int length)
     std::string::size_type last = text.find_last_not_of(whitespace);
 
     if (first != std::string::npos && last != std::string::npos) {
-      cmWIXPatchText* text_node = new cmWIXPatchText;
+      auto text_node = cm::make_unique<cmWIXPatchText>();
       text_node->text = text.substr(first, last - first + 1);
 
-      parent.children.push_back(text_node);
+      parent.children.push_back(std::move(text_node));
     }
   }
 }
 
-void cmWIXPatchParser::ReportError(int line, int column, const char* msg)
+void cmWIXPatchParser::ReportError(int line, int column, char const* msg)
 {
   cmCPackLogger(cmCPackLog::LOG_ERROR,
                 "Error while processing XML patch file at "
-                  << line << ":" << column << ":  " << msg << std::endl);
+                  << line << ':' << column << ":  " << msg << std::endl);
   Valid = false;
 }
 
 void cmWIXPatchParser::ReportValidationError(std::string const& message)
 {
-  ReportError(
-    XML_GetCurrentLineNumber(static_cast<XML_Parser>(this->Parser)),
-    XML_GetCurrentColumnNumber(static_cast<XML_Parser>(this->Parser)),
-    message.c_str());
+  XML_Parser parser = static_cast<XML_Parser>(this->Parser);
+  ReportError(static_cast<int>(XML_GetCurrentLineNumber64(parser)),
+              static_cast<int>(XML_GetCurrentColumnNumber64(parser)),
+              message.c_str());
 }
 
 bool cmWIXPatchParser::IsValid() const

@@ -13,7 +13,4 @@ function(run_cmake_CMP0060 CASE)
     )
 endfunction()
 
-run_cmake_CMP0060(OLD)
-run_cmake_CMP0060(WARN-OFF)
-run_cmake_CMP0060(WARN-ON)
 run_cmake_CMP0060(NEW)

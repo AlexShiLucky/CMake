@@ -1,29 +1,32 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCTestCVS.h"
 
-#include "cmCTest.h"
-#include "cmProcessTools.h"
-#include "cmSystemTools.h"
-#include "cmXMLWriter.h"
+#include <utility>
+
+#include <cm/string_view>
+#include <cmext/algorithm>
 
 #include "cmsys/FStream.hxx"
 #include "cmsys/RegularExpression.hxx"
-#include <utility>
 
-cmCTestCVS::cmCTestCVS(cmCTest* ct, std::ostream& log)
-  : cmCTestVC(ct, log)
+#include "cmCTest.h"
+#include "cmMakefile.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
+#include "cmXMLWriter.h"
+
+cmCTestCVS::cmCTestCVS(cmCTest* ct, cmMakefile* mf, std::ostream& log)
+  : cmCTestVC(ct, mf, log)
 {
 }
 
-cmCTestCVS::~cmCTestCVS()
-{
-}
+cmCTestCVS::~cmCTestCVS() = default;
 
 class cmCTestCVS::UpdateParser : public cmCTestVC::LineParser
 {
 public:
-  UpdateParser(cmCTestCVS* cvs, const char* prefix)
+  UpdateParser(cmCTestCVS* cvs, char const* prefix)
     : CVS(cvs)
   {
     this->SetLog(&cvs->Log, prefix);
@@ -46,7 +49,7 @@ private:
   cmsys::RegularExpression RegexFileRemoved1;
   cmsys::RegularExpression RegexFileRemoved2;
 
-  bool ProcessLine() CM_OVERRIDE
+  bool ProcessLine() override
   {
     if (this->RegexFileUpdated.find(this->Line)) {
       this->DoFile(PathUpdated, this->RegexFileUpdated.match(2));
@@ -73,47 +76,42 @@ private:
 bool cmCTestCVS::UpdateImpl()
 {
   // Get user-specified update options.
-  std::string opts = this->CTest->GetCTestConfiguration("UpdateOptions");
+  std::string opts = this->Makefile->GetSafeDefinition("CTEST_UPDATE_OPTIONS");
   if (opts.empty()) {
-    opts = this->CTest->GetCTestConfiguration("CVSUpdateOptions");
+    opts = this->Makefile->GetSafeDefinition("CTEST_CVS_UPDATE_OPTIONS");
     if (opts.empty()) {
       opts = "-dP";
     }
   }
-  std::vector<std::string> args = cmSystemTools::ParseArguments(opts.c_str());
+  std::vector<std::string> args = cmSystemTools::ParseArguments(opts);
 
   // Specify the start time for nightly testing.
   if (this->CTest->GetTestModel() == cmCTest::NIGHTLY) {
-    args.push_back("-D" + this->GetNightlyTime() + " UTC");
+    args.push_back(cmStrCat("-D", this->GetNightlyTime(), " UTC"));
   }
 
   // Run "cvs update" to update the work tree.
-  std::vector<char const*> cvs_update;
-  cvs_update.push_back(this->CommandLineTool.c_str());
-  cvs_update.push_back("-z3");
-  cvs_update.push_back("update");
-  for (std::vector<std::string>::const_iterator ai = args.begin();
-       ai != args.end(); ++ai) {
-    cvs_update.push_back(ai->c_str());
-  }
-  cvs_update.push_back(nullptr);
+  std::vector<std::string> cvs_update;
+  cvs_update.push_back(this->CommandLineTool);
+  cvs_update.emplace_back("-z3");
+  cvs_update.emplace_back("update");
+  cm::append(cvs_update, args);
 
   UpdateParser out(this, "up-out> ");
   UpdateParser err(this, "up-err> ");
-  return this->RunUpdateCommand(&cvs_update[0], &out, &err);
+  return this->RunUpdateCommand(cvs_update, &out, &err);
 }
 
 class cmCTestCVS::LogParser : public cmCTestVC::LineParser
 {
 public:
-  typedef cmCTestCVS::Revision Revision;
-  LogParser(cmCTestCVS* cvs, const char* prefix, std::vector<Revision>& revs)
+  using Revision = cmCTestCVS::Revision;
+  LogParser(cmCTestCVS* cvs, char const* prefix, std::vector<Revision>& revs)
     : CVS(cvs)
     , Revisions(revs)
-    , Section(SectionHeader)
   {
-    this->SetLog(&cvs->Log, prefix),
-      this->RegexRevision.compile("^revision +([^ ]*) *$");
+    this->SetLog(&cvs->Log, prefix);
+    this->RegexRevision.compile("^revision +([^ ]*) *$");
     this->RegexBranches.compile("^branches: .*$");
     this->RegexPerson.compile("^date: +([^;]+); +author: +([^;]+);");
   }
@@ -130,13 +128,14 @@ private:
     SectionRevisions,
     SectionEnd
   };
-  SectionType Section;
+  SectionType Section = SectionHeader;
   Revision Rev;
 
-  bool ProcessLine() CM_OVERRIDE
+  bool ProcessLine() override
   {
-    if (this->Line == ("======================================="
-                       "======================================")) {
+    if (this->Line ==
+        ("======================================="
+         "======================================")) {
       // This line ends the revision list.
       if (this->Section == SectionRevisions) {
         this->FinishRevision();
@@ -150,10 +149,12 @@ private:
         this->FinishRevision();
       }
     } else if (this->Section == SectionRevisions) {
+      // XXX(clang-tidy): https://bugs.llvm.org/show_bug.cgi?id=44165
+      // NOLINTNEXTLINE(bugprone-branch-clone)
       if (!this->Rev.Log.empty()) {
         // Continue the existing log.
         this->Rev.Log += this->Line;
-        this->Rev.Log += "\n";
+        this->Rev.Log += '\n';
       } else if (this->Rev.Rev.empty() &&
                  this->RegexRevision.find(this->Line)) {
         this->Rev.Rev = this->RegexRevision.match(1);
@@ -164,7 +165,7 @@ private:
       } else if (!this->RegexBranches.find(this->Line)) {
         // Start the log.
         this->Rev.Log += this->Line;
-        this->Rev.Log += "\n";
+        this->Rev.Log += '\n';
       }
     }
     return this->Section != SectionEnd;
@@ -206,24 +207,21 @@ std::string cmCTestCVS::ComputeBranchFlag(std::string const& dir)
   if (tagStream && cmSystemTools::GetLineFromStream(tagStream, tagLine) &&
       tagLine.size() > 1 && tagLine[0] == 'T') {
     // Use the branch specified in the tag file.
-    std::string flag = "-r";
-    flag += tagLine.substr(1);
+    std::string flag = cmStrCat("-r", cm::string_view(tagLine).substr(1));
     return flag;
   }
   // Use the default branch.
   return "-b";
 }
 
-void cmCTestCVS::LoadRevisions(std::string const& file, const char* branchFlag,
+void cmCTestCVS::LoadRevisions(std::string const& file, char const* branchFlag,
                                std::vector<Revision>& revisions)
 {
-  cmCTestLog(this->CTest, HANDLER_OUTPUT, "." << std::flush);
+  cmCTestLog(this->CTest, HANDLER_OUTPUT, '.');
 
   // Run "cvs log" to get revisions of this file on this branch.
-  const char* cvs = this->CommandLineTool.c_str();
-  const char* cvs_log[] = {
-    cvs, "log", "-N", branchFlag, file.c_str(), nullptr
-  };
+  std::string cvs = this->CommandLineTool;
+  std::vector<std::string> cvs_log = { cvs, "log", "-N", branchFlag, file };
 
   LogParser out(this, "log-out> ", revisions);
   OutputLogger err(this->Log, "log-err> ");
@@ -233,7 +231,7 @@ void cmCTestCVS::LoadRevisions(std::string const& file, const char* branchFlag,
 void cmCTestCVS::WriteXMLDirectory(cmXMLWriter& xml, std::string const& path,
                                    Directory const& dir)
 {
-  const char* slash = path.empty() ? "" : "/";
+  char const* slash = path.empty() ? "" : "/";
   xml.StartElement("Directory");
   xml.Element("Name", path);
 
@@ -242,12 +240,12 @@ void cmCTestCVS::WriteXMLDirectory(cmXMLWriter& xml, std::string const& path,
 
   // Load revisions and write an entry for each file in this directory.
   std::vector<Revision> revisions;
-  for (Directory::const_iterator fi = dir.begin(); fi != dir.end(); ++fi) {
-    std::string full = path + slash + fi->first;
+  for (auto const& fi : dir) {
+    std::string full = cmStrCat(path, slash, fi.first);
 
     // Load two real or unknown revisions.
     revisions.clear();
-    if (fi->second != PathUpdated) {
+    if (fi.second != PathUpdated) {
       // For local modifications the current rev is unknown and the
       // prior rev is the latest from cvs.
       revisions.push_back(this->Unknown);
@@ -256,8 +254,8 @@ void cmCTestCVS::WriteXMLDirectory(cmXMLWriter& xml, std::string const& path,
     revisions.resize(2, this->Unknown);
 
     // Write the entry for this file with these revisions.
-    File f(fi->second, &revisions[0], &revisions[1]);
-    this->WriteXMLEntry(xml, path, fi->first, full, f);
+    File f(fi.second, revisions.data(), revisions.data() + 1);
+    this->WriteXMLEntry(xml, path, fi.first, full, f);
   }
   xml.EndElement(); // Directory
 }
@@ -266,16 +264,13 @@ bool cmCTestCVS::WriteXMLUpdates(cmXMLWriter& xml)
 {
   cmCTestLog(this->CTest, HANDLER_OUTPUT,
              "   Gathering version information (one . per updated file):\n"
-             "    "
-               << std::flush);
+             "    ");
 
-  for (std::map<std::string, Directory>::const_iterator di =
-         this->Dirs.begin();
-       di != this->Dirs.end(); ++di) {
-    this->WriteXMLDirectory(xml, di->first, di->second);
+  for (auto const& d : this->Dirs) {
+    this->WriteXMLDirectory(xml, d.first, d.second);
   }
 
-  cmCTestLog(this->CTest, HANDLER_OUTPUT, std::endl);
+  cmCTestLog(this->CTest, HANDLER_OUTPUT, '\n');
 
   return true;
 }

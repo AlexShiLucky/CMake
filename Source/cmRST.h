@@ -1,16 +1,18 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef _cmRST_h
-#define _cmRST_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmsys/RegularExpression.hxx"
+#include <cstddef>
 #include <iosfwd>
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "cmsys/RegularExpression.hxx"
 
 /** \class cmRST
  * \brief Perform basic .rst processing for command-line help
@@ -25,30 +27,46 @@
 class cmRST
 {
 public:
-  cmRST(std::ostream& os, std::string const& docroot);
+  cmRST(std::string docroot);
   bool ProcessFile(std::string const& fname, bool isModule = false);
+  void Write(std::ostream& os);
 
 private:
-  enum IncludeType
+  enum class Include
   {
-    IncludeNormal,
-    IncludeModule,
-    IncludeTocTree
+    Normal,
+    Module,
+    TocTree
   };
-  enum MarkupType
+  enum class Markup
   {
-    MarkupNone,
-    MarkupNormal,
-    MarkupEmpty
+    None,
+    Normal,
+    Empty
   };
-  enum DirectiveType
+  enum class Directive
   {
-    DirectiveNone,
-    DirectiveParsedLiteral,
-    DirectiveLiteralBlock,
-    DirectiveCodeBlock,
-    DirectiveReplace,
-    DirectiveTocTree
+    None,
+    ParsedLiteral,
+    LiteralBlock,
+    CodeBlock,
+    Replace,
+    TocTree
+  };
+
+  struct ContentLine
+  {
+    ContentLine() = default;
+    ContentLine(std::string l, size_t c, bool m)
+      : Content{ std::move(l) }
+      , Context{ c }
+      , InlineMarkup{ m }
+    {
+    }
+
+    std::string Content;
+    size_t Context;
+    bool InlineMarkup;
   };
 
   void ProcessRST(std::istream& is);
@@ -57,9 +75,10 @@ private:
   void ProcessLine(std::string const& line);
   void NormalLine(std::string const& line);
   void OutputLine(std::string const& line, bool inlineMarkup);
-  std::string ReplaceSubstitutions(std::string const& line);
+  void WriteLine(std::ostream& os, ContentLine const& content);
+  std::string ReplaceSubstitutions(std::string const& line, size_t context);
   void OutputMarkupLines(bool inlineMarkup);
-  bool ProcessInclude(std::string file, IncludeType type);
+  bool ProcessInclude(std::string file, Include type);
   void ProcessDirectiveParsedLiteral();
   void ProcessDirectiveLiteralBlock();
   void ProcessDirectiveCodeBlock();
@@ -67,13 +86,13 @@ private:
   void ProcessDirectiveTocTree();
   static void UnindentLines(std::vector<std::string>& lines);
 
-  std::ostream& OS;
   std::string DocRoot;
-  int IncludeDepth;
-  bool OutputLinePending;
-  bool LastLineEndedInColonColon;
-  MarkupType Markup;
-  DirectiveType Directive;
+  int IncludeDepth = 0;
+  size_t ContextOffset = 0;
+  bool OutputLinePending = false;
+  bool LastLineEndedInColonColon = false;
+  Markup MarkupType = Markup::None;
+  Directive DirectiveType = Directive::None;
   cmsys::RegularExpression CMakeDirective;
   cmsys::RegularExpression CMakeModuleDirective;
   cmsys::RegularExpression ParsedLiteralDirective;
@@ -83,16 +102,20 @@ private:
   cmsys::RegularExpression TocTreeDirective;
   cmsys::RegularExpression ProductionListDirective;
   cmsys::RegularExpression NoteDirective;
+  cmsys::RegularExpression VersionDirective;
   cmsys::RegularExpression ModuleRST;
   cmsys::RegularExpression CMakeRole;
+  cmsys::RegularExpression InlineLink;
+  cmsys::RegularExpression InlineLiteral;
   cmsys::RegularExpression Substitution;
   cmsys::RegularExpression TocTreeLink;
+  cmsys::RegularExpression Header;
 
+  std::string::size_type LastLength;
   std::vector<std::string> MarkupLines;
+  std::vector<ContentLine> OutputLines;
   std::string DocDir;
-  std::map<std::string, std::string> Replace;
+  std::vector<std::map<std::string, std::string>> Replace;
   std::set<std::string> Replaced;
   std::string ReplaceName;
 };
-
-#endif

@@ -1,6 +1,6 @@
 %{
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 /*
 
 This file must be translated to C++ and modified to build everywhere.
@@ -18,6 +18,8 @@ Modify cmDependsJavaLexer.cxx:
 
 /* IWYU pragma: no_forward_declare yyguts_t */
 
+#ifndef __clang_analyzer__ /* Suppress clang-analyzer warnings */
+
 #include <iostream>
 
 #include "cmDependsJavaParserHelper.h"
@@ -25,7 +27,7 @@ Modify cmDependsJavaLexer.cxx:
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = yyextra->LexInput(buf, max_size); }
+  do { result = yyextra->LexInput(buf, max_size); } while (0)
 
 /* Include the set of tokens from the parser.  */
 #include "cmDependsJavaParserTokens.h"
@@ -173,3 +175,7 @@ null { PRIMITIVE; return jp_NULLLITERAL; }
 }
 
 %%
+
+/*--------------------------------------------------------------------------*/
+
+#endif /* __clang_analyzer__ */

@@ -18,12 +18,16 @@
 // /showIncludes is equivalent to -MD, not -MMD, that is, system headers are
 // included.
 
-#include "cmSystemTools.h"
-#include "cmsys/Encoding.hxx"
-
 #include <algorithm>
 #include <sstream>
+
 #include <windows.h>
+
+#include "cmsys/Encoding.hxx"
+#include "cmsys/SystemTools.hxx"
+
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
 
 // We don't want any wildcard expansion.
 // See http://msdn.microsoft.com/en-us/library/zay8tzh6(v=vs.85).aspx
@@ -31,7 +35,7 @@ void _setargv()
 {
 }
 
-static void Fatal(const char* msg, ...)
+static void Fatal(char const* msg, ...)
 {
   va_list ap;
   fprintf(stderr, "ninja: FATAL: ");
@@ -46,7 +50,7 @@ static void Fatal(const char* msg, ...)
   ExitProcess(1);
 }
 
-static void usage(const char* msg)
+static void usage(char const* msg)
 {
   Fatal("%s\n\nusage:\n    "
         "cmcldeps "
@@ -61,7 +65,7 @@ static void usage(const char* msg)
         msg);
 }
 
-static std::string trimLeadingSpace(const std::string& cmdline)
+static cm::string_view trimLeadingSpace(cm::string_view cmdline)
 {
   int i = 0;
   for (; cmdline[i] == ' '; ++i)
@@ -69,8 +73,8 @@ static std::string trimLeadingSpace(const std::string& cmdline)
   return cmdline.substr(i);
 }
 
-static void replaceAll(std::string& str, const std::string& search,
-                       const std::string& repl)
+static void replaceAll(std::string& str, std::string const& search,
+                       std::string const& repl)
 {
   std::string::size_type pos = 0;
   while ((pos = str.find(search, pos)) != std::string::npos) {
@@ -79,34 +83,30 @@ static void replaceAll(std::string& str, const std::string& search,
   }
 }
 
-bool startsWith(const std::string& str, const std::string& what)
-{
-  return str.compare(0, what.size(), what) == 0;
-}
-
 // Strips one argument from the cmdline and returns it. "surrounding quotes"
 // are removed from the argument if there were any.
 static std::string getArg(std::string& cmdline)
 {
-  std::string ret;
   bool in_quoted = false;
   unsigned int i = 0;
 
-  cmdline = trimLeadingSpace(cmdline);
+  cm::string_view cmdview = trimLeadingSpace(cmdline);
+  size_t spaceCnt = cmdline.size() - cmdview.size();
 
   for (;; ++i) {
-    if (i >= cmdline.size())
+    if (i >= cmdview.size())
       usage("Couldn't parse arguments.");
-    if (!in_quoted && cmdline[i] == ' ')
+    if (!in_quoted && cmdview[i] == ' ')
       break; // "a b" "x y"
-    if (cmdline[i] == '"')
+    if (cmdview[i] == '"')
       in_quoted = !in_quoted;
   }
 
-  ret = cmdline.substr(0, i);
-  if (ret[0] == '"' && ret[i - 1] == '"')
-    ret = ret.substr(1, ret.size() - 2);
-  cmdline = cmdline.substr(i);
+  cmdview = cmdview.substr(0, i);
+  if (cmdview[0] == '"' && cmdview[i - 1] == '"')
+    cmdview = cmdview.substr(1, i - 2);
+  std::string ret(cmdview);
+  cmdline.erase(0, spaceCnt + i);
   return ret;
 }
 
@@ -125,7 +125,7 @@ static void parseCommandLine(LPWSTR wincmdline, std::string& lang,
   prefix = getArg(cmdline);
   clpath = getArg(cmdline);
   binpath = getArg(cmdline);
-  rest = trimLeadingSpace(cmdline);
+  rest = std::string(trimLeadingSpace(cmdline));
 }
 
 // Not all backslashes need to be escaped in a depfile, but it's easier that
@@ -136,7 +136,7 @@ static void escapePath(std::string& path)
   replaceAll(path, " ", "\\ ");
 }
 
-static void outputDepFile(const std::string& dfile, const std::string& objfile,
+static void outputDepFile(std::string const& dfile, std::string const& objfile,
                           std::vector<std::string>& incs)
 {
 
@@ -152,7 +152,7 @@ static void outputDepFile(const std::string& dfile, const std::string& objfile,
   // FIXME should this be fatal or not? delete obj? delete d?
   if (!out)
     return;
-  std::string cwd = cmSystemTools::GetCurrentWorkingDirectory();
+  std::string cwd = cmsys::SystemTools::GetCurrentWorkingDirectory();
   replaceAll(cwd, "/", "\\");
   cwd += "\\";
 
@@ -167,8 +167,8 @@ static void outputDepFile(const std::string& dfile, const std::string& objfile,
     // build.ninja file.  Therefore we need to canonicalize the path to use
     // backward slashes and relativize the path to the build directory.
     replaceAll(tmp, "/", "\\");
-    if (startsWith(tmp, cwd))
-      tmp = tmp.substr(cwd.size());
+    if (cmHasPrefix(tmp, cwd))
+      tmp.erase(0, cwd.size());
     escapePath(tmp);
     fprintf(out, "%s \\\n", tmp.c_str());
   }
@@ -177,24 +177,9 @@ static void outputDepFile(const std::string& dfile, const std::string& objfile,
   fclose(out);
 }
 
-bool contains(const std::string& str, const std::string& what)
-{
-  return str.find(what) != std::string::npos;
-}
-
-std::string replace(const std::string& str, const std::string& what,
-                    const std::string& replacement)
-{
-  size_t pos = str.find(what);
-  if (pos == std::string::npos)
-    return str;
-  std::string replaced = str;
-  return replaced.replace(pos, what.size(), replacement);
-}
-
-static int process(const std::string& srcfilename, const std::string& dfile,
-                   const std::string& objfile, const std::string& prefix,
-                   const std::string& cmd, const std::string& dir = "",
+static int process(cm::string_view srcfilename, std::string const& dfile,
+                   std::string const& objfile, std::string const& prefix,
+                   std::string const& cmd, std::string const& dir = "",
                    bool quiet = false)
 {
   std::string output;
@@ -219,13 +204,14 @@ static int process(const std::string& srcfilename, const std::string& dfile,
   std::vector<std::string> includes;
   bool isFirstLine = true; // cl prints always first the source filename
   while (std::getline(ss, line)) {
-    if (startsWith(line, prefix)) {
-      std::string inc = trimLeadingSpace(line.substr(prefix.size()).c_str());
-      if (inc[inc.size() - 1] == '\r') // blech, stupid \r\n
+    cm::string_view inc(line);
+    if (cmHasPrefix(inc, prefix)) {
+      inc = trimLeadingSpace(inc.substr(prefix.size()));
+      if (inc.back() == '\r') // blech, stupid \r\n
         inc = inc.substr(0, inc.size() - 1);
-      includes.push_back(inc);
+      includes.emplace_back(std::string(inc));
     } else {
-      if (!isFirstLine || !startsWith(line, srcfilename)) {
+      if (!isFirstLine || !cmHasPrefix(inc, srcfilename)) {
         if (!quiet || exit_code != 0) {
           fprintf(stdout, "%s\n", line.c_str());
         }
@@ -256,49 +242,56 @@ int main()
                    cl, binpath, rest);
 
   // needed to suppress filename output of msvc tools
-  std::string srcfilename;
-  {
-    std::string::size_type pos = srcfile.rfind('\\');
-    if (pos == std::string::npos) {
-      srcfilename = srcfile;
-    } else {
-      srcfilename = srcfile.substr(pos + 1);
-    }
+  cm::string_view srcfilename(srcfile);
+  std::string::size_type pos = srcfile.rfind('\\');
+  if (pos != std::string::npos) {
+    srcfilename = srcfilename.substr(pos + 1);
   }
 
-  std::string nol = " /nologo ";
-  std::string show = " /showIncludes ";
-  if (lang == "C" || lang == "CXX") {
-    return process(srcfilename, dfile, objfile, prefix,
-                   binpath + nol + show + rest);
-  } else if (lang == "RC") {
+  if (lang == "RC") {
     // "misuse" cl.exe to get headers from .rc files
 
+    // Make sure there is at most one /nologo option.
+    bool const haveNologo = (rest.find("/nologo ") != std::string::npos ||
+                             rest.find("-nologo ") != std::string::npos);
+    cmSystemTools::ReplaceString(rest, "-nologo ", " ");
+    cmSystemTools::ReplaceString(rest, "/nologo ", " ");
     std::string clrest = rest;
-    // rc: /fo x.dir\x.rc.res  ->  cl: /out:x.dir\x.rc.res.dep.obj
-    clrest = replace(clrest, "/fo", "/out:");
-    clrest = replace(clrest, objfile, objfile + ".dep.obj ");
+    if (haveNologo) {
+      rest = cmStrCat("/nologo ", std::move(rest));
+    }
 
-    cl = "\"" + cl + "\" /P /DRC_INVOKED /TC ";
+    // rc /fo X.dir\x.rc.res  =>  cl -FoX.dir\x.rc.res.obj
+    // The object will not actually be written.
+    cmSystemTools::ReplaceString(clrest, "/fo ", " ");
+    cmSystemTools::ReplaceString(clrest, "-fo ", " ");
+    cmSystemTools::ReplaceString(clrest, objfile,
+                                 cmStrCat("-Fo", objfile, ".obj"));
+
+    cl = cmStrCat('"', std::move(cl),
+                  "\" /P /DRC_INVOKED /nologo /showIncludes /TC ");
 
     // call cl in object dir so the .i is generated there
     std::string objdir;
     {
-      std::string::size_type pos = objfile.rfind("\\");
+      pos = objfile.rfind('\\');
       if (pos != std::string::npos) {
         objdir = objfile.substr(0, pos);
       }
     }
 
     // extract dependencies with cl.exe
-    int exit_code = process(srcfilename, dfile, objfile, prefix,
-                            cl + nol + show + clrest, objdir, true);
+    int exit_code =
+      process(srcfilename, dfile, objfile, prefix, cl + clrest, objdir, true);
 
-    if (exit_code != 0)
+    if (exit_code != 0) {
       return exit_code;
+    }
 
     // compile rc file with rc.exe
-    return process(srcfilename, "", objfile, prefix, binpath + " " + rest);
+    std::string rc = cmStrCat('"', binpath, '"');
+    return process(srcfilename, "", objfile, prefix, cmStrCat(rc, ' ', rest),
+                   std::string(), true);
   }
 
   usage("Invalid language specified.");

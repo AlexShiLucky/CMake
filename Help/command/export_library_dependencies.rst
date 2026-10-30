@@ -1,7 +1,7 @@
 export_library_dependencies
 ---------------------------
 
-Disallowed.  See CMake Policy :policy:`CMP0033`.
+Disallowed since version 3.0.  See CMake Policy :policy:`CMP0033`.
 
 Use :command:`install(EXPORT)` or :command:`export` command.
 
@@ -15,7 +15,7 @@ The old-style library dependencies file does not take into account
 per-configuration names of libraries or the
 :prop_tgt:`LINK_INTERFACE_LIBRARIES` target property.
 
-::
+.. code-block:: cmake
 
   export_library_dependencies(<file> [APPEND])
 

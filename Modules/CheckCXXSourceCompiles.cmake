@@ -1,133 +1,104 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 #[=======================================================================[.rst:
 CheckCXXSourceCompiles
 ----------------------
 
-Check if given C++ source compiles and links into an executable.
+This module provides a command to check whether a C++ source can be built.
+
+Load this module in a CMake project with:
+
+.. code-block:: cmake
+
+  include(CheckCXXSourceCompiles)
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
 
 .. command:: check_cxx_source_compiles
 
-  ::
+  Checks once whether the given C++ source code can be built:
 
-    check_cxx_source_compiles(code resultVar [FAIL_REGEX regex1 [regex2...]])
+  .. code-block:: cmake
 
-  Check that the source supplied in ``code`` can be compiled as a C++ source
-  file and linked as an executable (so it must contain at least a ``main()``
-  function). The result will be stored in the internal cache variable specified
-  by ``resultVar``, with a boolean true value for success and boolean false for
-  failure. If ``FAIL_REGEX`` is provided, then failure is determined by
-  checking if anything in the output matches any of the specified regular
-  expressions.
+    check_cxx_source_compiles(<code> <variable> [FAIL_REGEX <regexes>...])
 
-  The underlying check is performed by the :command:`try_compile` command. The
-  compile and link commands can be influenced by setting any of the following
-  variables prior to calling ``check_cxx_source_compiles()``:
+  This command checks once that the source supplied in ``<code>`` can be
+  compiled (and linked into an executable).  The result of the check is
+  stored in the internal cache variable specified by ``<variable>``.
 
-  ``CMAKE_REQUIRED_FLAGS``
-    Additional flags to pass to the compiler. Note that the contents of
-    :variable:`CMAKE_CXX_FLAGS <CMAKE_<LANG>_FLAGS>` and its associated
-    configuration-specific variable are automatically added to the compiler
-    command before the contents of ``CMAKE_REQUIRED_FLAGS``.
+  The arguments are:
 
-  ``CMAKE_REQUIRED_DEFINITIONS``
-    A :ref:`;-list <CMake Language Lists>` of compiler definitions of the form
-    ``-DFOO`` or ``-DFOO=bar``. A definition for the name specified by
-    ``resultVar`` will also be added automatically.
+  ``<code>``
+    C++ source code to check.  This must be an entire program, as written
+    in a file containing the body block.  All symbols used in the source code
+    are expected to be declared as usual in their corresponding headers.
 
-  ``CMAKE_REQUIRED_INCLUDES``
-    A :ref:`;-list <CMake Language Lists>` of header search paths to pass to
-    the compiler. These will be the only header search paths used by
-    ``try_compile()``, i.e. the contents of the :prop_dir:`INCLUDE_DIRECTORIES`
-    directory property will be ignored.
+  ``<variable>``
+    Variable name of an internal cache variable to store the result of the
+    check, with boolean true for success and boolean false for failure.
 
-  ``CMAKE_REQUIRED_LIBRARIES``
-    A :ref:`;-list <CMake Language Lists>` of libraries to add to the link
-    command. These can be the name of system libraries or they can be
-    :ref:`Imported Targets <Imported Targets>` (see :command:`try_compile` for
-    further details).
+  ``FAIL_REGEX <regexes>...``
+    If one or more regular expression patterns are provided, then failure is
+    determined by checking if anything in the compiler output matches any of
+    the specified regular expressions.
 
-  ``CMAKE_REQUIRED_QUIET``
-    If this variable evaluates to a boolean true value, all status messages
-    associated with the check will be suppressed.
+  .. rubric:: Variables Affecting the Check
 
-  The check is only performed once, with the result cached in the variable
-  named by ``resultVar``. Every subsequent CMake run will re-use this cached
-  value rather than performing the check again, even if the ``code`` changes.
-  In order to force the check to be re-evaluated, the variable named by
-  ``resultVar`` must be manually removed from the cache.
+  The following variables may be set before calling this command to modify
+  the way the check is run:
 
+  .. include:: /module/include/CMAKE_REQUIRED_FLAGS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_DEFINITIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_INCLUDES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_OPTIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LIBRARIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_DIRECTORIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_QUIET.rst
+
+  .. include:: /module/include/CMAKE_TRY_COMPILE_TARGET_TYPE.rst
+
+Examples
+^^^^^^^^
+
+The following example demonstrates how to check whether the C++ compiler
+supports a specific language feature.  In this case, the check verifies if
+the compiler supports ``C++11`` lambda expressions.  The result is stored
+in the internal cache variable ``HAVE_CXX11_LAMBDAS``:
+
+.. code-block:: cmake
+
+  include(CheckCXXSourceCompiles)
+
+  check_cxx_source_compiles([[
+    int main()
+    {
+      auto lambda = []() { return 42; };
+      return lambda();
+    }
+  ]] HAVE_CXX11_LAMBDAS)
+
+See Also
+^^^^^^^^
+
+* The :module:`CheckSourceCompiles` module for a more general command to
+  check whether source can be built.
+* The :module:`CheckSourceRuns` module to check whether source can be built
+  and run.
 #]=======================================================================]
 
+include_guard(GLOBAL)
+include(Internal/CheckSourceCompiles)
+
 macro(CHECK_CXX_SOURCE_COMPILES SOURCE VAR)
-  if(NOT DEFINED "${VAR}")
-    set(_FAIL_REGEX)
-    set(_key)
-    foreach(arg ${ARGN})
-      if("${arg}" MATCHES "^(FAIL_REGEX)$")
-        set(_key "${arg}")
-      elseif(_key)
-        list(APPEND _${_key} "${arg}")
-      else()
-        message(FATAL_ERROR "Unknown argument:\n  ${arg}\n")
-      endif()
-    endforeach()
-
-    set(MACRO_CHECK_FUNCTION_DEFINITIONS
-      "-D${VAR} ${CMAKE_REQUIRED_FLAGS}")
-    if(CMAKE_REQUIRED_LIBRARIES)
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_LIBRARIES
-        LINK_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-    else()
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_LIBRARIES)
-    endif()
-    if(CMAKE_REQUIRED_INCLUDES)
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_INCLUDES
-        "-DINCLUDE_DIRECTORIES:STRING=${CMAKE_REQUIRED_INCLUDES}")
-    else()
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_INCLUDES)
-    endif()
-    file(WRITE "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src.cxx"
-      "${SOURCE}\n")
-
-    if(NOT CMAKE_REQUIRED_QUIET)
-      message(STATUS "Performing Test ${VAR}")
-    endif()
-    try_compile(${VAR}
-      ${CMAKE_BINARY_DIR}
-      ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src.cxx
-      COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
-      ${CHECK_CXX_SOURCE_COMPILES_ADD_LIBRARIES}
-      CMAKE_FLAGS -DCOMPILE_DEFINITIONS:STRING=${MACRO_CHECK_FUNCTION_DEFINITIONS}
-      "${CHECK_CXX_SOURCE_COMPILES_ADD_INCLUDES}"
-      OUTPUT_VARIABLE OUTPUT)
-
-    foreach(_regex ${_FAIL_REGEX})
-      if("${OUTPUT}" MATCHES "${_regex}")
-        set(${VAR} 0)
-      endif()
-    endforeach()
-
-    if(${VAR})
-      set(${VAR} 1 CACHE INTERNAL "Test ${VAR}")
-      if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Performing Test ${VAR} - Success")
-      endif()
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Performing C++ SOURCE FILE Test ${VAR} succeeded with the following output:\n"
-        "${OUTPUT}\n"
-        "Source file was:\n${SOURCE}\n")
-    else()
-      if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Performing Test ${VAR} - Failed")
-      endif()
-      set(${VAR} "" CACHE INTERNAL "Test ${VAR}")
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
-        "Performing C++ SOURCE FILE Test ${VAR} failed with the following output:\n"
-        "${OUTPUT}\n"
-        "Source file was:\n${SOURCE}\n")
-    endif()
-  endif()
+  cmake_check_source_compiles(CXX "${SOURCE}" ${VAR} ${ARGN})
 endmacro()
-

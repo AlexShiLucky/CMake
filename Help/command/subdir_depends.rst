@@ -1,11 +1,11 @@
 subdir_depends
 --------------
 
-Disallowed.  See CMake Policy :policy:`CMP0029`.
+Disallowed since version 3.0.  See CMake Policy :policy:`CMP0029`.
 
 Does nothing.
 
-::
+.. code-block:: cmake
 
   subdir_depends(subdir dep1 dep2 ...)
 
