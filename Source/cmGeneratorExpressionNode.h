@@ -1,17 +1,20 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGeneratorExpressionNode_h
-#define cmGeneratorExpressionNode_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
+namespace cm {
+namespace GenEx {
+struct Evaluation;
+}
+}
+
 class cmGeneratorTarget;
-class cmLocalGenerator;
 struct GeneratorExpressionContent;
-struct cmGeneratorExpressionContext;
 struct cmGeneratorExpressionDAGChecker;
 
 struct cmGeneratorExpressionNode
@@ -20,9 +23,11 @@ struct cmGeneratorExpressionNode
   {
     DynamicParameters = 0,
     OneOrMoreParameters = -1,
-    OneOrZeroParameters = -2
+    TwoOrMoreParameters = -2,
+    ZeroOrMoreParameters = -3,
+    OneOrZeroParameters = -4
   };
-  virtual ~cmGeneratorExpressionNode() {}
+  virtual ~cmGeneratorExpressionNode() = default;
 
   virtual bool GeneratesContent() const { return true; }
 
@@ -32,23 +37,26 @@ struct cmGeneratorExpressionNode
 
   virtual int NumExpectedParameters() const { return 1; }
 
+  virtual bool ShouldEvaluateNextParameter(std::vector<std::string> const&,
+                                           std::string&) const
+  {
+    return true;
+  }
+
   virtual std::string Evaluate(
-    const std::vector<std::string>& parameters,
-    cmGeneratorExpressionContext* context,
-    const GeneratorExpressionContent* content,
+    std::vector<std::string> const& parameters, cm::GenEx::Evaluation* eval,
+    GeneratorExpressionContent const* content,
     cmGeneratorExpressionDAGChecker* dagChecker) const = 0;
 
   static std::string EvaluateDependentExpression(
-    std::string const& prop, cmLocalGenerator* lg,
-    cmGeneratorExpressionContext* context, const cmGeneratorTarget* headTarget,
-    const cmGeneratorTarget* currentTarget,
-    cmGeneratorExpressionDAGChecker* dagChecker);
+    std::string const& prop, cm::GenEx::Evaluation* eval,
+    cmGeneratorTarget const* headTarget,
+    cmGeneratorExpressionDAGChecker* dagChecker,
+    cmGeneratorTarget const* currentTarget);
 
-  static const cmGeneratorExpressionNode* GetNode(
-    const std::string& identifier);
+  static cmGeneratorExpressionNode const* GetNode(
+    std::string const& identifier);
 };
 
-void reportError(cmGeneratorExpressionContext* context,
-                 const std::string& expr, const std::string& result);
-
-#endif
+void reportError(cm::GenEx::Evaluation* eval, std::string const& expr,
+                 std::string const& result);

@@ -1,66 +1,170 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# CheckIncludeFile
-# ----------------
-#
-# Provides a macro to check if a header file can be included in ``C``.
-#
-# .. command:: CHECK_INCLUDE_FILE
-#
-#   ::
-#
-#     CHECK_INCLUDE_FILE(<include> <variable> [<flags>])
-#
-#   Check if the given ``<include>`` file may be included in a ``C``
-#   source file and store the result in an internal cache entry named
-#   ``<variable>``.  The optional third argument may be used to add
-#   compilation flags to the check (or use ``CMAKE_REQUIRED_FLAGS`` below).
-#
-# The following variables may be set before calling this macro to modify
-# the way the check is run:
-#
-# ``CMAKE_REQUIRED_FLAGS``
-#   string of compile command line flags
-# ``CMAKE_REQUIRED_DEFINITIONS``
-#   list of macros to define (-DFOO=bar)
-# ``CMAKE_REQUIRED_INCLUDES``
-#   list of include directories
-# ``CMAKE_REQUIRED_QUIET``
-#   execute quietly without messages
-#
-# See the :module:`CheckIncludeFiles` module to check for multiple headers
-# at once.  See the :module:`CheckIncludeFileCXX` module to check for headers
-# using the ``CXX`` language.
+#[=======================================================================[.rst:
+CheckIncludeFile
+----------------
+
+This module provides a command to check C header file.
+
+Load this module in a CMake project with:
+
+.. code-block:: cmake
+
+  include(CheckIncludeFile)
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
+
+.. command:: check_include_file
+
+  Checks once whether a header file exists and can be included in C code:
+
+  .. code-block:: cmake
+
+    check_include_file(<include> <variable> [<flags>])
+
+  .. rubric:: The arguments are:
+
+  ``<include>``
+    A header file to be checked.
+
+  ``<variable>``
+    The name of the variable to store the result of the check.  This
+    variable will be created as an internal cache variable.
+
+  ``<flags>``
+    (Optional) A space-separated string of
+    additional compilation flags to be added to the check.  Alternatively,
+    flags can be also specified with the ``CMAKE_REQUIRED_FLAGS`` variable
+    below.
+
+  .. rubric:: Variables Affecting the Check
+
+  The following variables may be set before calling this command to modify
+  the way the check is run:
+
+  .. include:: /module/include/CMAKE_REQUIRED_FLAGS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_DEFINITIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_INCLUDES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_OPTIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LIBRARIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_DIRECTORIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_QUIET.rst
+
+  .. versionadded:: 3.12
+    The ``CMAKE_REQUIRED_LIBRARIES`` variable, if policy :policy:`CMP0075` is
+    set to ``NEW``.
+
+Examples
+^^^^^^^^
+
+Example: Checking C Header
+""""""""""""""""""""""""""
+
+Checking whether the C header ``<unistd.h>`` exists and storing the check
+result in the ``HAVE_UNISTD_H`` cache variable:
+
+.. code-block:: cmake
+
+  include(CheckIncludeFile)
+
+  check_include_file(unistd.h HAVE_UNISTD_H)
+
+Example: Isolated Check
+"""""""""""""""""""""""
+
+In the following example, this module is used in combination with the
+:module:`CMakePushCheckState` module to temporarily modify the required
+compile definitions (via ``CMAKE_REQUIRED_DEFINITIONS``) and verify whether
+the C header ``<ucontext.h>`` is available.  The result is stored
+in the internal cache variable ``HAVE_UCONTEXT_H``.
+
+For example, on macOS, the ``ucontext`` API is deprecated, and headers may
+be hidden unless certain feature macros are defined.  In particular,
+defining ``_XOPEN_SOURCE`` (without a value) can expose the necessary
+symbols without enabling broader POSIX or SUS (Single Unix Specification)
+features (values 500 or greater).
+
+.. code-block:: cmake
+
+  include(CheckIncludeFile)
+  include(CMakePushCheckState)
+
+  cmake_push_check_state(RESET)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+      set(CMAKE_REQUIRED_DEFINITIONS -D_XOPEN_SOURCE)
+    endif()
+
+    check_include_file(ucontext.h HAVE_UCONTEXT_H)
+  cmake_pop_check_state()
+
+See Also
+^^^^^^^^
+
+* The :module:`CheckIncludeFileCXX` module to check for single C++ header.
+* The :module:`CheckIncludeFiles` module to check for one or more C or
+  C++ headers at once.
+#]=======================================================================]
+
+include_guard(GLOBAL)
+include(Internal/CheckCommon)
 
 macro(CHECK_INCLUDE_FILE INCLUDE VARIABLE)
   if(NOT DEFINED "${VARIABLE}")
-    if(CMAKE_REQUIRED_INCLUDES)
-      set(CHECK_INCLUDE_FILE_C_INCLUDE_DIRS "-DINCLUDE_DIRECTORIES=${CMAKE_REQUIRED_INCLUDES}")
-    else()
-      set(CHECK_INCLUDE_FILE_C_INCLUDE_DIRS)
-    endif()
-    set(MACRO_CHECK_INCLUDE_FILE_FLAGS ${CMAKE_REQUIRED_FLAGS})
     set(CHECK_INCLUDE_FILE_VAR ${INCLUDE})
-    configure_file(${CMAKE_ROOT}/Modules/CheckIncludeFile.c.in
-      ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckIncludeFile.c)
+    file(READ ${CMAKE_ROOT}/Modules/CheckIncludeFile.c.in _CIF_SOURCE_CONTENT)
+    string(CONFIGURE "${_CIF_SOURCE_CONTENT}" _CIF_SOURCE_CONTENT)
     if(NOT CMAKE_REQUIRED_QUIET)
-      message(STATUS "Looking for ${INCLUDE}")
+      message(CHECK_START "Looking for ${INCLUDE}")
     endif()
     if(${ARGC} EQUAL 3)
       set(CMAKE_C_FLAGS_SAVE ${CMAKE_C_FLAGS})
       string(APPEND CMAKE_C_FLAGS " ${ARGV2}")
     endif()
 
+    cmake_check_common_init_compile_args(_CIF)
+    cmake_check_common_init_link_options(_CIF)
+    cmake_check_common_init_link_directories(_CIF)
+
+    set(_CIF_ADD_LINK_LIBRARIES "")
+    if(CMAKE_REQUIRED_LIBRARIES)
+      cmake_policy(GET CMP0075 _CIF_CMP0075
+        PARENT_SCOPE # undocumented, do not use outside of CMake
+        )
+      if("x${_CIF_CMP0075}x" STREQUAL "xNEWx")
+        set(_CIF_ADD_LINK_LIBRARIES LINK_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
+      elseif("x${_CIF_CMP0075}x" STREQUAL "xOLDx")
+      elseif(NOT _CIF_CMP0075_WARNED)
+        set(_CIF_CMP0075_WARNED 1)
+        cmake_policy(ISSUE_WARNING CMP0075 POST
+          "CMAKE_REQUIRED_LIBRARIES is set to:\n"
+          "  ${CMAKE_REQUIRED_LIBRARIES}\n"
+          "For compatibility with CMake 3.11 and below this check is ignoring it."
+          )
+      endif()
+      unset(_CIF_CMP0075)
+    endif()
+
     try_compile(${VARIABLE}
-      ${CMAKE_BINARY_DIR}
-      ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckIncludeFile.c
+      SOURCE_FROM_VAR CheckIncludeFile.c _CIF_SOURCE_CONTENT
       COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
+      ${_CIF_ADD_LINK_OPTIONS}
+      ${_CIF_ADD_LINK_LIBRARIES}
       CMAKE_FLAGS
-      -DCOMPILE_DEFINITIONS:STRING=${MACRO_CHECK_INCLUDE_FILE_FLAGS}
-      "${CHECK_INCLUDE_FILE_C_INCLUDE_DIRS}"
-      OUTPUT_VARIABLE OUTPUT)
+        -DCOMPILE_DEFINITIONS:STRING=${CMAKE_REQUIRED_FLAGS}
+        "${_CIF_INCLUDE_DIRECTORIES}"
+        "${_CIF_LINK_DIRECTORIES}"
+      )
+    cmake_check_common_cleanup(_CIF)
 
     if(${ARGC} EQUAL 3)
       set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS_SAVE})
@@ -68,22 +172,14 @@ macro(CHECK_INCLUDE_FILE INCLUDE VARIABLE)
 
     if(${VARIABLE})
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${INCLUDE} - found")
+        message(CHECK_PASS "found")
       endif()
       set(${VARIABLE} 1 CACHE INTERNAL "Have include ${INCLUDE}")
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Determining if the include file ${INCLUDE} "
-        "exists passed with the following output:\n"
-        "${OUTPUT}\n\n")
     else()
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${INCLUDE} - not found")
+        message(CHECK_FAIL "not found")
       endif()
       set(${VARIABLE} "" CACHE INTERNAL "Have include ${INCLUDE}")
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
-        "Determining if the include file ${INCLUDE} "
-        "exists failed with the following output:\n"
-        "${OUTPUT}\n\n")
     endif()
   endif()
 endmacro()

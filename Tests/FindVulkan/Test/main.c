@@ -1,11 +1,11 @@
 #include <vulkan/vulkan.h>
 
-int main()
+int main(void)
 {
-  VkInstanceCreateInfo instanceCreateInfo = {};
+  VkInstanceCreateInfo instanceCreateInfo = { 0 };
   instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
-  VkApplicationInfo applicationInfo = {};
+  VkApplicationInfo applicationInfo = { 0 };
   applicationInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
   applicationInfo.apiVersion = VK_API_VERSION_1_0;
   applicationInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);

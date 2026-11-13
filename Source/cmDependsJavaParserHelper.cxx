@@ -1,17 +1,21 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmDependsJavaParserHelper.h"
 
-#include "cmConfigure.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <utility>
 
-#include "cmDependsJavaLexer.h"
-#include "cmSystemTools.h"
+#include <cm/memory>
+#include <cm/string_view>
 
 #include "cmsys/FStream.hxx"
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+
+#include "cmDependsJavaLexer.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
 
 int cmDependsJava_yyparse(yyscan_t yyscanner);
 
@@ -24,7 +28,7 @@ cmDependsJavaParserHelper::cmDependsJavaParserHelper()
 
   CurrentClass tl;
   tl.Name = "*";
-  this->ClassStack.push_back(tl);
+  this->ClassStack.push_back(std::move(tl));
 }
 
 cmDependsJavaParserHelper::~cmDependsJavaParserHelper()
@@ -33,19 +37,16 @@ cmDependsJavaParserHelper::~cmDependsJavaParserHelper()
 }
 
 void cmDependsJavaParserHelper::CurrentClass::AddFileNamesForPrinting(
-  std::vector<std::string>* files, const char* prefix, const char* sep) const
+  std::vector<std::string>* files, char const* prefix, char const* sep) const
 {
   std::string rname;
   if (prefix) {
-    rname += prefix;
-    rname += sep;
+    rname = cmStrCat(std::move(rname), prefix, sep);
   }
   rname += this->Name;
   files->push_back(rname);
-  std::vector<CurrentClass>::const_iterator it;
-  for (it = this->NestedClasses.begin(); it != this->NestedClasses.end();
-       ++it) {
-    it->AddFileNamesForPrinting(files, rname.c_str(), sep);
+  for (CurrentClass const& nc : this->NestedClasses) {
+    nc.AddFileNamesForPrinting(files, rname.c_str(), sep);
   }
 }
 
@@ -57,37 +58,34 @@ void cmDependsJavaParserHelper::DeallocateParserType(char** pt)
   if (!*pt) {
     return;
   }
-  *pt = CM_NULLPTR;
+  *pt = nullptr;
   this->UnionsAvailable--;
 }
 
-void cmDependsJavaParserHelper::AddClassFound(const char* sclass)
+void cmDependsJavaParserHelper::AddClassFound(char const* sclass)
 {
   if (!sclass) {
     return;
   }
-  std::vector<std::string>::iterator it;
-  for (it = this->ClassesFound.begin(); it != this->ClassesFound.end(); it++) {
-    if (*it == sclass) {
+  for (std::string const& cf : this->ClassesFound) {
+    if (cf == sclass) {
       return;
     }
   }
-  this->ClassesFound.push_back(sclass);
+  this->ClassesFound.emplace_back(sclass);
 }
 
-void cmDependsJavaParserHelper::AddPackagesImport(const char* sclass)
+void cmDependsJavaParserHelper::AddPackagesImport(char const* sclass)
 {
-  std::vector<std::string>::iterator it;
-  for (it = this->PackagesImport.begin(); it != this->PackagesImport.end();
-       it++) {
-    if (*it == sclass) {
+  for (std::string const& pi : this->PackagesImport) {
+    if (pi == sclass) {
       return;
     }
   }
-  this->PackagesImport.push_back(sclass);
+  this->PackagesImport.emplace_back(sclass);
 }
 
-void cmDependsJavaParserHelper::SafePrintMissing(const char* str, int line,
+void cmDependsJavaParserHelper::SafePrintMissing(char const* str, int line,
                                                  int cnt)
 {
   if (str) {
@@ -96,24 +94,24 @@ void cmDependsJavaParserHelper::SafePrintMissing(const char* str, int line,
     for (cc = 0; cc < strlen(str); cc++) {
       unsigned char ch = str[cc];
       if (ch >= 32 && ch <= 126) {
-        std::cout << (char)ch;
+        std::cout << static_cast<char>(ch);
       } else {
-        std::cout << "<" << (int)ch << ">";
+        std::cout << "<" << static_cast<int>(ch) << ">";
         break;
       }
     }
     std::cout << "- " << strlen(str) << std::endl;
   }
 }
-void cmDependsJavaParserHelper::Print(const char* place, const char* str)
+void cmDependsJavaParserHelper::Print(char const* place, char const* str) const
 {
   if (this->Verbose) {
     std::cout << "[" << place << "=" << str << "]" << std::endl;
   }
 }
 
-void cmDependsJavaParserHelper::CombineUnions(char** out, const char* in1,
-                                              char** in2, const char* sep)
+void cmDependsJavaParserHelper::CombineUnions(char** out, char const* in1,
+                                              char** in2, char const* sep)
 {
   size_t len = 1;
   if (in1) {
@@ -157,32 +155,33 @@ void cmDependsJavaParserHelper::CheckEmpty(
 void cmDependsJavaParserHelper::PrepareElement(
   cmDependsJavaParserHelper::ParserType* me)
 {
-  // Inititalize self
-  me->str = CM_NULLPTR;
+  // Initialize self
+  me->str = nullptr;
 }
 
 void cmDependsJavaParserHelper::AllocateParserType(
-  cmDependsJavaParserHelper::ParserType* pt, const char* str, int len)
+  cmDependsJavaParserHelper::ParserType* pt, char const* str, int len)
 {
-  pt->str = CM_NULLPTR;
+  pt->str = nullptr;
   if (len == 0) {
-    len = (int)strlen(str);
+    len = static_cast<int>(strlen(str));
   }
   if (len == 0) {
     return;
   }
   this->UnionsAvailable++;
-  pt->str = new char[len + 1];
+  auto up = cm::make_unique<char[]>(len + 1);
+  pt->str = up.get();
   strncpy(pt->str, str, len);
   pt->str[len] = 0;
-  this->Allocates.push_back(pt->str);
+  this->Allocates.push_back(std::move(up));
 }
 
-void cmDependsJavaParserHelper::StartClass(const char* cls)
+void cmDependsJavaParserHelper::StartClass(char const* cls)
 {
   CurrentClass cl;
   cl.Name = cls;
-  this->ClassStack.push_back(cl);
+  this->ClassStack.push_back(std::move(cl));
 
   this->CurrentDepth++;
 }
@@ -210,10 +209,8 @@ void cmDependsJavaParserHelper::PrintClasses()
     std::cerr << "Error when parsing. No classes on class stack" << std::endl;
     abort();
   }
-  std::vector<std::string> files = this->GetFilesProduced();
-  std::vector<std::string>::iterator sit;
-  for (sit = files.begin(); sit != files.end(); ++sit) {
-    std::cout << "  " << *sit << ".class" << std::endl;
+  for (std::string const& f : this->GetFilesProduced()) {
+    std::cout << "  " << f << ".class" << std::endl;
   }
 }
 
@@ -221,15 +218,13 @@ std::vector<std::string> cmDependsJavaParserHelper::GetFilesProduced()
 {
   std::vector<std::string> files;
   CurrentClass const& toplevel = this->ClassStack.front();
-  std::vector<CurrentClass>::const_iterator it;
-  for (it = toplevel.NestedClasses.begin(); it != toplevel.NestedClasses.end();
-       ++it) {
-    it->AddFileNamesForPrinting(&files, CM_NULLPTR, "$");
+  for (CurrentClass const& nc : toplevel.NestedClasses) {
+    nc.AddFileNamesForPrinting(&files, nullptr, "$");
   }
   return files;
 }
 
-int cmDependsJavaParserHelper::ParseString(const char* str, int verb)
+int cmDependsJavaParserHelper::ParseString(char const* str, int verb)
 {
   if (!str) {
     return 0;
@@ -264,10 +259,8 @@ int cmDependsJavaParserHelper::ParseString(const char* str, int verb)
     std::cout << std::endl;
     std::cout << "Depends on:";
     if (!this->ClassesFound.empty()) {
-      std::vector<std::string>::iterator it;
-      for (it = this->ClassesFound.begin(); it != this->ClassesFound.end();
-           ++it) {
-        std::cout << " " << *it;
+      for (std::string const& cf : this->ClassesFound) {
+        std::cout << " " << cf;
       }
     }
     std::cout << std::endl;
@@ -284,11 +277,7 @@ int cmDependsJavaParserHelper::ParseString(const char* str, int verb)
 
 void cmDependsJavaParserHelper::CleanupParser()
 {
-  std::vector<char*>::iterator it;
-  for (it = this->Allocates.begin(); it != this->Allocates.end(); ++it) {
-    delete[] * it;
-  }
-  this->Allocates.erase(this->Allocates.begin(), this->Allocates.end());
+  this->Allocates.clear();
 }
 
 int cmDependsJavaParserHelper::LexInput(char* buf, int maxlen)
@@ -306,32 +295,28 @@ int cmDependsJavaParserHelper::LexInput(char* buf, int maxlen)
   buf[0] = '\n';
   return 0;
 }
-void cmDependsJavaParserHelper::Error(const char* str)
+void cmDependsJavaParserHelper::Error(char const* str)
 {
   unsigned long pos = static_cast<unsigned long>(this->InputBufferPos);
   fprintf(stderr, "JPError: %s (%lu / Line: %d)\n", str, pos,
           this->CurrentLine);
-  int cc;
-  std::cerr << "String: [";
-  for (cc = 0;
-       cc < 30 && *(this->InputBuffer.c_str() + this->InputBufferPos + cc);
-       cc++) {
-    std::cerr << *(this->InputBuffer.c_str() + this->InputBufferPos + cc);
-  }
-  std::cerr << "]" << std::endl;
+  std::cerr << "String: ["
+            << cm::string_view{ this->InputBuffer }.substr(
+                 this->InputBufferPos, 30)
+            << "]" << std::endl;
 }
 
-void cmDependsJavaParserHelper::UpdateCombine(const char* str1,
-                                              const char* str2)
+void cmDependsJavaParserHelper::UpdateCombine(char const* str1,
+                                              char const* str2)
 {
-  if (this->CurrentCombine == "" && str1 != CM_NULLPTR) {
-    this->CurrentCombine = str1;
+  if (this->CurrentCombine.empty() && str1) {
+    // We can reuse allocated memory from `this->CurrentCombine`
+    this->CurrentCombine = cmStrCat(std::move(this->CurrentCombine), str1);
   }
-  this->CurrentCombine += ".";
-  this->CurrentCombine += str2;
+  this->CurrentCombine = cmStrCat(std::move(this->CurrentCombine), '.', str2);
 }
 
-int cmDependsJavaParserHelper::ParseFile(const char* file)
+int cmDependsJavaParserHelper::ParseFile(char const* file)
 {
   if (!cmSystemTools::FileExists(file)) {
     return 0;
@@ -344,7 +329,7 @@ int cmDependsJavaParserHelper::ParseFile(const char* file)
   std::string fullfile;
   std::string line;
   while (cmSystemTools::GetLineFromStream(ifs, line)) {
-    fullfile += line + "\n";
+    fullfile = cmStrCat(std::move(fullfile), line, '\n');
   }
   return this->ParseString(fullfile.c_str(), 0);
 }

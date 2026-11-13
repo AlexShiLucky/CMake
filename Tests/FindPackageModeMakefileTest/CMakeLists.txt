@@ -9,15 +9,28 @@ if(UNIX  AND  "${CMAKE_GENERATOR}" MATCHES "Makefile" AND
   execute_process(COMMAND ${CMAKE_MAKE_PROGRAM} -v
                   OUTPUT_VARIABLE makeVersionOutput
                   ERROR_QUIET
-                  TIMEOUT 10)
+                  TIMEOUT 10
+                  RESULT_VARIABLE _make_result)
   string(TOUPPER "${makeVersionOutput}" MAKE_VERSION_OUTPUT)
-  if("${MAKE_VERSION_OUTPUT}" MATCHES "GNU MAKE")
+  if(_make_result EQUAL 0 AND "${MAKE_VERSION_OUTPUT}" MATCHES "GNU MAKE")
 
     # build a library which we can search during the test
     add_library(foo STATIC foo.cpp)
 
     # configure a FindFoo.cmake so it knows where the library can be found
     configure_file(FindFoo.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/FindFoo.cmake @ONLY)
+
+    set(EXTRA_FLAGS "")
+    if(APPLE)
+      # Need the -isysroot flag on recentish macOS after command line tools
+      # no longer provide headers in /usr/include
+      if(CMAKE_OSX_SYSROOT)
+        string(APPEND EXTRA_FLAGS " -isysroot ${CMAKE_OSX_SYSROOT}")
+      endif()
+      foreach(arch ${CMAKE_OSX_ARCHITECTURES})
+        string(APPEND EXTRA_FLAGS " -arch ${arch}")
+      endforeach()
+    endif()
 
     # now set up the test:
     file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/cmakeExecutable.mk"

@@ -1,30 +1,35 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmIDEOptions.h"
 
-#include "cmsys/String.h"
+#include <algorithm>
+#include <cstring>
 #include <iterator>
-#include <string.h>
+#include <utility>
+
+#include <cmext/algorithm>
+
+#include "cmsys/String.h"
 
 #include "cmIDEFlagTable.h"
-#include "cmSystemTools.h"
+#include "cmList.h"
+#include "cmStringAlgorithms.h"
 
 cmIDEOptions::cmIDEOptions()
 {
   this->DoingDefine = false;
   this->AllowDefine = true;
+  this->DoingInclude = false;
   this->AllowSlash = false;
-  this->DoingFollowing = 0;
-  for (int i = 0; i < FlagTableCount; ++i) {
-    this->FlagTable[i] = 0;
+  this->DoingFollowing = nullptr;
+  for (auto& flag : this->FlagTable) {
+    flag = nullptr;
   }
 }
 
-cmIDEOptions::~cmIDEOptions()
-{
-}
+cmIDEOptions::~cmIDEOptions() = default;
 
-void cmIDEOptions::HandleFlag(const char* flag)
+void cmIDEOptions::HandleFlag(std::string const& flag)
 {
   // If the last option was -D then this option is the definition.
   if (this->DoingDefine) {
@@ -33,23 +38,42 @@ void cmIDEOptions::HandleFlag(const char* flag)
     return;
   }
 
+  // If the last option was -I then this option is the include directory.
+  if (this->DoingInclude) {
+    this->DoingInclude = false;
+    this->Includes.push_back(flag);
+    return;
+  }
+
   // If the last option expected a following value, this is it.
   if (this->DoingFollowing) {
     this->FlagMapUpdate(this->DoingFollowing, flag);
-    this->DoingFollowing = 0;
+    this->DoingFollowing = nullptr;
     return;
   }
 
   // Look for known arguments.
-  if (flag[0] == '-' || (this->AllowSlash && flag[0] == '/')) {
+  size_t len = flag.length();
+  if (len > 0 && (flag[0] == '-' || (this->AllowSlash && flag[0] == '/'))) {
     // Look for preprocessor definitions.
-    if (this->AllowDefine && flag[1] == 'D') {
-      if (flag[2] == '\0') {
+    if (this->AllowDefine && len > 1 && flag[1] == 'D') {
+      if (len <= 2) {
         // The next argument will have the definition.
         this->DoingDefine = true;
       } else {
         // Store this definition.
-        this->Defines.push_back(flag + 2);
+        this->Defines.emplace_back(flag.substr(2));
+      }
+      return;
+    }
+    // Look for include directory.
+    if (this->AllowInclude && len > 1 && flag[1] == 'I') {
+      if (len <= 2) {
+        // The next argument will have the include directory.
+        this->DoingInclude = true;
+      } else {
+        // Store this include directory.
+        this->Includes.emplace_back(flag.substr(2));
       }
       return;
     }
@@ -73,27 +97,28 @@ void cmIDEOptions::HandleFlag(const char* flag)
 }
 
 bool cmIDEOptions::CheckFlagTable(cmIDEFlagTable const* table,
-                                  const char* flag, bool& flag_handled)
+                                  std::string const& flag, bool& flag_handled)
 {
+  char const* pf = flag.c_str() + 1;
   // Look for an entry in the flag table matching this flag.
-  for (cmIDEFlagTable const* entry = table; entry->IDEName; ++entry) {
+  for (cmIDEFlagTable const* entry = table; !entry->IDEName.empty(); ++entry) {
     bool entry_found = false;
     if (entry->special & cmIDEFlagTable::UserValue) {
       // This flag table entry accepts a user-specified value.  If
       // the entry specifies UserRequired we must match only if a
       // non-empty value is given.
-      int n = static_cast<int>(strlen(entry->commandFlag));
-      if ((strncmp(flag + 1, entry->commandFlag, n) == 0 ||
+      int n = static_cast<int>(entry->commandFlag.length());
+      if ((strncmp(pf, entry->commandFlag.c_str(), n) == 0 ||
            (entry->special & cmIDEFlagTable::CaseInsensitive &&
-            cmsysString_strncasecmp(flag + 1, entry->commandFlag, n))) &&
+            cmsysString_strncasecmp(pf, entry->commandFlag.c_str(), n))) &&
           (!(entry->special & cmIDEFlagTable::UserRequired) ||
-           static_cast<int>(strlen(flag + 1)) > n)) {
-        this->FlagMapUpdate(entry, flag + n + 1);
+           static_cast<int>(strlen(pf)) > n)) {
+        this->FlagMapUpdate(entry, std::string(pf + n));
         entry_found = true;
       }
-    } else if (strcmp(flag + 1, entry->commandFlag) == 0 ||
+    } else if (strcmp(pf, entry->commandFlag.c_str()) == 0 ||
                (entry->special & cmIDEFlagTable::CaseInsensitive &&
-                cmsysString_strcasecmp(flag + 1, entry->commandFlag) == 0)) {
+                cmsysString_strcasecmp(pf, entry->commandFlag.c_str()) == 0)) {
       if (entry->special & cmIDEFlagTable::UserFollowing) {
         // This flag expects a value in the following argument.
         this->DoingFollowing = entry;
@@ -118,7 +143,7 @@ bool cmIDEOptions::CheckFlagTable(cmIDEFlagTable const* table,
 }
 
 void cmIDEOptions::FlagMapUpdate(cmIDEFlagTable const* entry,
-                                 const char* new_value)
+                                 std::string const& new_value)
 {
   if (entry->special & cmIDEFlagTable::UserIgnored) {
     // Ignore the user-specified value.
@@ -127,27 +152,29 @@ void cmIDEOptions::FlagMapUpdate(cmIDEFlagTable const* entry,
     this->FlagMap[entry->IDEName].push_back(new_value);
   } else if (entry->special & cmIDEFlagTable::SpaceAppendable) {
     this->FlagMap[entry->IDEName].append_with_space(new_value);
+  } else if (entry->special & cmIDEFlagTable::CommaAppendable) {
+    this->FlagMap[entry->IDEName].append_with_comma(new_value);
   } else {
     // Use the user-specified value.
     this->FlagMap[entry->IDEName] = new_value;
   }
 }
 
-void cmIDEOptions::AddDefine(const std::string& def)
+void cmIDEOptions::AddDefine(std::string const& def)
 {
   this->Defines.push_back(def);
 }
 
-void cmIDEOptions::AddDefines(const char* defines)
+void cmIDEOptions::AddDefines(std::string const& defines)
 {
-  if (defines) {
+  if (!defines.empty()) {
     // Expand the list of definitions.
-    cmSystemTools::ExpandListArgument(defines, this->Defines);
+    cmExpandList(defines, this->Defines);
   }
 }
-void cmIDEOptions::AddDefines(const std::vector<std::string>& defines)
+void cmIDEOptions::AddDefines(std::vector<std::string> const& defines)
 {
-  this->Defines.insert(this->Defines.end(), defines.begin(), defines.end());
+  cm::append(this->Defines, defines);
 }
 
 std::vector<std::string> const& cmIDEOptions::GetDefines() const
@@ -155,12 +182,34 @@ std::vector<std::string> const& cmIDEOptions::GetDefines() const
   return this->Defines;
 }
 
-void cmIDEOptions::AddFlag(const char* flag, const char* value)
+void cmIDEOptions::AddInclude(std::string const& include)
+{
+  this->Includes.push_back(include);
+}
+
+void cmIDEOptions::AddIncludes(std::string const& includes)
+{
+  if (!includes.empty()) {
+    // Expand the list of includes.
+    cmExpandList(includes, this->Includes);
+  }
+}
+void cmIDEOptions::AddIncludes(std::vector<std::string> const& includes)
+{
+  cm::append(this->Includes, includes);
+}
+
+std::vector<std::string> const& cmIDEOptions::GetIncludes() const
+{
+  return this->Includes;
+}
+
+void cmIDEOptions::AddFlag(std::string const& flag, std::string const& value)
 {
   this->FlagMap[flag] = value;
 }
 
-void cmIDEOptions::AddFlag(const char* flag,
+void cmIDEOptions::AddFlag(std::string const& flag,
                            std::vector<std::string> const& value)
 {
   this->FlagMap[flag] = value;
@@ -185,7 +234,7 @@ void cmIDEOptions::AppendFlagString(std::string const& flag,
   this->FlagMap[flag].append_with_space(value);
 }
 
-void cmIDEOptions::RemoveFlag(const char* flag)
+void cmIDEOptions::RemoveFlag(std::string const& flag)
 {
   this->FlagMap.erase(flag);
 }
@@ -195,12 +244,12 @@ bool cmIDEOptions::HasFlag(std::string const& flag) const
   return this->FlagMap.find(flag) != this->FlagMap.end();
 }
 
-const char* cmIDEOptions::GetFlag(const char* flag)
+char const* cmIDEOptions::GetFlag(std::string const& flag) const
 {
   // This method works only for single-valued flags!
-  std::map<std::string, FlagValue>::iterator i = this->FlagMap.find(flag);
-  if (i != this->FlagMap.end() && i->second.size() == 1) {
+  auto i = this->FlagMap.find(flag);
+  if (i != this->FlagMap.cend() && i->second.size() == 1) {
     return i->second[0].c_str();
   }
-  return 0;
+  return nullptr;
 }

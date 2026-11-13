@@ -1,28 +1,81 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindGIF
-# -------
-#
-# This finds the GIF library (giflib)
-#
-# The module defines the following variables:
-#
-# ``GIF_FOUND``
-#   True if giflib was found
-# ``GIF_LIBRARIES``
-#   Libraries to link to in order to use giflib
-# ``GIF_INCLUDE_DIR``
-#   where to find the headers
-# ``GIF_VERSION``
-#   3, 4 or a full version string (eg 5.1.4) for versions >= 4.1.6
-#
-# The minimum required version of giflib can be specified using the
-# standard syntax, e.g.  find_package(GIF 4)
-#
-# $GIF_DIR is an environment variable that would correspond to the
-# ./configure --prefix=$GIF_DIR
+#[=======================================================================[.rst:
+FindGIF
+-------
+
+Finds the Graphics Interchange Format (GIF) library (``giflib``):
+
+.. code-block:: cmake
+
+  find_package(GIF [<version>] [...])
+
+Imported Targets
+^^^^^^^^^^^^^^^^
+
+This module provides the following :ref:`Imported Targets`:
+
+``GIF::GIF``
+  .. versionadded:: 3.14
+
+  Target that encapsulates the usage requirements of the GIF library, available
+  when the library is found.
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``GIF_FOUND``
+  Boolean indicating whether the (requested version of) GIF library was found.
+
+``GIF_VERSION``
+  Version string of the GIF library found (for example, ``5.1.4``).  For GIF
+  library versions prior to 4.1.6, version string will be set only to ``3`` or
+  ``4`` as these versions did not provide version information in their headers.
+
+``GIF_INCLUDE_DIRS``
+  Include directories needed to use the GIF library.
+
+``GIF_LIBRARIES``
+  Libraries needed to link to the GIF library.
+
+Cache Variables
+^^^^^^^^^^^^^^^
+
+The following cache variables may also be set:
+
+``GIF_INCLUDE_DIR``
+  Directory containing the ``gif_lib.h`` and other GIF library headers.
+
+``GIF_LIBRARY``
+  Path to the GIF library.
+
+Hints
+^^^^^
+
+This module accepts the following variables:
+
+``GIF_DIR``
+  Environment variable that can be set to help locate a GIF library installed in
+  a custom location.  It should point to the installation destination that was
+  used when configuring, building, and installing GIF library:
+  ``./configure --prefix=$GIF_DIR``.
+
+Examples
+^^^^^^^^
+
+Finding GIF library and linking it to a project target:
+
+.. code-block:: cmake
+
+  find_package(GIF)
+  target_link_libraries(project_target PRIVATE GIF::GIF)
+#]=======================================================================]
+
+cmake_policy(PUSH)
+cmake_policy(SET CMP0159 NEW) # file(STRINGS) with REGEX updates CMAKE_MATCH_<n>
 
 # Created by Eric Wing.
 # Modifications by Alexander Neundorf, Ben Campbell
@@ -31,9 +84,6 @@ find_path(GIF_INCLUDE_DIR gif_lib.h
   HINTS
     ENV GIF_DIR
   PATH_SUFFIXES include
-  PATHS
-  ~/Library/Frameworks
-  /usr/freeware
 )
 
 # the gif library can have many names :-/
@@ -41,16 +91,11 @@ set(POTENTIAL_GIF_LIBS gif libgif ungif libungif giflib giflib4)
 
 find_library(GIF_LIBRARY
   NAMES ${POTENTIAL_GIF_LIBS}
+  NAMES_PER_DIR
   HINTS
     ENV GIF_DIR
   PATH_SUFFIXES lib
-  PATHS
-  ~/Library/Frameworks
-  /usr/freeware
 )
-
-# see readme.txt
-set(GIF_LIBRARIES ${GIF_LIBRARY})
 
 # Very basic version detection.
 # The GIF_LIB_VERSION string in gif_lib.h seems to be unreliable, since it seems
@@ -62,7 +107,7 @@ set(GIF_LIBRARIES ${GIF_LIBRARY})
 if(GIF_INCLUDE_DIR)
   include(${CMAKE_CURRENT_LIST_DIR}/CMakePushCheckState.cmake)
   include(${CMAKE_CURRENT_LIST_DIR}/CheckStructHasMember.cmake)
-  CMAKE_PUSH_CHECK_STATE()
+  cmake_push_check_state()
   set(CMAKE_REQUIRED_QUIET ${GIF_FIND_QUIETLY})
   set(CMAKE_REQUIRED_INCLUDES "${GIF_INCLUDE_DIR}")
 
@@ -76,7 +121,7 @@ if(GIF_INCLUDE_DIR)
     set(GIF_VERSION "${_GIF_MAJ}.${_GIF_MIN}.${_GIF_REL}")
   else()
     # use UserData field to sniff version instead
-    CHECK_STRUCT_HAS_MEMBER(GifFileType UserData gif_lib.h GIF_GifFileType_UserData )
+    check_struct_has_member(GifFileType UserData gif_lib.h GIF_GifFileType_UserData )
     if(GIF_GifFileType_UserData)
       set(GIF_VERSION 4)
     else()
@@ -88,11 +133,29 @@ if(GIF_INCLUDE_DIR)
   unset(_GIF_MIN)
   unset(_GIF_REL)
   unset(_GIF_DEFS)
-  CMAKE_POP_CHECK_STATE()
+  cmake_pop_check_state()
 endif()
 
-include(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(GIF  REQUIRED_VARS  GIF_LIBRARY  GIF_INCLUDE_DIR
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(GIF  REQUIRED_VARS  GIF_LIBRARY  GIF_INCLUDE_DIR
                                        VERSION_VAR GIF_VERSION )
 
+if(GIF_FOUND)
+  set(GIF_INCLUDE_DIRS "${GIF_INCLUDE_DIR}")
+  set(GIF_LIBRARIES ${GIF_LIBRARY})
+
+  if(NOT TARGET GIF::GIF)
+    add_library(GIF::GIF UNKNOWN IMPORTED)
+    set_target_properties(GIF::GIF PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${GIF_INCLUDE_DIRS}")
+    if(EXISTS "${GIF_LIBRARY}")
+      set_target_properties(GIF::GIF PROPERTIES
+        IMPORTED_LINK_INTERFACE_LANGUAGES "C"
+        IMPORTED_LOCATION "${GIF_LIBRARY}")
+    endif()
+  endif()
+endif()
+
 mark_as_advanced(GIF_INCLUDE_DIR GIF_LIBRARY)
+
+cmake_policy(POP)

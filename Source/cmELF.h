@@ -1,18 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmELF_h
-#define cmELF_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
+#include <cstddef>
+#include <cstdint>
 #include <iosfwd>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
-
-#if !defined(CMAKE_USE_ELF_PARSER)
-#error "This file may be included only if CMAKE_USE_ELF_PARSER is enabled."
-#endif
 
 class cmELFInternal;
 
@@ -23,16 +21,19 @@ class cmELF
 {
 public:
   /** Construct with the name of the ELF input file to parse.  */
-  cmELF(const char* fname);
+  cmELF(char const* fname);
 
   /** Destruct.   */
   ~cmELF();
+
+  cmELF(cmELF const&) = delete;
+  cmELF& operator=(cmELF const&) = delete;
 
   /** Get the error message if any.  */
   std::string const& GetErrorMessage() const { return this->ErrorMessage; }
 
   /** Boolean conversion.  True if the ELF file is valid.  */
-  operator bool() const { return this->Valid(); }
+  explicit operator bool() const { return this->Valid(); }
 
   /** Enumeration of ELF file types.  */
   enum FileType
@@ -64,13 +65,16 @@ public:
   };
 
   /** Represent entire dynamic section header */
-  typedef std::vector<std::pair<long, unsigned long> > DynamicEntryList;
+  using DynamicEntryList = std::vector<std::pair<long, unsigned long>>;
 
   /** Get the type of the file opened.  */
   FileType GetFileType() const;
 
+  /** Get the machine of the file opened.  */
+  std::uint16_t GetMachine() const;
+
   /** Get the number of ELF sections present.  */
-  unsigned int GetNumberOfSections() const;
+  std::size_t GetNumberOfSections() const;
 
   /** Get the position of a DYNAMIC section header entry.  Returns
       zero on error.  */
@@ -83,7 +87,10 @@ public:
   /** Encodes a DYNAMIC section header entry list into a char vector according
       to the type of ELF file this is */
   std::vector<char> EncodeDynamicEntries(
-    const DynamicEntryList& entries) const;
+    DynamicEntryList const& entries) const;
+
+  /** Returns true if the ELF file has a dynamic section **/
+  bool HasDynamicSection() const;
 
   /** Get the SONAME field if any.  */
   bool GetSOName(std::string& soname);
@@ -95,18 +102,19 @@ public:
   /** Get the RUNPATH field if any.  */
   StringEntry const* GetRunPath();
 
+  /** Returns true if the ELF file targets a MIPS CPU.  */
+  bool IsMIPS() const;
+
   /** Print human-readable information about the ELF file.  */
   void PrintInfo(std::ostream& os) const;
 
   /** Interesting dynamic tags.
       If the tag is 0, it does not exist in the host ELF implementation */
-  static const long TagRPath, TagRunPath, TagMipsRldMapRel;
+  static long const TagRPath, TagRunPath, TagMipsRldMapRel;
 
 private:
   friend class cmELFInternal;
   bool Valid() const;
-  cmELFInternal* Internal;
+  std::unique_ptr<cmELFInternal> Internal;
   std::string ErrorMessage;
 };
-
-#endif

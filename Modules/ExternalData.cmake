@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 #[=======================================================================[.rst:
 ExternalData
@@ -9,7 +9,14 @@ ExternalData
 
    .. contents::
 
-Manage data files stored outside source tree
+This module provides commands to manage data files stored outside source
+tree.
+
+Load this module in a CMake project with:
+
+.. code-block:: cmake
+
+  include(ExternalData)
 
 Introduction
 ^^^^^^^^^^^^
@@ -47,7 +54,9 @@ Module Functions
 .. command:: ExternalData_Expand_Arguments
 
   The ``ExternalData_Expand_Arguments`` function evaluates ``DATA{}``
-  references in its arguments and constructs a new list of arguments::
+  references in its arguments and constructs a new list of arguments:
+
+  .. code-block:: cmake
 
     ExternalData_Expand_Arguments(
       <target>   # Name of data management target
@@ -62,7 +71,9 @@ Module Functions
 
   The ``ExternalData_Add_Test`` function wraps around the CMake
   :command:`add_test` command but supports ``DATA{}`` references in
-  its arguments::
+  its arguments:
+
+  .. code-block:: cmake
 
     ExternalData_Add_Test(
       <target>   # Name of data management target
@@ -72,13 +83,22 @@ Module Functions
   It passes its arguments through ``ExternalData_Expand_Arguments`` and then
   invokes the :command:`add_test` command using the results.
 
+  .. versionchanged:: 3.31
+    If the arguments after ``<target>`` define a test with an executable
+    that is a CMake target, empty values in the :prop_tgt:`TEST_LAUNCHER`
+    and :prop_tgt:`CROSSCOMPILING_EMULATOR` properties of that target are
+    preserved.  See policy :policy:`CMP0178`.
+
 .. command:: ExternalData_Add_Target
 
   The ``ExternalData_Add_Target`` function creates a custom target to
-  manage local instances of data files stored externally::
+  manage local instances of data files stored externally:
+
+  .. code-block:: cmake
 
     ExternalData_Add_Target(
-      <target>   # Name of data management target
+      <target>                  # Name of data management target
+      [SHOW_PROGRESS <ON|OFF>]  # Show progress during the download
       )
 
   It creates custom commands in the target as necessary to make data
@@ -88,6 +108,12 @@ Module Functions
   the ``ExternalData_URL_TEMPLATES`` variable, or may be found locally
   in one of the paths specified in the ``ExternalData_OBJECT_STORES``
   variable.
+
+  .. versionadded:: 3.20
+    The ``SHOW_PROGRESS`` argument may be passed to suppress progress information
+    during the download of objects. If not provided, it defaults to ``OFF`` for
+    :generator:`Ninja` and :generator:`Ninja Multi-Config` generators and ``ON``
+    otherwise.
 
   Typically only one target is needed to manage all external data within
   a project.  Call this function once at the end of configuration after
@@ -108,9 +134,19 @@ calling any of the functions provided by this module.
 
 .. variable:: ExternalData_CUSTOM_SCRIPT_<key>
 
+  .. versionadded:: 3.2
+
   Specify a full path to a ``.cmake`` custom fetch script identified by
   ``<key>`` in entries of the ``ExternalData_URL_TEMPLATES`` list.
   See `Custom Fetch Scripts`_.
+
+.. variable:: ExternalData_HTTPHEADERS
+
+  .. versionadded:: 4.0
+
+  The ``ExternalData_HTTPHEADERS`` variable may be used to supply a list of
+  headers, each element containing one header with the form ``Key: Value``.
+  See the :command:`file(DOWNLOAD)` command's ``HTTPHEADER`` option.
 
 .. variable:: ExternalData_LINK_CONTENT
 
@@ -126,10 +162,52 @@ calling any of the functions provided by this module.
 
 .. variable:: ExternalData_NO_SYMLINKS
 
+  .. versionadded:: 3.3
+
   The real data files named by expanded ``DATA{}`` references may be made
   available under ``ExternalData_BINARY_ROOT`` using symbolic links on
   some platforms.  The ``ExternalData_NO_SYMLINKS`` variable may be set
   to disable use of symbolic links and enable use of copies instead.
+
+.. variable:: ExternalData_STATE_ROOT
+
+  .. versionadded:: 4.4
+
+  The ``ExternalData_STATE_ROOT`` variable may be set to place module-managed
+  metadata outside ``ExternalData_BINARY_ROOT``. When set, ``ExternalData``
+  stores its hash records under this directory while still materializing real
+  data files under ``ExternalData_BINARY_ROOT``. By default, hash records
+  continue to be placed next to the materialized data.
+
+.. variable:: ExternalData_LINK_MODE
+
+  .. versionadded:: 4.4
+
+  The ``ExternalData_LINK_MODE`` variable selects how real data files are
+  exposed under ``ExternalData_BINARY_ROOT``.
+
+  The value may be one of:
+
+  ``auto``
+    Try each of the supported modes until one succeeds.
+    The default order is ``hardlink -> symlink -> copy`` on Windows
+    and ``symlink -> hardlink -> copy`` on other platforms.
+
+  ``hardlink``
+    Materialize paths as hard links to the real files.
+
+  ``symlink``
+    Materialize paths as symbolic links to the real files.
+
+  ``copy``
+    Materialize paths as copies of the real files.
+
+  Or, the value may be a :ref:`semicolon-separated list <CMake Language Lists>`
+  of ``hardlink``, ``symlink``, and ``copy`` to try the modes in the order
+  specified until one succeeds.
+
+  When ``ExternalData_NO_SYMLINKS`` is set, the ``symlink`` mode is removed
+  from automatic selection and cannot be requested explicitly.
 
 .. variable:: ExternalData_OBJECT_STORES
 
@@ -171,6 +249,8 @@ calling any of the functions provided by this module.
 
 .. variable:: ExternalData_URL_ALGO_<algo>_<key>
 
+  .. versionadded:: 3.3
+
   Specify a custom URL component to be substituted for URL template
   placeholders of the form ``%(algo:<key>)``, where ``<key>`` is a
   valid C identifier, when fetching an object referenced via hash
@@ -179,7 +259,7 @@ calling any of the functions provided by this module.
 
 .. variable:: ExternalData_URL_TEMPLATES
 
-  The ``ExternalData_URL_TEMPLATES`` may be set to provide a list of
+  The ``ExternalData_URL_TEMPLATES`` may be set to provide a list
   of URL templates using the placeholders ``%(algo)`` and ``%(hash)``
   in each template.  Data fetch rules try each URL template in order
   by substituting the hash algorithm name for ``%(algo)`` and the hash
@@ -201,10 +281,11 @@ For example, the argument ``DATA{img.png}`` may be satisfied by either a
 real ``img.png`` file in the current source directory or a ``img.png.md5``
 file containing its MD5 sum.
 
-Multiple content links of the same name with different hash algorithms
-are supported (e.g. ``img.png.sha256`` and ``img.png.sha1``) so long as
-they all correspond to the same real file.  This allows objects to be
-fetched from sources indexed by different hash algorithms.
+.. versionadded:: 3.8
+  Multiple content links of the same name with different hash algorithms
+  are supported (e.g. ``img.png.sha256`` and ``img.png.sha1``) so long as
+  they all correspond to the same real file.  This allows objects to be
+  fetched from sources indexed by different hash algorithms.
 
 Referencing File Series
 """""""""""""""""""""""
@@ -218,21 +299,22 @@ members of a series are fetched, only the file originally named by the
 recognizes file series names ending with ``#.ext``, ``_#.ext``, ``.#.ext``,
 or ``-#.ext`` where ``#`` is a sequence of decimal digits and ``.ext`` is
 any single extension.  Configure it with a regex that parses ``<number>``
-and ``<suffix>`` parts from the end of ``<name>``::
+and ``<suffix>`` parts from the end of ``<name>``:
 
- ExternalData_SERIES_PARSE = regex of the form (<number>)(<suffix>)$
+  ``ExternalData_SERIES_PARSE`` - regex of the form ``(<number>)(<suffix>)$``.
 
-For more complicated cases set::
+For more complicated cases set:
 
- ExternalData_SERIES_PARSE = regex with at least two () groups
- ExternalData_SERIES_PARSE_PREFIX = <prefix> regex group number, if any
- ExternalData_SERIES_PARSE_NUMBER = <number> regex group number
- ExternalData_SERIES_PARSE_SUFFIX = <suffix> regex group number
+* ``ExternalData_SERIES_PARSE`` - regex with at least two ``()`` groups.
+* ``ExternalData_SERIES_PARSE_PREFIX`` - regex group number of the ``<prefix>``, if any.
+* ``ExternalData_SERIES_PARSE_NUMBER`` - regex group number of the ``<number>``.
+* ``ExternalData_SERIES_PARSE_SUFFIX`` - regex group number of the ``<suffix>``.
 
 Configure series number matching with a regex that matches the
-``<number>`` part of series members named ``<prefix><number><suffix>``::
+``<number>`` part of series members named ``<prefix><number><suffix>``:
 
- ExternalData_SERIES_MATCH = regex matching <number> in all series members
+  ``ExternalData_SERIES_MATCH`` - regex matching ``<number>`` in all series
+  members
 
 Note that the ``<suffix>`` of a series does not include a hash-algorithm
 extension.
@@ -263,26 +345,34 @@ associated file options.  For example, the argument
 ``DATA{MyDataDir/,REGEX:.*}`` will pass the full path to a ``MyDataDir``
 directory on the command line and ensure that the directory contains
 files corresponding to every file or content link in the ``MyDataDir``
-source directory.  In order to match associated files in subdirectories,
-specify a ``RECURSE:`` option, e.g. ``DATA{MyDataDir/,RECURSE:,REGEX:.*}``.
+source directory.
+
+.. versionadded:: 3.3
+  In order to match associated files in subdirectories,
+  specify a ``RECURSE:`` option, e.g. ``DATA{MyDataDir/,RECURSE:,REGEX:.*}``.
 
 Hash Algorithms
 ^^^^^^^^^^^^^^^
 
-The following hash algorithms are supported::
+The following hash algorithms are supported:
 
- %(algo)     <ext>     Description
- -------     -----     -----------
- MD5         .md5      Message-Digest Algorithm 5, RFC 1321
- SHA1        .sha1     US Secure Hash Algorithm 1, RFC 3174
- SHA224      .sha224   US Secure Hash Algorithms, RFC 4634
- SHA256      .sha256   US Secure Hash Algorithms, RFC 4634
- SHA384      .sha384   US Secure Hash Algorithms, RFC 4634
- SHA512      .sha512   US Secure Hash Algorithms, RFC 4634
- SHA3_224    .sha3-224 Keccak SHA-3
- SHA3_256    .sha3-256 Keccak SHA-3
- SHA3_384    .sha3-384 Keccak SHA-3
- SHA3_512    .sha3-512 Keccak SHA-3
+ ============ ============= ============
+ %(algo)      <ext>         Description
+ ============ ============= ============
+ ``MD5``      ``.md5``      Message-Digest Algorithm 5, RFC 1321
+ ``SHA1``     ``.sha1``     US Secure Hash Algorithm 1, RFC 3174
+ ``SHA224``   ``.sha224``   US Secure Hash Algorithms, RFC 4634
+ ``SHA256``   ``.sha256``   US Secure Hash Algorithms, RFC 4634
+ ``SHA384``   ``.sha384``   US Secure Hash Algorithms, RFC 4634
+ ``SHA512``   ``.sha512``   US Secure Hash Algorithms, RFC 4634
+ ``SHA3_224`` ``.sha3-224`` Keccak SHA-3
+ ``SHA3_256`` ``.sha3-256`` Keccak SHA-3
+ ``SHA3_384`` ``.sha3-384`` Keccak SHA-3
+ ``SHA3_512`` ``.sha3-512`` Keccak SHA-3
+ ============ ============= ============
+
+.. versionadded:: 3.8
+  Added the ``SHA3_*`` hash algorithms.
 
 Note that the hashes are used only for unique data identification and
 download verification.
@@ -291,6 +381,8 @@ download verification.
 
 Custom Fetch Scripts
 ^^^^^^^^^^^^^^^^^^^^
+
+.. versionadded:: 3.2
 
 When a data file must be fetched from one of the URL templates
 specified in the ``ExternalData_URL_TEMPLATES`` variable, it is
@@ -331,7 +423,17 @@ file or set a variable:
 function(ExternalData_add_test target)
   # Expand all arguments as a single string to preserve escaped semicolons.
   ExternalData_expand_arguments("${target}" testArgs "${ARGN}")
-  add_test(${testArgs})
+
+  # We need the caller's CMP0178 policy setting to apply here
+  cmake_policy(GET CMP0178 cmp0178
+    PARENT_SCOPE  # undocumented, do not use outside of CMake
+  )
+
+  # ExternalData_expand_arguments() escapes semicolons, so we should still be
+  # preserving empty elements from ARGN here. But CMP0178 is still important
+  # for correctly handling TEST_LAUNCHER and CROSSCOMPILING_EMULATOR target
+  # properties that contain empty elements.
+  add_test(${testArgs} __CMP0178 "${cmp0178}")
 endfunction()
 
 function(ExternalData_add_target target)
@@ -343,6 +445,30 @@ function(ExternalData_add_target target)
     set(ExternalData_OBJECT_STORES ${CMAKE_BINARY_DIR}/ExternalData/Objects)
   endif()
   set(_ExternalData_CONFIG_CODE "")
+
+  cmake_parse_arguments(PARSE_ARGV 1 _ExternalData_add_target
+    ""
+    "SHOW_PROGRESS"
+    "")
+  if (_ExternalData_add_target_UNPARSED_ARGUMENTS)
+    message(AUTHOR_WARNING
+      "Ignoring unrecognized arguments passed to ExternalData_add_target: "
+      "`${_ExternalData_add_target_UNPARSED_ARGUMENTS}`")
+  endif ()
+
+  # Turn `SHOW_PROGRESS` into a boolean
+  if (NOT DEFINED _ExternalData_add_target_SHOW_PROGRESS)
+    # The default setting
+    if (CMAKE_GENERATOR MATCHES "Ninja")
+      set(_ExternalData_add_target_SHOW_PROGRESS OFF)
+    else ()
+      set(_ExternalData_add_target_SHOW_PROGRESS ON)
+    endif ()
+  elseif (_ExternalData_add_target_SHOW_PROGRESS)
+    set(_ExternalData_add_target_SHOW_PROGRESS ON)
+  else ()
+    set(_ExternalData_add_target_SHOW_PROGRESS OFF)
+  endif ()
 
   # Store custom script configuration.
   foreach(url_template IN LISTS ExternalData_URL_TEMPLATES)
@@ -391,9 +517,21 @@ function(ExternalData_add_target target)
     endif()
   endforeach()
 
+  # Store http headers.
+  if(ExternalData_HTTPHEADERS)
+    string(CONCAT _ExternalData_CONFIG_CODE "${_ExternalData_CONFIG_CODE}\n"
+      "set(ExternalData_HTTPHEADERS)")
+    foreach(h IN LISTS ExternalData_HTTPHEADERS)
+      string(REPLACE "\\" "\\\\" tmp "${h}")
+      string(REPLACE "\"" "\\\"" h "${tmp}")
+      string(CONCAT _ExternalData_CONFIG_CODE "${_ExternalData_CONFIG_CODE}\n"
+        "list(APPEND ExternalData_HTTPHEADERS \"${h}\")")
+    endforeach()
+  endif()
+
   # Store configuration for use by build-time script.
   set(config ${CMAKE_CURRENT_BINARY_DIR}/${target}_config.cmake)
-  configure_file(${_ExternalData_SELF_DIR}/ExternalData_config.cmake.in ${config} @ONLY)
+  configure_file(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ExternalData_config.cmake.in ${config} @ONLY)
 
   set(files "")
 
@@ -423,8 +561,9 @@ function(ExternalData_add_target target)
           COMMAND ${CMAKE_COMMAND} -Drelative_top=${CMAKE_BINARY_DIR}
                                    -Dfile=${file} -Dname=${name}
                                    -DExternalData_ACTION=local
+                                   -DExternalData_SHOW_PROGRESS=${_ExternalData_add_target_SHOW_PROGRESS}
                                    -DExternalData_CONFIG=${config}
-                                   -P ${_ExternalData_SELF}
+                                   -P ${CMAKE_CURRENT_FUNCTION_LIST_FILE}
           MAIN_DEPENDENCY "${name}"
           )
       endif()
@@ -441,7 +580,7 @@ function(ExternalData_add_target target)
     list(GET tuple 2 exts)
     string(REPLACE "+" ";" exts_list "${exts}")
     list(GET exts_list 0 first_ext)
-    set(stamp "-hash-stamp")
+    _ExternalData_compute_stamp_file("${file}" stamp_file)
     if(NOT DEFINED "_ExternalData_FILE_${file}")
       set("_ExternalData_FILE_${file}" 1)
       get_property(added DIRECTORY PROPERTY "_ExternalData_FILE_${file}")
@@ -454,18 +593,20 @@ function(ExternalData_add_target target)
           # List the real file as a second output in case it is a broken link.
           # The files must be listed in this order so CMake can hide from the
           # make tool that a symlink target may not be newer than the input.
-          OUTPUT "${file}${stamp}" "${file}"
+          OUTPUT "${stamp_file}" "${file}"
           # Run the data fetch/update script.
           COMMAND ${CMAKE_COMMAND} -Drelative_top=${CMAKE_BINARY_DIR}
                                    -Dfile=${file} -Dname=${name} -Dexts=${exts}
+                                   -Dstamp_file=${stamp_file}
                                    -DExternalData_ACTION=fetch
+                                   -DExternalData_SHOW_PROGRESS=${_ExternalData_add_target_SHOW_PROGRESS}
                                    -DExternalData_CONFIG=${config}
-                                   -P ${_ExternalData_SELF}
+                                   -P ${CMAKE_CURRENT_FUNCTION_LIST_FILE}
           # Update whenever the object hash changes.
           MAIN_DEPENDENCY "${name}${first_ext}"
           )
       endif()
-      list(APPEND files "${file}${stamp}")
+      list(APPEND files "${stamp_file}")
     endif()
   endforeach()
 
@@ -514,8 +655,6 @@ endfunction()
 
 set(_ExternalData_REGEX_ALGO "MD5|SHA1|SHA224|SHA256|SHA384|SHA512|SHA3_224|SHA3_256|SHA3_384|SHA3_512")
 set(_ExternalData_REGEX_EXT "md5|sha1|sha224|sha256|sha384|sha512|sha3-224|sha3-256|sha3-384|sha3-512")
-set(_ExternalData_SELF "${CMAKE_CURRENT_LIST_FILE}")
-get_filename_component(_ExternalData_SELF_DIR "${_ExternalData_SELF}" PATH)
 
 function(_ExternalData_compute_hash var_hash algo file)
   if("${algo}" MATCHES "^${_ExternalData_REGEX_ALGO}$")
@@ -537,10 +676,38 @@ function(_ExternalData_exact_regex regex_var string)
 endfunction()
 
 function(_ExternalData_atomic_write file content)
+  get_filename_component(dir "${file}" DIRECTORY)
+  file(MAKE_DIRECTORY "${dir}")
   _ExternalData_random(random)
   set(tmp "${file}.tmp${random}")
   file(WRITE "${tmp}" "${content}")
   file(RENAME "${tmp}" "${file}")
+endfunction()
+
+function(_ExternalData_compute_stamp_file file var_stamp)
+  if(DEFINED ExternalData_STATE_ROOT AND NOT "${ExternalData_STATE_ROOT}" STREQUAL "")
+    _ExternalData_compute_state_relative_path("${file}" relfile)
+    set(stamp_file "${ExternalData_STATE_ROOT}/${relfile}-hash-stamp")
+  else()
+    set(stamp_file "${file}-hash-stamp")
+  endif()
+  set(${var_stamp} "${stamp_file}" PARENT_SCOPE)
+endfunction()
+
+function(_ExternalData_compute_state_relative_path file var_relfile)
+  if(NOT ExternalData_BINARY_ROOT)
+    set(top_bin "${CMAKE_BINARY_DIR}")
+  else()
+    set(top_bin "${ExternalData_BINARY_ROOT}")
+  endif()
+  file(RELATIVE_PATH relfile "${top_bin}" "${file}")
+  if(IS_ABSOLUTE "${relfile}" OR "${relfile}" MATCHES "^\\.\\./")
+    message(FATAL_ERROR
+      "File path is not under ExternalData_BINARY_ROOT:\n"
+      "  file = ${file}\n"
+      "  ExternalData_BINARY_ROOT = ${top_bin}")
+  endif()
+  set(${var_relfile} "${relfile}" PARENT_SCOPE)
 endfunction()
 
 function(_ExternalData_link_content name var_ext)
@@ -805,10 +972,7 @@ macro(_ExternalData_arg_series)
 endmacro()
 
 function(_ExternalData_arg_find_files glob pattern regex)
-  cmake_policy(PUSH)
-  cmake_policy(SET CMP0009 NEW)
   file(${glob} globbed RELATIVE "${top_src}" "${top_src}/${pattern}*")
-  cmake_policy(POP)
   set(externals_count -1)
   foreach(entry IN LISTS globbed)
     if("x${entry}" MATCHES "^x(.*)(\\.(${_ExternalData_REGEX_EXT}))$")
@@ -875,32 +1039,103 @@ if(NOT ExternalData_URL_TEMPLATES AND NOT ExternalData_OBJECT_STORES)
     "Neither ExternalData_URL_TEMPLATES nor ExternalData_OBJECT_STORES is set!")
 endif()
 
+function(_ExternalData_compute_link_target src dst var_tgt)
+  get_filename_component(dst_dir "${dst}" PATH)
+  set(tgt "${src}")
+  if(relative_top)
+    # Use relative path if files are close enough.
+    file(RELATIVE_PATH relsrc "${relative_top}" "${src}")
+    file(RELATIVE_PATH reldst "${relative_top}" "${dst}")
+    if(NOT IS_ABSOLUTE "${relsrc}" AND NOT "${relsrc}" MATCHES "^\\.\\./" AND
+        NOT IS_ABSOLUTE "${reldst}" AND NOT "${reldst}" MATCHES "^\\.\\./")
+      file(RELATIVE_PATH tgt "${dst_dir}" "${src}")
+    endif()
+  endif()
+  set(${var_tgt} "${tgt}" PARENT_SCOPE)
+endfunction()
+
+function(_ExternalData_try_link_mode mode src dst var_result)
+  if(mode STREQUAL "copy")
+    file(COPY_FILE "${src}" "${dst}" RESULT result INPUT_MAY_BE_RECENT)
+  elseif(mode STREQUAL "hardlink")
+    file(CREATE_LINK "${src}" "${dst}" RESULT result)
+  elseif(mode STREQUAL "symlink")
+    _ExternalData_compute_link_target("${src}" "${dst}" tgt)
+    file(CREATE_LINK "${tgt}" "${dst}" RESULT result SYMBOLIC)
+  else()
+    set(result "Unsupported ExternalData_LINK_MODE `${mode}`")
+  endif()
+  set(${var_result} "${result}" PARENT_SCOPE)
+endfunction()
+
+function(_ExternalData_get_auto_link_modes var_modes)
+  if(CMAKE_HOST_WIN32)
+    set(modes hardlink)
+    if(NOT ExternalData_NO_SYMLINKS)
+      list(APPEND modes symlink)
+    endif()
+    list(APPEND modes copy)
+  else()
+    if(NOT ExternalData_NO_SYMLINKS)
+      list(APPEND modes symlink)
+    endif()
+    list(APPEND modes hardlink copy)
+  endif()
+  set(${var_modes} "${modes}" PARENT_SCOPE)
+endfunction()
+
+function(_ExternalData_get_requested_link_modes var_modes)
+  if(DEFINED ExternalData_LINK_MODE AND NOT "${ExternalData_LINK_MODE}" STREQUAL "")
+    set(requested_modes "${ExternalData_LINK_MODE}")
+  else()
+    set(requested_modes auto)
+  endif()
+  string(TOLOWER "${requested_modes}" requested_modes_lower)
+
+  if(requested_modes_lower STREQUAL "auto")
+    _ExternalData_get_auto_link_modes(modes)
+  else()
+    set(modes)
+    foreach(mode IN LISTS requested_modes)
+      string(TOLOWER "${mode}" mode_lower)
+      if(mode_lower STREQUAL "copy" OR mode_lower STREQUAL "hardlink")
+        list(APPEND modes "${mode_lower}")
+      elseif(mode_lower STREQUAL "symlink")
+        if(ExternalData_NO_SYMLINKS)
+          message(FATAL_ERROR
+            "ExternalData_LINK_MODE with `symlink` conflicts with NO_SYMLINKS")
+        endif()
+        list(APPEND modes symlink)
+      else()
+        message(FATAL_ERROR
+          "ExternalData_LINK_MODE must be `auto` or list: hardlink, symlink, copy")
+      endif()
+    endforeach()
+  endif()
+
+  set(${var_modes} "${modes}" PARENT_SCOPE)
+endfunction()
+
 function(_ExternalData_link_or_copy src dst)
   # Create a temporary file first.
   get_filename_component(dst_dir "${dst}" PATH)
   file(MAKE_DIRECTORY "${dst_dir}")
   _ExternalData_random(random)
   set(tmp "${dst}.tmp${random}")
-  if(UNIX AND NOT ExternalData_NO_SYMLINKS)
-    # Create a symbolic link.
-    set(tgt "${src}")
-    if(relative_top)
-      # Use relative path if files are close enough.
-      file(RELATIVE_PATH relsrc "${relative_top}" "${src}")
-      file(RELATIVE_PATH relfile "${relative_top}" "${dst}")
-      if(NOT IS_ABSOLUTE "${relsrc}" AND NOT "${relsrc}" MATCHES "^\\.\\./" AND
-          NOT IS_ABSOLUTE "${reldst}" AND NOT "${reldst}" MATCHES "^\\.\\./")
-        file(RELATIVE_PATH tgt "${dst_dir}" "${src}")
-      endif()
+  _ExternalData_get_requested_link_modes(_ExternalData_link_modes)
+
+  unset(result)
+  foreach(_ExternalData_mode IN LISTS _ExternalData_link_modes)
+    _ExternalData_try_link_mode("${_ExternalData_mode}" "${src}" "${tmp}" result)
+    if(NOT result)
+      break()
     endif()
-    execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink "${tgt}" "${tmp}" RESULT_VARIABLE result)
-  else()
-    # Create a copy.
-    execute_process(COMMAND "${CMAKE_COMMAND}" -E copy "${src}" "${tmp}" RESULT_VARIABLE result)
-  endif()
+    file(REMOVE "${tmp}")
+  endforeach()
+
   if(result)
     file(REMOVE "${tmp}")
-    message(FATAL_ERROR "Failed to create\n  ${tmp}\nfrom\n  ${obj}")
+    message(FATAL_ERROR "Failed to create:\n  \"${tmp}\"\nfrom:\n  \"${src}\"\nwith error:\n  ${result}")
   endif()
 
   # Atomically create/replace the real destination.
@@ -911,6 +1146,12 @@ function(_ExternalData_download_file url file err_var msg_var)
   set(retry 3)
   while(retry)
     math(EXPR retry "${retry} - 1")
+    set(httpheader_args)
+    if (ExternalData_HTTPHEADERS)
+      foreach(h IN LISTS ExternalData_HTTPHEADERS)
+        list(APPEND httpheader_args HTTPHEADER "${h}")
+      endforeach()
+    endif()
     if(ExternalData_TIMEOUT_INACTIVITY)
       set(inactivity_timeout INACTIVITY_TIMEOUT ${ExternalData_TIMEOUT_INACTIVITY})
     elseif(NOT "${ExternalData_TIMEOUT_INACTIVITY}" EQUAL 0)
@@ -925,7 +1166,11 @@ function(_ExternalData_download_file url file err_var msg_var)
     else()
       set(absolute_timeout "")
     endif()
-    file(DOWNLOAD "${url}" "${file}" STATUS status LOG log ${inactivity_timeout} ${absolute_timeout} SHOW_PROGRESS)
+    set(show_progress_args)
+    if (ExternalData_SHOW_PROGRESS)
+      list(APPEND show_progress_args SHOW_PROGRESS)
+    endif ()
+    file(DOWNLOAD "${url}" "${file}" STATUS status LOG log ${httpheader_args} ${inactivity_timeout} ${absolute_timeout} ${show_progress_args})
     list(GET status 0 err)
     list(GET status 1 msg)
     if(err)
@@ -1049,7 +1294,14 @@ function(_ExternalData_download_object name hash algo var_obj var_success var_er
 
   set(success 1)
   if(found)
-    file(RENAME "${tmp}" "${obj}")
+    # Atomically create the object.  If we lose a race with another process,
+    # do not replace it.  Content-addressing ensures it has what we expect.
+    file(RENAME "${tmp}" "${obj}" NO_REPLACE RESULT result)
+    if (result STREQUAL "NO_REPLACE")
+      file(REMOVE "${tmp}")
+    elseif (result)
+      message(FATAL_ERROR "Failed to rename:\n  \"${tmp}\"\nto:\n  \"${obj}\"\nwith error:\n  ${result}")
+    endif()
     message(STATUS "Downloaded object: \"${obj}\"")
   elseif(EXISTS "${staged}")
     set(obj "${staged}")
@@ -1121,10 +1373,16 @@ if("${ExternalData_ACTION}" STREQUAL "fetch")
     message(FATAL_ERROR "${errorMsg}")
   endif()
   # Check if file already corresponds to the object.
-  set(stamp "-hash-stamp")
+  if(NOT DEFINED stamp_file OR "${stamp_file}" STREQUAL "")
+    if(DEFINED ExternalData_STATE_ROOT AND NOT "${ExternalData_STATE_ROOT}" STREQUAL "")
+      message(FATAL_ERROR
+        "stamp_file must be provided when ExternalData_STATE_ROOT is set")
+    endif()
+    set(stamp_file "${file}-hash-stamp")
+  endif()
   set(file_up_to_date 0)
-  if(EXISTS "${file}" AND EXISTS "${file}${stamp}")
-    file(READ "${file}${stamp}" f_hash)
+  if(EXISTS "${file}" AND EXISTS "${stamp_file}")
+    file(READ "${stamp_file}" f_hash)
     string(STRIP "${f_hash}" f_hash)
     if("${f_hash}" STREQUAL "${hash}")
       set(file_up_to_date 1)
@@ -1133,13 +1391,13 @@ if("${ExternalData_ACTION}" STREQUAL "fetch")
 
   if(file_up_to_date)
     # Touch the file to convince the build system it is up to date.
-    execute_process(COMMAND "${CMAKE_COMMAND}" -E touch "${file}")
+    file(TOUCH "${file}")
   else()
     _ExternalData_link_or_copy("${obj}" "${file}")
   endif()
 
   # Atomically update the hash/timestamp file to record the object referenced.
-  _ExternalData_atomic_write("${file}${stamp}" "${hash}\n")
+  _ExternalData_atomic_write("${stamp_file}" "${hash}\n")
 elseif("${ExternalData_ACTION}" STREQUAL "local")
   foreach(v file name)
     if(NOT DEFINED "${v}")

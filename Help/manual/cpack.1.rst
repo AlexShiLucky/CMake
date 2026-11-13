@@ -8,90 +8,161 @@ Synopsis
 
 .. parsed-literal::
 
- cpack -G <generator> [<options>]
+ cpack [<options>]
 
 Description
 ===========
 
-The "cpack" executable is the CMake packaging program.
-CMake-generated build trees created for projects that use the
-INSTALL_* commands have packaging support.  This program will generate
-the package.
+The :program:`cpack` executable is the CMake packaging program.  It generates
+installers and source packages in a variety of formats.
 
-CMake is a cross-platform build system generator.  Projects specify
-their build process with platform-independent CMake listfiles included
-in each directory of a source tree with the name CMakeLists.txt.
-Users build a project by using CMake to generate a build system for a
-native tool on their platform.
+For each installer or package format, :program:`cpack` has a specific backend,
+called "generator". A generator is responsible for generating the required
+inputs and invoking the specific package creation tools. These installer
+or package generators are not to be confused with the makefile generators
+of the :manual:`cmake <cmake(1)>` command.
+
+All supported generators are specified in the :manual:`cpack-generators
+<cpack-generators(7)>` manual.  The command ``cpack --help`` prints a
+list of generators supported for the target platform.  Which of them are
+to be used can be selected through the :variable:`CPACK_GENERATOR` variable
+or through the command-line option :cpack-option:`-G`.
+
+The :program:`cpack` program is steered by a configuration file written in the
+:manual:`CMake language <cmake-language(7)>`. Unless chosen differently
+through the command-line option :cpack-option:`--config`, the
+file ``CPackConfig.cmake`` in the current directory is used.
+
+In the standard CMake workflow, the file ``CPackConfig.cmake`` is generated
+by the :manual:`cmake <cmake(1)>` executable, provided the :module:`CPack`
+module is included by the project's ``CMakeLists.txt`` file.
 
 Options
 =======
 
-``-G <generator>``
- Use the specified generator to generate package.
+.. program:: cpack
 
- CPack may support multiple native packaging systems on certain
- platforms.  A generator is responsible for generating input files
- for particular system and invoking that systems.  Possible generator
- names are specified in the Generators section.
+.. option:: -G <generators>
 
-``-C <Configuration>``
- Specify the project configuration
+  ``<generators>`` is a :ref:`semicolon-separated list <CMake Language Lists>`
+  of generator names.  :program:`cpack` will iterate through this list and produce
+  package(s) in that generator's format according to the details provided in
+  the ``CPackConfig.cmake`` configuration file.  If this option is not given,
+  the :variable:`CPACK_GENERATOR` variable determines the default set of
+  generators that will be used.
 
- This option specifies the configuration that the project was build
- with, for example 'Debug', 'Release'.
+.. option:: -C <configurations>
 
-``-D <var>=<value>``
- Set a CPack variable.
+  Specify the project configuration(s) to be packaged (e.g. ``Debug``,
+  ``Release``, etc.), where ``<configurations>`` is a
+  :ref:`semicolon-separated list <CMake Language Lists>`.
+  When the CMake project uses a multi-configuration
+  generator such as :generator:`Xcode` or
+  :ref:`Visual Studio <Visual Studio Generators>`, this option is needed to tell
+  :program:`cpack` which built executables to include in the package.
+  The user is responsible for ensuring that the configuration(s) listed
+  have already been built before invoking :program:`cpack`.
 
- Set a variable that can be used by the generator.
+.. option:: -D <var>=<value>
 
-``--config <config file>``
- Specify the config file.
+  Set a CPack variable.  This will override any value set for ``<var>`` in the
+  input file read by :program:`cpack`.
 
- Specify the config file to use to create the package.  By default
- CPackConfig.cmake in the current directory will be used.
+  .. versionadded:: 4.0
+    The single-argument form ``-D<var>=<value>`` is now supported.
 
-``--verbose,-V``
- enable verbose output
+.. option:: --config <configFile>
 
- Run cpack with verbose output.
+  Specify the configuration file read by :program:`cpack` to provide the packaging
+  details.  By default, ``CPackConfig.cmake`` in the current directory will
+  be used.
 
-``--debug``
- enable debug output (for CPack developers)
+.. option:: -V, --verbose
 
- Run cpack with debug output (for CPack developers).
+  Run :program:`cpack` with verbose output.  This can be used to show more details
+  from the package generation tools and is suitable for project developers.
 
-``-P <package name>``
- override/define CPACK_PACKAGE_NAME
+.. option:: --debug
 
- If the package name is not specified on cpack command line
- thenCPack.cmake defines it as CMAKE_PROJECT_NAME
+  Run :program:`cpack` with debug output.  This option is intended mainly for the
+  developers of :program:`cpack` itself and is not normally needed by project
+  developers.
 
-``-R <package version>``
- override/define CPACK_PACKAGE_VERSION
+.. option:: --trace
 
- If version is not specified on cpack command line thenCPack.cmake
- defines it from CPACK_PACKAGE_VERSION_[MAJOR|MINOR|PATCH]look into
- CPack.cmake for detail
+  Put the underlying cmake scripts in trace mode.
 
-``-B <package directory>``
- override/define CPACK_PACKAGE_DIRECTORY
+.. option:: --trace-expand
 
- The directory where CPack will be doing its packaging work.The
- resulting package will be found there.  Inside this directoryCPack
- creates '_CPack_Packages' sub-directory which is theCPack temporary
- directory.
+  Put the underlying cmake scripts in expanded trace mode.
 
-``--vendor <vendor name>``
- override/define CPACK_PACKAGE_VENDOR
+.. option:: -P <packageName>
 
- If vendor is not specified on cpack command line (or inside
- CMakeLists.txt) thenCPack.cmake defines it with a default value
+  Override/define the value of the :variable:`CPACK_PACKAGE_NAME` variable used
+  for packaging.  Any value set for this variable in the ``CPackConfig.cmake``
+  file will then be ignored.
 
-.. include:: OPTIONS_HELP.txt
+.. option:: -R <packageVersion>
+
+  Override/define the value of the :variable:`CPACK_PACKAGE_VERSION`
+  variable used for packaging.  It will override a value set in the
+  ``CPackConfig.cmake`` file or one automatically computed from
+  :variable:`CPACK_PACKAGE_VERSION_MAJOR`,
+  :variable:`CPACK_PACKAGE_VERSION_MINOR` and
+  :variable:`CPACK_PACKAGE_VERSION_PATCH`.
+
+.. option:: -B <packageDirectory>
+
+  Override/define :variable:`CPACK_PACKAGE_DIRECTORY`, which controls the
+  directory where CPack will perform its packaging work.  The resultant
+  package(s) will be created at this location by default and a
+  ``_CPack_Packages`` subdirectory will also be created below this directory to
+  use as a working area during package creation.
+
+.. option:: --vendor <vendorName>
+
+  Override/define :variable:`CPACK_PACKAGE_VENDOR`.
+
+.. option:: --preset <preset>, --preset=<preset>
+
+  Use a package :manual:`preset <cmake-presets(7)>` to specify package
+  options. The project binary directory is inferred from the
+  :preset:`packagePresets.configurePreset` key.
+
+  .. versionchanged:: 4.4
+    If :cpack-option:`--presets-file` is specified, neither of
+    ``CMakePresets.json`` nor ``CMakeUserPresets.json`` are required to be
+    present.  Otherwise, they are required to be present in the top level
+    source directory.  In prior versions, this was strictly required.
+
+.. option:: --presets-file <file>, --presets-file=<file>
+
+  .. versionadded:: 4.4
+
+  Reads :manual:`presets <cmake-presets(7)>` from the given ``<file>``. The
+  specified path may be absolute or relative to the current working directory.
+  If ``--presets-file`` is given, presets defined in ``CMakePresets.json`` and
+  ``CMakeUserPresets.json`` will be ignored.
+
+.. option:: --list-presets[=defined]
+
+  Lists the available package presets. With ``defined``, all non-hidden
+  defined package presets are listed, including unavailable presets with the
+  reason they cannot be used.
+
+  .. versionchanged:: 4.4
+    If :cpack-option:`--presets-file` is specified, neither of
+    ``CMakePresets.json`` nor ``CMakeUserPresets.json`` are required to be
+    present, and only presets defined in the given ``<file>`` will be listed.
+    Otherwise, they are required to be present in the top level source
+    directory.  In prior versions, this was strictly required.
+
+  .. versionadded:: 4.5
+    Support for the ``defined`` value.
+
+.. include:: include/OPTIONS_HELP.rst
 
 See Also
 ========
 
-.. include:: LINKS.txt
+.. include:: include/LINKS.rst

@@ -24,29 +24,54 @@
 
 #include <unistd.h>
 #include <assert.h>
-#include <errno.h>
 
 
-static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
+void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
   uv_poll_t* handle;
   int pevents;
 
   handle = container_of(w, uv_poll_t, io_watcher);
 
-  if (events & POLLERR) {
-    uv__io_stop(loop, w, POLLIN | POLLOUT | UV__POLLRDHUP);
+  /*
+   * As documented in the kernel source fs/kernfs/file.c #780
+   * poll will return POLLERR|POLLPRI in case of sysfs
+   * polling. This does not happen in case of out-of-band
+   * TCP messages.
+   *
+   * The above is the case on (at least) FreeBSD and Linux.
+   *
+   * So to properly determine a POLLPRI or a POLLERR we need
+   * to check for both.
+   */
+  if ((events & POLLERR) && !(events & UV__POLLPRI)) {
+    uv__io_stop(loop, w, POLLIN | POLLOUT | UV__POLLRDHUP | UV__POLLPRI);
     uv__handle_stop(handle);
-    handle->poll_cb(handle, -EBADF, 0);
+    handle->poll_cb(handle, UV_EBADF, 0);
     return;
   }
 
   pevents = 0;
   if (events & POLLIN)
     pevents |= UV_READABLE;
+  if (events & UV__POLLPRI)
+    pevents |= UV_PRIORITIZED;
   if (events & POLLOUT)
     pevents |= UV_WRITABLE;
   if (events & UV__POLLRDHUP)
     pevents |= UV_DISCONNECT;
+
+  /* On error or hangup, mix in events the user is interested in so the
+   * appropriate read/write callbacks are invoked. */
+  if (events & (POLLERR | POLLHUP)) {
+    if (w->pevents & POLLIN)
+      pevents |= UV_READABLE;
+    if (w->pevents & UV__POLLPRI)
+      pevents |= UV_PRIORITIZED;
+    if (w->pevents & POLLOUT)
+      pevents |= UV_WRITABLE;
+    if (w->pevents & UV__POLLRDHUP)
+      pevents |= UV_DISCONNECT;
+  }
 
   handle->poll_cb(handle, 0, pevents);
 }
@@ -54,6 +79,9 @@ static void uv__poll_io(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
 int uv_poll_init(uv_loop_t* loop, uv_poll_t* handle, int fd) {
   int err;
+
+  if (uv__fd_exists(loop, fd))
+    return UV_EEXIST;
 
   err = uv__io_check_fd(loop, fd);
   if (err)
@@ -63,15 +91,16 @@ int uv_poll_init(uv_loop_t* loop, uv_poll_t* handle, int fd) {
    * Workaround for e.g. kqueue fds not supporting ioctls.
    */
   err = uv__nonblock(fd, 1);
-  if (err == -ENOTTY)
-    if (uv__nonblock == uv__nonblock_ioctl)
-      err = uv__nonblock_fcntl(fd, 1);
+#if UV__NONBLOCK_IS_IOCTL
+  if (err == UV_ENOTTY)
+    err = uv__nonblock_fcntl(fd, 1);
+#endif
 
   if (err)
     return err;
 
   uv__handle_init(loop, (uv_handle_t*) handle, UV_POLL);
-  uv__io_init(&handle->io_watcher, uv__poll_io, fd);
+  uv__io_init(&handle->io_watcher, UV__POLL_IO, fd);
   handle->poll_cb = NULL;
   return 0;
 }
@@ -86,8 +115,9 @@ int uv_poll_init_socket(uv_loop_t* loop, uv_poll_t* handle,
 static void uv__poll_stop(uv_poll_t* handle) {
   uv__io_stop(handle->loop,
               &handle->io_watcher,
-              POLLIN | POLLOUT | UV__POLLRDHUP);
+              POLLIN | POLLOUT | UV__POLLRDHUP | UV__POLLPRI);
   uv__handle_stop(handle);
+  uv__platform_invalidate_fd(handle->loop, handle->io_watcher.fd);
 }
 
 
@@ -99,10 +129,20 @@ int uv_poll_stop(uv_poll_t* handle) {
 
 
 int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
+  uv__io_t** watchers;
+  uv__io_t* w;
   int events;
 
-  assert((pevents & ~(UV_READABLE | UV_WRITABLE | UV_DISCONNECT)) == 0);
+  assert((pevents & ~(UV_READABLE | UV_WRITABLE | UV_DISCONNECT |
+                      UV_PRIORITIZED)) == 0);
   assert(!uv__is_closing(handle));
+
+  watchers = handle->loop->watchers;
+  w = &handle->io_watcher;
+
+  if (uv__fd_exists(handle->loop, w->fd))
+    if (watchers[w->fd] != w)
+      return UV_EEXIST;
 
   uv__poll_stop(handle);
 
@@ -112,6 +152,8 @@ int uv_poll_start(uv_poll_t* handle, int pevents, uv_poll_cb poll_cb) {
   events = 0;
   if (pevents & UV_READABLE)
     events |= POLLIN;
+  if (pevents & UV_PRIORITIZED)
+    events |= UV__POLLPRI;
   if (pevents & UV_WRITABLE)
     events |= POLLOUT;
   if (pevents & UV_DISCONNECT)

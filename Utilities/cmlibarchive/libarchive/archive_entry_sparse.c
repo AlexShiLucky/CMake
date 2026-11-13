@@ -25,7 +25,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD$");
 
 #include "archive.h"
 #include "archive_entry.h"
@@ -51,7 +50,7 @@ archive_entry_sparse_clear(struct archive_entry *entry)
 
 void
 archive_entry_sparse_add_entry(struct archive_entry *entry,
-	int64_t offset, int64_t length)
+	la_int64_t offset, la_int64_t length)
 {
 	struct ae_sparse *sp;
 
@@ -77,7 +76,7 @@ archive_entry_sparse_add_entry(struct archive_entry *entry,
 		}
 	}
 
-	if ((sp = (struct ae_sparse *)malloc(sizeof(*sp))) == NULL)
+	if ((sp = malloc(sizeof(*sp))) == NULL)
 		/* XXX Error XXX */
 		return;
 
@@ -128,14 +127,15 @@ archive_entry_sparse_count(struct archive_entry *entry)
 int
 archive_entry_sparse_reset(struct archive_entry * entry)
 {
+	/* Counting can change sparse_head, so do it first */
+	int count = archive_entry_sparse_count(entry);
 	entry->sparse_p = entry->sparse_head;
-
-	return archive_entry_sparse_count(entry);
+	return (count);
 }
 
 int
 archive_entry_sparse_next(struct archive_entry * entry,
-	int64_t *offset, int64_t *length)
+	la_int64_t *offset, la_int64_t *length)
 {
 	if (entry->sparse_p) {
 		*offset = entry->sparse_p->offset;

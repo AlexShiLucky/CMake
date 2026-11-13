@@ -1,15 +1,16 @@
 #include "cmParseGTMCoverage.h"
 
-#include "cmCTest.h"
-#include "cmCTestCoverageHandler.h"
-#include "cmSystemTools.h"
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
 
 #include "cmsys/Directory.hxx"
 #include "cmsys/FStream.hxx"
-#include <map>
-#include <stdio.h>
-#include <stdlib.h>
-#include <vector>
+
+#include "cmCTest.h"
+#include "cmCTestCoverageHandler.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
 
 cmParseGTMCoverage::cmParseGTMCoverage(cmCTestCoverageHandlerContainer& cont,
                                        cmCTest* ctest)
@@ -17,7 +18,7 @@ cmParseGTMCoverage::cmParseGTMCoverage(cmCTestCoverageHandlerContainer& cont,
 {
 }
 
-bool cmParseGTMCoverage::LoadCoverageData(const char* d)
+bool cmParseGTMCoverage::LoadCoverageData(std::string const& d)
 {
   // load all the .mcov files in the specified directory
   cmsys::Directory dir;
@@ -28,11 +29,9 @@ bool cmParseGTMCoverage::LoadCoverageData(const char* d)
   unsigned int i;
   numf = dir.GetNumberOfFiles();
   for (i = 0; i < numf; i++) {
-    std::string file = dir.GetFile(i);
+    std::string const& file = dir.GetFileName(i);
     if (file != "." && file != ".." && !cmSystemTools::FileIsDirectory(file)) {
-      std::string path = d;
-      path += "/";
-      path += file;
+      std::string path = cmStrCat(d, '/', file);
       if (cmSystemTools::GetFilenameLastExtension(path) == ".mcov") {
         if (!this->ReadMCovFile(path.c_str())) {
           return false;
@@ -43,7 +42,7 @@ bool cmParseGTMCoverage::LoadCoverageData(const char* d)
   return true;
 }
 
-bool cmParseGTMCoverage::ReadMCovFile(const char* file)
+bool cmParseGTMCoverage::ReadMCovFile(char const* file)
 {
   cmsys::ifstream in(file);
   if (!in) {
@@ -75,16 +74,20 @@ bool cmParseGTMCoverage::ReadMCovFile(const char* file)
         this->Coverage.TotalCoverage[lastpath][lastoffset + linenumber] +=
           count;
       } else {
-        cmCTestLog(this->CTest, ERROR_MESSAGE, "Can not find mumps file : "
-                     << lastroutine
-                     << "  referenced in this line of mcov data:\n"
-                        "["
-                     << line << "]\n");
+        cmCTestLog(this->CTest, ERROR_MESSAGE,
+                   "Can not find mumps file : ", lastroutine,
+                   "  referenced in this line of mcov data:\n"
+                   "[",
+                   line, "]\n");
       }
       continue;
     }
     // Find the full path to the file
     bool found = this->FindMumpsFile(routine, filepath);
+    if (!found && cmHasSuffix(routine, '%')) {
+      routine.erase(0, 1);
+      found = this->FindMumpsFile(routine, filepath);
+    }
     if (found) {
       int lineoffset = 0;
       if (this->FindFunctionInMumpsFile(filepath, function, lineoffset)) {
@@ -93,7 +96,7 @@ bool cmParseGTMCoverage::ReadMCovFile(const char* file)
         // This section accounts for lines that were previously marked
         // as non-executable code (-1), if the parser comes back with
         // a non-zero count, increase the count by 1 to push the line
-        // into the executable code set in addtion to the count found.
+        // into the executable code set in addition to the count found.
         if (coverageVector[lineoffset + linenumber] == -1 && count > 0) {
           coverageVector[lineoffset + linenumber] += count + 1;
         } else {
@@ -102,10 +105,11 @@ bool cmParseGTMCoverage::ReadMCovFile(const char* file)
         lastoffset = lineoffset;
       }
     } else {
-      cmCTestLog(this->CTest, ERROR_MESSAGE, "Can not find mumps file : "
-                   << routine << "  referenced in this line of mcov data:\n"
-                                 "["
-                   << line << "]\n");
+      cmCTestLog(this->CTest, ERROR_MESSAGE,
+                 "Can not find mumps file : ", routine,
+                 "  referenced in this line of mcov data:\n"
+                 "[",
+                 line, "]\n");
     }
     lastfunction = function;
     lastroutine = routine;
@@ -144,8 +148,9 @@ bool cmParseGTMCoverage::FindFunctionInMumpsFile(std::string const& filepath,
     linenum++; // move to next line count
   }
   lineoffset = 0;
-  cmCTestLog(this->CTest, ERROR_MESSAGE, "Could not find entry point : "
-               << function << " in " << filepath << "\n");
+  cmCTestLog(this->CTest, ERROR_MESSAGE,
+             "Could not find entry point : ", function, " in ", filepath,
+             '\n');
   return false;
 }
 
@@ -156,7 +161,7 @@ bool cmParseGTMCoverage::ParseMCOVLine(std::string const& line,
 {
   // this method parses lines from the .mcov file
   // each line has ^COVERAGE(...) in it, and there
-  // are several varients of coverage lines:
+  // are several variants of coverage lines:
   //
   // ^COVERAGE("DIC11","PR1",0)="2:0:0:0"
   //          ( file  , entry, line ) = "number_executed:timing_info"
@@ -182,14 +187,14 @@ bool cmParseGTMCoverage::ParseMCOVLine(std::string const& line,
       // save the argument into the argument vector
       args.push_back(arg);
       // start on a new argument
-      arg = "";
+      arg.clear();
       // if we are at the end of the ), then finish while loop
       if (cur == ')') {
         done = true;
       }
     } else {
-      // all chars except ", (, and % get stored in the arg string
-      if (cur != '\"' && cur != '(' && cur != '%') {
+      // all chars except " and ( get stored in the arg string
+      if (cur != '\"' && cur != '(') {
         arg.append(1, line[pos]);
       }
     }
@@ -221,8 +226,8 @@ bool cmParseGTMCoverage::ParseMCOVLine(std::string const& line,
   }
   // less then two arguments is an error
   if (args.size() < 2) {
-    cmCTestLog(this->CTest, ERROR_MESSAGE, "Error parsing mcov line: ["
-                 << line << "]\n");
+    cmCTestLog(this->CTest, ERROR_MESSAGE, "Error parsing mcov line: [", line,
+               "]\n");
     return false;
   }
   routine = args[0];  // the routine is the first argument
@@ -233,8 +238,8 @@ bool cmParseGTMCoverage::ParseMCOVLine(std::string const& line,
     // To avoid double counting of line 0 of each entry point,
     // Don't count the lines that do not give an explicit line
     // number.
-    routine = "";
-    function = "";
+    routine.clear();
+    function.clear();
   } else {
     // this is the format for this line
     // ^COVERAGE("%RSEL","SRC",count)

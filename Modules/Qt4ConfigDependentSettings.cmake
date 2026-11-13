@@ -1,13 +1,14 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# Qt4ConfigDependentSettings
-# --------------------------
-#
-#
-#
-# This file is included by FindQt4.cmake, don't include it directly.
+#[=======================================================================[.rst:
+Qt4ConfigDependentSettings
+--------------------------
+
+
+
+This file is included by FindQt4.cmake, don't include it directly.
+#]=======================================================================]
 
 ###############################################
 #
@@ -239,7 +240,7 @@ endif()
 if(QT_QCONFIG MATCHES "clock-monotonic")
   set(CMAKE_REQUIRED_LIBRARIES_SAVE ${CMAKE_REQUIRED_LIBRARIES})
   set(CMAKE_REQUIRED_LIBRARIES rt)
-  CHECK_SYMBOL_EXISTS(_POSIX_TIMERS "unistd.h;time.h" QT_POSIX_TIMERS)
+  check_symbol_exists(_POSIX_TIMERS "unistd.h;time.h" QT_POSIX_TIMERS)
   set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES_SAVE})
   if(QT_POSIX_TIMERS)
     find_library(QT_RT_LIBRARY NAMES rt)
@@ -255,7 +256,6 @@ if(Q_WS_X11)
   # X11 libraries Qt always depends on
   set(QT_QTGUI_LIB_DEPENDENCIES ${QT_QTGUI_LIB_DEPENDENCIES} ${X11_Xext_LIB} ${X11_X11_LIB})
 
-  set(CMAKE_THREAD_PREFER_PTHREAD 1)
   find_package(Threads)
   if(CMAKE_USE_PTHREADS_INIT)
     set(QT_QTCORE_LIB_DEPENDENCIES ${QT_QTCORE_LIB_DEPENDENCIES} ${CMAKE_THREAD_LIBS_INIT})
@@ -287,4 +287,3 @@ if(Q_WS_MAC)
 
   set(QT_QTCORE_LIB_DEPENDENCIES ${QT_QTCORE_LIB_DEPENDENCIES} "-framework ApplicationServices")
 endif()
-

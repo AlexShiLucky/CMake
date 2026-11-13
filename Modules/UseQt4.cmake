@@ -1,24 +1,25 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# UseQt4
-# ------
-#
-# Use Module for QT4
-#
-# Sets up C and C++ to use Qt 4.  It is assumed that FindQt.cmake has
-# already been loaded.  See FindQt.cmake for information on how to load
-# Qt 4 into your CMake project.
+#[=======================================================================[.rst:
+UseQt4
+------
+
+Use Module for QT4
+
+Sets up C and C++ to use Qt 4.  It is assumed that :module:`FindQt` has
+already been loaded.  See :module:`FindQt` for information on how to load
+Qt 4 into your CMake project.
+#]=======================================================================]
 
 add_definitions(${QT_DEFINITIONS})
 set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS $<$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG>)
 
 if(QT_INCLUDE_DIRS_NO_SYSTEM)
   include_directories(${QT_INCLUDE_DIR})
-else(QT_INCLUDE_DIRS_NO_SYSTEM)
+else()
   include_directories(SYSTEM ${QT_INCLUDE_DIR})
-endif(QT_INCLUDE_DIRS_NO_SYSTEM)
+endif()
 
 set(QT_LIBRARIES "")
 set(QT_LIBRARIES_PLUGINS "")
@@ -84,9 +85,9 @@ foreach(module QT3SUPPORT QTOPENGL QTASSISTANT QTDESIGNER QTMOTIF QTNSPLUGIN
         add_definitions(-DQT_${qt_module_def}_LIB)
         if(QT_INCLUDE_DIRS_NO_SYSTEM)
           include_directories(${QT_${module}_INCLUDE_DIR})
-        else(QT_INCLUDE_DIRS_NO_SYSTEM)
+        else()
           include_directories(SYSTEM ${QT_${module}_INCLUDE_DIR})
-        endif(QT_INCLUDE_DIRS_NO_SYSTEM)
+        endif()
       endif()
       if(QT_USE_${module} OR QT_IS_STATIC)
         set(QT_LIBRARIES ${QT_LIBRARIES} ${QT_${module}_LIBRARY})
@@ -104,4 +105,3 @@ foreach(module QT3SUPPORT QTOPENGL QTASSISTANT QTDESIGNER QTMOTIF QTNSPLUGIN
   endif ()
 
 endforeach()
-

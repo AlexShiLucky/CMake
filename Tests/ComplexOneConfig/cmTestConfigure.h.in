@@ -1,8 +1,9 @@
-// Test SET, VARIABLE_REQUIRES
+// Test SET
 
 #cmakedefine ONE_VAR
-#cmakedefine ONE_VAR_IS_DEFINED
+#  cmakedefine ONE_VAR_AND_INDENTED
 #cmakedefine ZERO_VAR
+#  cmakedefine ZERO_VAR_AND_INDENTED
 
 #define STRING_VAR "${STRING_VAR}"
 
@@ -32,6 +33,8 @@
 
 #cmakedefine01 SHOULD_BE_ZERO
 #cmakedefine01 SHOULD_BE_ONE
+#  cmakedefine01 SHOULD_BE_ZERO_AND_INDENTED
+#  cmakedefine01 SHOULD_BE_ONE_AND_INDENTED
 // Needed to check for files
 
 #define BINARY_DIR "${Complex_BINARY_DIR}"
@@ -73,4 +76,3 @@
 
 // test parenthesis in conditionals
 #cmakedefine CONDITIONAL_PARENTHESES
-

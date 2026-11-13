@@ -1,25 +1,25 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCTestGlobalVC.h"
-
-#include "cmCTest.h"
-#include "cmSystemTools.h"
-#include "cmXMLWriter.h"
 
 #include <ostream>
 #include <utility>
 
-cmCTestGlobalVC::cmCTestGlobalVC(cmCTest* ct, std::ostream& log)
-  : cmCTestVC(ct, log)
+#include "cmCTest.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
+#include "cmXMLWriter.h"
+
+cmCTestGlobalVC::cmCTestGlobalVC(cmCTest* ct, cmMakefile* mf,
+                                 std::ostream& log)
+  : cmCTestVC(ct, mf, log)
 {
   this->PriorRev = this->Unknown;
 }
 
-cmCTestGlobalVC::~cmCTestGlobalVC()
-{
-}
+cmCTestGlobalVC::~cmCTestGlobalVC() = default;
 
-const char* cmCTestGlobalVC::LocalPath(std::string const& path)
+char const* cmCTestGlobalVC::LocalPath(std::string const& path)
 {
   return path.c_str();
 }
@@ -34,7 +34,7 @@ void cmCTestGlobalVC::DoRevision(Revision const& revision,
   }
 
   // Indicate we found a revision.
-  cmCTestLog(this->CTest, HANDLER_OUTPUT, "." << std::flush);
+  cmCTestLog(this->CTest, HANDLER_OUTPUT, '.');
 
   // Store the revision.
   this->Revisions.push_back(revision);
@@ -43,20 +43,19 @@ void cmCTestGlobalVC::DoRevision(Revision const& revision,
   Revision const& rev = this->Revisions.back();
   /* clang-format off */
   this->Log << "Found revision " << rev.Rev << "\n"
-            << "  author = " << rev.Author << "\n"
-            << "  date = " << rev.Date << "\n";
+               "  author = " << rev.Author << "\n"
+               "  date = " << rev.Date << '\n';
   /* clang-format on */
 
   // Update information about revisions of the changed files.
-  for (std::vector<Change>::const_iterator ci = changes.begin();
-       ci != changes.end(); ++ci) {
-    if (const char* local = this->LocalPath(ci->Path)) {
+  for (Change const& c : changes) {
+    if (char const* local = this->LocalPath(c.Path)) {
       std::string dir = cmSystemTools::GetFilenamePath(local);
       std::string name = cmSystemTools::GetFilenameName(local);
       File& file = this->Dirs[dir][name];
       file.PriorRev = file.Rev ? file.Rev : &this->PriorRev;
       file.Rev = &rev;
-      this->Log << "  " << ci->Action << " " << local << " "
+      this->Log << "  " << c.Action << " " << local << " "
                 << "\n";
     }
   }
@@ -80,12 +79,12 @@ void cmCTestGlobalVC::WriteXMLDirectory(cmXMLWriter& xml,
                                         std::string const& path,
                                         Directory const& dir)
 {
-  const char* slash = path.empty() ? "" : "/";
+  char const* slash = path.empty() ? "" : "/";
   xml.StartElement("Directory");
   xml.Element("Name", path);
-  for (Directory::const_iterator fi = dir.begin(); fi != dir.end(); ++fi) {
-    std::string full = path + slash + fi->first;
-    this->WriteXMLEntry(xml, path, fi->first, full, fi->second);
+  for (auto const& f : dir) {
+    std::string const full = cmStrCat(path, slash, f.first);
+    this->WriteXMLEntry(xml, path, f.first, full, f.second);
   }
   xml.EndElement(); // Directory
 }
@@ -105,20 +104,22 @@ bool cmCTestGlobalVC::WriteXMLUpdates(cmXMLWriter& xml)
   bool result = true;
   cmCTestLog(this->CTest, HANDLER_OUTPUT,
              "   Gathering version information (one . per revision):\n"
-             "    "
-               << std::flush);
+             "    ");
   result = this->LoadRevisions() && result;
-  cmCTestLog(this->CTest, HANDLER_OUTPUT, std::endl);
+  cmCTestLog(this->CTest, HANDLER_OUTPUT, '\n');
 
   result = this->LoadModifications() && result;
 
   this->WriteXMLGlobal(xml);
 
-  for (std::map<std::string, Directory>::const_iterator di =
-         this->Dirs.begin();
-       di != this->Dirs.end(); ++di) {
-    this->WriteXMLDirectory(xml, di->first, di->second);
+  for (auto const& d : this->Dirs) {
+    this->WriteXMLDirectory(xml, d.first, d.second);
   }
 
   return result;
+}
+
+void cmCTestGlobalVC::SetNewRevision(std::string const& revision)
+{
+  this->NewRevision = revision;
 }

@@ -21,8 +21,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD: src/lib/libarchive/archive.h.in,v 1.50 2008/05/26 17:00:22 kientzle Exp $
  */
 
 #ifndef ARCHIVE_H_INCLUDED
@@ -36,12 +34,15 @@
  * assert that ARCHIVE_VERSION_NUMBER >= 2012108.
  */
 /* Note: Compiler will complain if this does not match archive_entry.h! */
-#define	ARCHIVE_VERSION_NUMBER 3003001
+#define	ARCHIVE_VERSION_NUMBER 3008009
 
 #include <sys/stat.h>
 #include <stddef.h>  /* for wchar_t */
 #include <stdio.h> /* For FILE * */
+#if ARCHIVE_VERSION_NUMBER < 4000000
+/* time_t is slated to be removed from public includes in 4.0 */
 #include <time.h> /* For time_t */
+#endif
 
 /*
  * Note: archive.h is for use outside of libarchive; the configuration
@@ -52,7 +53,7 @@
  */
 #if defined(__BORLANDC__) && __BORLANDC__ >= 0x560
 # include <stdint.h>
-#elif !defined(__WATCOMC__) && !defined(_MSC_VER) && !defined(__INTERIX) && !defined(__BORLANDC__) && !defined(_SCO_DS) && !defined(__osf__)
+#elif !defined(__WATCOMC__) && !defined(_MSC_VER) && !defined(__INTERIX) && !defined(__BORLANDC__) && !defined(_SCO_DS) && !defined(__osf__) && !defined(__CLANG_INTTYPES_H)
 # include <inttypes.h>
 #endif
 
@@ -65,12 +66,15 @@
 #define __LA_INT64_T_DEFINED
 # if defined(_WIN32) && !defined(__CYGWIN__) && !defined(__WATCOMC__)
 typedef __int64 la_int64_t;
+typedef unsigned __int64 la_uint64_t;
 # else
 # include <unistd.h>  /* ssize_t */
 #  if defined(_SCO_DS) || defined(__osf__)
 typedef long long la_int64_t;
+typedef unsigned long long la_uint64_t;
 #  else
 typedef int64_t la_int64_t;
+typedef uint64_t la_uint64_t;
 #  endif
 # endif
 #endif
@@ -96,8 +100,24 @@ typedef ssize_t la_ssize_t;
 # endif
 #endif
 
+#if ARCHIVE_VERSION_NUMBER < 4000000
+/* Use the platform types for time_t */
+#define __LA_TIME_T time_t
+#else
+/* Use 64-bits integer types for time_t */
+#define __LA_TIME_T la_int64_t
+#endif
+
+#if ARCHIVE_VERSION_NUMBER < 4000000
+/* Use the platform types for dev_t */
+#define __LA_DEV_T dev_t
+#else
+/* Use 64-bits integer types for dev_t */
+#define __LA_DEV_T la_int64_t
+#endif
+
 /* Large file support for Android */
-#ifdef __ANDROID__
+#if defined(__LIBARCHIVE_BUILD) && defined(__ANDROID__)
 #include "android_lf.h"
 #endif
 
@@ -120,6 +140,8 @@ typedef ssize_t la_ssize_t;
 #   define __LA_DECL	__declspec(dllimport)
 #  endif
 # endif
+#elif defined __LIBARCHIVE_ENABLE_VISIBILITY
+#  define __LA_DECL __attribute__((visibility("default")))
 #else
 /* Static libraries or non-Windows needs no special declaration. */
 # define __LA_DECL
@@ -152,7 +174,7 @@ __LA_DECL int		archive_version_number(void);
 /*
  * Textual name/version of the library, useful for version displays.
  */
-#define	ARCHIVE_VERSION_ONLY_STRING "3.3.1"
+#define	ARCHIVE_VERSION_ONLY_STRING "3.8.9"
 #define	ARCHIVE_VERSION_STRING "libarchive " ARCHIVE_VERSION_ONLY_STRING
 __LA_DECL const char *	archive_version_string(void);
 
@@ -174,6 +196,26 @@ __LA_DECL const char *  archive_zlib_version(void);
 __LA_DECL const char *  archive_liblzma_version(void);
 __LA_DECL const char *  archive_bzlib_version(void);
 __LA_DECL const char *  archive_liblz4_version(void);
+__LA_DECL const char *  archive_libzstd_version(void);
+__LA_DECL const char *  archive_liblzo2_version(void);
+__LA_DECL const char *  archive_libexpat_version(void);
+__LA_DECL const char *  archive_libbsdxml_version(void);
+__LA_DECL const char *  archive_libxml2_version(void);
+__LA_DECL const char *  archive_mbedtls_version(void);
+__LA_DECL const char *  archive_nettle_version(void);
+__LA_DECL const char *  archive_openssl_version(void);
+__LA_DECL const char *  archive_libmd_version(void);
+__LA_DECL const char *  archive_commoncrypto_version(void);
+__LA_DECL const char *  archive_cng_version(void);
+#if ARCHIVE_VERSION_NUMBER < 4000000
+__LA_DECL const char *  archive_wincrypt_version(void);
+#endif
+__LA_DECL const char *  archive_librichacl_version(void);
+__LA_DECL const char *  archive_libacl_version(void);
+__LA_DECL const char *  archive_libattr_version(void);
+__LA_DECL const char *  archive_libiconv_version(void);
+__LA_DECL const char *  archive_libpcre_version(void);
+__LA_DECL const char *  archive_libpcre2_version(void);
 
 /* Declare our basic types. */
 struct archive;
@@ -242,6 +284,8 @@ typedef int	archive_open_callback(struct archive *, void *_client_data);
 
 typedef int	archive_close_callback(struct archive *, void *_client_data);
 
+typedef int	archive_free_callback(struct archive *, void *_client_data);
+
 /* Switches from one client data object to the next/prev client data object.
  * This is useful for reading from different data blocks such as a set of files
  * that make up one large file.
@@ -273,6 +317,7 @@ typedef const char *archive_passphrase_callback(struct archive *,
 #define	ARCHIVE_FILTER_LZOP	11
 #define	ARCHIVE_FILTER_GRZIP	12
 #define	ARCHIVE_FILTER_LZ4	13
+#define	ARCHIVE_FILTER_ZSTD	14
 
 #if ARCHIVE_VERSION_NUMBER < 4000000
 #define	ARCHIVE_COMPRESSION_NONE	ARCHIVE_FILTER_NONE
@@ -312,6 +357,7 @@ typedef const char *archive_passphrase_callback(struct archive *,
 #define	ARCHIVE_FORMAT_CPIO_SVR4_NOCRC		(ARCHIVE_FORMAT_CPIO | 4)
 #define	ARCHIVE_FORMAT_CPIO_SVR4_CRC		(ARCHIVE_FORMAT_CPIO | 5)
 #define	ARCHIVE_FORMAT_CPIO_AFIO_LARGE		(ARCHIVE_FORMAT_CPIO | 6)
+#define	ARCHIVE_FORMAT_CPIO_PWB			(ARCHIVE_FORMAT_CPIO | 7)
 #define	ARCHIVE_FORMAT_SHAR			0x20000
 #define	ARCHIVE_FORMAT_SHAR_BASE		(ARCHIVE_FORMAT_SHAR | 1)
 #define	ARCHIVE_FORMAT_SHAR_DUMP		(ARCHIVE_FORMAT_SHAR | 2)
@@ -335,6 +381,7 @@ typedef const char *archive_passphrase_callback(struct archive *,
 #define	ARCHIVE_FORMAT_RAR			0xD0000
 #define	ARCHIVE_FORMAT_7ZIP			0xE0000
 #define	ARCHIVE_FORMAT_WARC			0xF0000
+#define	ARCHIVE_FORMAT_RAR_V5			0x100000
 
 /*
  * Codes returned by archive_read_format_capabilities().
@@ -412,6 +459,7 @@ __LA_DECL int archive_read_support_compression_xz(struct archive *)
 #endif
 
 __LA_DECL int archive_read_support_filter_all(struct archive *);
+__LA_DECL int archive_read_support_filter_by_code(struct archive *, int);
 __LA_DECL int archive_read_support_filter_bzip2(struct archive *);
 __LA_DECL int archive_read_support_filter_compress(struct archive *);
 __LA_DECL int archive_read_support_filter_gzip(struct archive *);
@@ -430,6 +478,7 @@ __LA_DECL int archive_read_support_filter_program_signature
 __LA_DECL int archive_read_support_filter_rpm(struct archive *);
 __LA_DECL int archive_read_support_filter_uu(struct archive *);
 __LA_DECL int archive_read_support_filter_xz(struct archive *);
+__LA_DECL int archive_read_support_filter_zstd(struct archive *);
 
 __LA_DECL int archive_read_support_format_7zip(struct archive *);
 __LA_DECL int archive_read_support_format_all(struct archive *);
@@ -438,11 +487,14 @@ __LA_DECL int archive_read_support_format_by_code(struct archive *, int);
 __LA_DECL int archive_read_support_format_cab(struct archive *);
 __LA_DECL int archive_read_support_format_cpio(struct archive *);
 __LA_DECL int archive_read_support_format_empty(struct archive *);
+/* archive_read_support_format_gnutar() is an alias for historical reasons
+ * of archive_read_support_format_tar(). */
 __LA_DECL int archive_read_support_format_gnutar(struct archive *);
 __LA_DECL int archive_read_support_format_iso9660(struct archive *);
 __LA_DECL int archive_read_support_format_lha(struct archive *);
 __LA_DECL int archive_read_support_format_mtree(struct archive *);
 __LA_DECL int archive_read_support_format_rar(struct archive *);
+__LA_DECL int archive_read_support_format_rar5(struct archive *);
 __LA_DECL int archive_read_support_format_raw(struct archive *);
 __LA_DECL int archive_read_support_format_tar(struct archive *);
 __LA_DECL int archive_read_support_format_warc(struct archive *);
@@ -521,6 +573,10 @@ __LA_DECL int archive_read_open_filenames(struct archive *,
 		     const char **_filenames, size_t _block_size);
 __LA_DECL int archive_read_open_filename_w(struct archive *,
 		     const wchar_t *_filename, size_t _block_size);
+#if defined(_WIN32) && !defined(__CYGWIN__)
+__LA_DECL int archive_read_open_filenames_w(struct archive *,
+		     const wchar_t **_filenames, size_t _block_size);
+#endif
 /* archive_read_open_file() is a deprecated synonym for ..._open_filename(). */
 __LA_DECL int archive_read_open_file(struct archive *,
 		     const char *_filename, size_t _block_size) __LA_DEPRECATED;
@@ -596,7 +652,6 @@ __LA_DECL int archive_read_data_block(struct archive *a,
 /*-
  * Some convenience functions that are built on archive_read_data:
  *  'skip': skips entire entry
- *  'into_buffer': writes data into memory buffer that you provide
  *  'into_fd': writes data to specified filedes
  */
 __LA_DECL int archive_read_data_skip(struct archive *);
@@ -685,6 +740,8 @@ __LA_DECL int archive_read_set_passphrase_callback(struct archive *,
 #define ARCHIVE_EXTRACT_SECURE_NOABSOLUTEPATHS (0x10000)
 /* Default: Do not clear no-change flags when unlinking object */
 #define	ARCHIVE_EXTRACT_CLEAR_NOCHANGE_FFLAGS	(0x20000)
+/* Default: Do not extract atomically (using rename) */
+#define	ARCHIVE_EXTRACT_SAFE_WRITES		(0x40000)
 
 __LA_DECL int archive_read_extract(struct archive *, struct archive_entry *,
 		     int flags);
@@ -775,6 +832,7 @@ __LA_DECL int archive_write_add_filter_program(struct archive *,
 		     const char *cmd);
 __LA_DECL int archive_write_add_filter_uuencode(struct archive *);
 __LA_DECL int archive_write_add_filter_xz(struct archive *);
+__LA_DECL int archive_write_add_filter_zstd(struct archive *);
 
 
 /* A convenience function to set the format based on the code or name. */
@@ -786,7 +844,10 @@ __LA_DECL int archive_write_set_format_7zip(struct archive *);
 __LA_DECL int archive_write_set_format_ar_bsd(struct archive *);
 __LA_DECL int archive_write_set_format_ar_svr4(struct archive *);
 __LA_DECL int archive_write_set_format_cpio(struct archive *);
+__LA_DECL int archive_write_set_format_cpio_bin(struct archive *);
 __LA_DECL int archive_write_set_format_cpio_newc(struct archive *);
+__LA_DECL int archive_write_set_format_cpio_odc(struct archive *);
+__LA_DECL int archive_write_set_format_cpio_pwb(struct archive *);
 __LA_DECL int archive_write_set_format_gnutar(struct archive *);
 __LA_DECL int archive_write_set_format_iso9660(struct archive *);
 __LA_DECL int archive_write_set_format_mtree(struct archive *);
@@ -806,9 +867,17 @@ __LA_DECL int archive_write_set_format_filter_by_ext(struct archive *a, const ch
 __LA_DECL int archive_write_set_format_filter_by_ext_def(struct archive *a, const char *filename, const char * def_ext);
 __LA_DECL int archive_write_zip_set_compression_deflate(struct archive *);
 __LA_DECL int archive_write_zip_set_compression_store(struct archive *);
+__LA_DECL int archive_write_zip_set_compression_lzma(struct archive *);
+__LA_DECL int archive_write_zip_set_compression_xz(struct archive *);
+__LA_DECL int archive_write_zip_set_compression_bzip2(struct archive *);
+__LA_DECL int archive_write_zip_set_compression_zstd(struct archive *);
+/* Deprecated; use archive_write_open2 instead */
 __LA_DECL int archive_write_open(struct archive *, void *,
 		     archive_open_callback *, archive_write_callback *,
 		     archive_close_callback *);
+__LA_DECL int archive_write_open2(struct archive *, void *,
+		     archive_open_callback *, archive_write_callback *,
+		     archive_close_callback *, archive_free_callback *);
 __LA_DECL int archive_write_open_fd(struct archive *, int _fd);
 __LA_DECL int archive_write_open_filename(struct archive *, const char *_file);
 __LA_DECL int archive_write_open_filename_w(struct archive *,
@@ -869,7 +938,7 @@ __LA_DECL int archive_write_set_options(struct archive *_a,
 			    const char *opts);
 
 /*
- * Set a encryption passphrase.
+ * Set an encryption passphrase.
  */
 __LA_DECL int archive_write_set_passphrase(struct archive *_a, const char *p);
 __LA_DECL int archive_write_set_passphrase_callback(struct archive *,
@@ -1002,6 +1071,8 @@ __LA_DECL int  archive_read_disk_set_atime_restored(struct archive *);
 #define	ARCHIVE_READDISK_NO_ACL			(0x0020)
 /* Default: File flags are read from disk. */
 #define	ARCHIVE_READDISK_NO_FFLAGS		(0x0040)
+/* Default: Sparse file information is read from disk. */
+#define	ARCHIVE_READDISK_NO_SPARSE		(0x0080)
 
 __LA_DECL int  archive_read_disk_set_behavior(struct archive *,
 		    int flags);
@@ -1055,6 +1126,10 @@ __LA_DECL int		 archive_compression(struct archive *)
 				__LA_DEPRECATED;
 #endif
 
+/* Parses a date string relative to the current time.
+ * NOTE: This is not intended for general date parsing, and the resulting timestamp should only be used for libarchive. */
+__LA_DECL time_t	archive_parse_date(time_t now, const char *datestr);
+
 __LA_DECL int		 archive_errno(struct archive *);
 __LA_DECL const char	*archive_error_string(struct archive *);
 __LA_DECL const char	*archive_format_name(struct archive *);
@@ -1086,6 +1161,8 @@ __LA_DECL int	archive_match_excluded(struct archive *,
  */
 __LA_DECL int	archive_match_path_excluded(struct archive *,
 		    struct archive_entry *);
+/* Control recursive inclusion of directory content when directory is included. Default on. */
+__LA_DECL int	archive_match_set_inclusion_recursion(struct archive *, int);
 /* Add exclusion pathname pattern. */
 __LA_DECL int	archive_match_exclude_pattern(struct archive *, const char *);
 __LA_DECL int	archive_match_exclude_pattern_w(struct archive *,
@@ -1155,7 +1232,7 @@ __LA_DECL int	archive_match_exclude_entry(struct archive *,
 		    int _flag, struct archive_entry *);
 
 /*
- * Test if a file is excluded by its uid ,gid, uname or gname.
+ * Test if a file is excluded by its uid, gid, uname or gname.
  * The conditions are set by following functions.
  */
 __LA_DECL int	archive_match_owner_excluded(struct archive *,
@@ -1171,8 +1248,10 @@ __LA_DECL int	archive_match_include_gname_w(struct archive *,
 		    const wchar_t *);
 
 /* Utility functions */
+#if ARCHIVE_VERSION_NUMBER < 4000000
 /* Convenience function to sort a NULL terminated list of strings */
 __LA_DECL int archive_utility_string_sort(char **);
+#endif
 
 #ifdef __cplusplus
 }

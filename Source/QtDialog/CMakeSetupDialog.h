@@ -1,22 +1,32 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef CMakeSetupDialog_h
-#define CMakeSetupDialog_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "QCMake.h"
+#include <memory>
 
-#include "ui_CMakeSetupDialog.h"
 #include <QEventLoop>
 #include <QMainWindow>
 #include <QThread>
+#include <QVector>
 
+#include "QCMake.h"
+#include "QCMakePreset.h"
+#include "ui_CMakeSetupDialog.h"
+
+class QCMakePresetItemModel;
 class QCMakeThread;
 class CMakeCacheModel;
 class QProgressBar;
 class QToolButton;
 
+#ifdef QT_WINEXTRAS
+class QWinTaskbarButton;
+#endif
+
 /// Qt user interface for CMake
-class CMakeSetupDialog : public QMainWindow, public Ui::CMakeSetupDialog
+class CMakeSetupDialog
+  : public QMainWindow
+  , public Ui::CMakeSetupDialog
 {
   Q_OBJECT
 public:
@@ -24,53 +34,61 @@ public:
   ~CMakeSetupDialog();
 
 public slots:
-  void setBinaryDirectory(const QString& dir);
-  void setSourceDirectory(const QString& dir);
+  void setBinaryDirectory(QString const& dir);
+  void setSourceDirectory(QString const& dir);
+  void setDeferredPreset(QString const& preset);
+  void setStartupBinaryDirectory(bool startup);
 
 protected slots:
   void initialize();
   void doConfigure();
   void doGenerate();
-  QString getProjectFilename();
   void doOpenProject();
   void doInstallForCommandLine();
   void doHelp();
   void doAbout();
   void doInterrupt();
-  void error(const QString& message);
-  void message(const QString& message);
+  void error(QString const& message);
+  void message(QString const& message);
 
   void doSourceBrowse();
   void doBinaryBrowse();
   void doReloadCache();
   void doDeleteCache();
-  void updateSourceDirectory(const QString& dir);
-  void updateBinaryDirectory(const QString& dir);
-  void showProgress(const QString& msg, float percent);
+  void updateSourceDirectory(QString const& dir);
+  void updateBinaryDirectory(QString const& dir);
+  void updatePresets(QVector<QCMakePreset> const& presets);
+  void updatePreset(QString const& name);
+  void onPresetApplied(quint64 requestId, QString const& name,
+                       QCMakePropertyList const& properties);
+  void showPresetLoadError(QString const& dir, QString const& message);
+  void showProgress(QString const& msg, float percent);
   void setEnabledState(bool);
   bool setupFirstConfigure();
-  void updateGeneratorLabel(const QString& gen);
+  void updateGeneratorLabel(QString const& gen);
   void setExitAfterGenerate(bool);
-  void addBinaryPath(const QString&);
+  void addBinaryPath(QString const&);
   QStringList loadBuildPaths();
-  void saveBuildPaths(const QStringList&);
-  void onBinaryDirectoryChanged(const QString& dir);
-  void onSourceDirectoryChanged(const QString& dir);
+  void saveBuildPaths(QStringList const&);
+  void onBinaryDirectoryChanged(QString const& dir);
+  void onSourceDirectoryChanged(QString const& dir);
+  void onBuildPresetChanged(QString const& name);
   void setCacheModified();
   void removeSelectedCacheEntries();
   void selectionChanged();
+  void editEnvironment();
   void addCacheEntry();
   void startSearch();
   void setDebugOutput(bool);
   void setAdvancedView(bool);
   void setGroupedView(bool);
   void showUserChanges();
-  void setSearchFilter(const QString& str);
+  void setSearchFilter(QString const& str);
   bool prepareConfigure();
   bool doConfigureInternal();
   bool doGenerateInternal();
   void exitLoop(int);
-  void doOutputContextMenu(const QPoint&);
+  void doOutputContextMenu(QPoint pt);
   void doOutputFindDialog();
   void doOutputFindNext(bool directionForward = true);
   void doOutputFindPrev();
@@ -89,6 +107,9 @@ protected:
     Generating
   };
   void enterState(State s);
+  // Recompute command/control availability from state and pending.  Kept out
+  // of enterState() since pending can toggle without a lifecycle change.
+  void updateCommandState();
 
   void closeEvent(QCloseEvent*);
   void dragEnterEvent(QDragEnterEvent*);
@@ -103,10 +124,14 @@ protected:
   QAction* ExitAction;
   QAction* ConfigureAction;
   QAction* GenerateAction;
-  QAction* WarnUninitializedAction;
-  QAction* WarnUnusedAction;
   QAction* InstallForCommandLineAction;
   State CurrentState;
+  QString DeferredPreset;
+  bool StartupBinaryDirectory = false;
+  // Only the completion matching LatestPresetRequestId is accepted; a request
+  // is outstanding while PresetApplicationPending holds.
+  quint64 LatestPresetRequestId = 0;
+  bool PresetApplicationPending = false;
 
   QTextCharFormat ErrorFormat;
   QTextCharFormat MessageFormat;
@@ -116,6 +141,10 @@ protected:
   QStringList FindHistory;
 
   QEventLoop LocalLoop;
+
+#ifdef QT_WINEXTRAS
+  QWinTaskbarButton* TaskbarButton;
+#endif
 
   float ProgressOffset;
   float ProgressFactor;
@@ -134,7 +163,5 @@ signals:
 
 protected:
   virtual void run();
-  QCMake* CMakeInstance;
+  std::unique_ptr<QCMake> CMakeInstance;
 };
-
-#endif // CMakeSetupDialog_h

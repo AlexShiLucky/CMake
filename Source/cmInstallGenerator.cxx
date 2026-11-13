@@ -1,33 +1,58 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmInstallGenerator.h"
 
+#include <algorithm>
+#include <sstream>
+#include <utility>
+
+#include <cm/string_view>
+
+#include "cmDiagnostics.h"
+#include "cmGeneratorTarget.h"
+#include "cmGlobalGenerator.h"
+#include "cmLocalGenerator.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
-#include <ostream>
-
 cmInstallGenerator::cmInstallGenerator(
-  const char* destination, std::vector<std::string> const& configurations,
-  const char* component, MessageLevel message, bool exclude_from_all)
+  std::string destination, std::vector<std::string> const& configurations,
+  std::string component, MessageLevel message, bool excludeFromAll,
+  bool allComponents, cmDiagnosticContext context)
   : cmScriptGenerator("CMAKE_INSTALL_CONFIG_NAME", configurations)
-  , Destination(destination ? destination : "")
-  , Component(component ? component : "")
+  , Destination(std::move(destination))
+  , Component(std::move(component))
   , Message(message)
-  , ExcludeFromAll(exclude_from_all)
+  , ExcludeFromAll(excludeFromAll)
+  , AllComponents(allComponents)
+  , Context{ std::move(context) }
 {
 }
 
-cmInstallGenerator::~cmInstallGenerator()
+cmInstallGenerator::~cmInstallGenerator() = default;
+
+bool cmInstallGenerator::HaveInstall()
 {
+  return true;
+}
+
+void cmInstallGenerator::CheckCMP0082(bool& haveSubdirectoryInstall,
+                                      bool& haveInstallAfterSubdirectory)
+{
+  if (haveSubdirectoryInstall) {
+    haveInstallAfterSubdirectory = true;
+  }
 }
 
 void cmInstallGenerator::AddInstallRule(
   std::ostream& os, std::string const& dest, cmInstallType type,
   std::vector<std::string> const& files, bool optional /* = false */,
-  const char* permissions_file /* = 0 */,
-  const char* permissions_dir /* = 0 */, const char* rename /* = 0 */,
-  const char* literal_args /* = 0 */, Indent indent)
+  char const* permissionsFile /* = nullptr */,
+  char const* permissionsDir /* = nullptr */,
+  char const* rename /* = nullptr */, char const* literalArgs /* = nullptr */,
+  Indent indent, char const* filesVar /* = nullptr */)
 {
   // Use the FILE command to install the file.
   std::string stype;
@@ -54,36 +79,52 @@ void cmInstallGenerator::AddInstallRule(
       stype = "FILE";
       break;
   }
-  os << indent;
-  if (cmSystemTools::FileIsFullPath(dest.c_str())) {
-    os << "list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES\n";
-    os << indent << " \"";
-    for (std::vector<std::string>::const_iterator fi = files.begin();
-         fi != files.end(); ++fi) {
-      if (fi != files.begin()) {
-        os << ";";
+  if (cmSystemTools::FileIsFullPath(dest)) {
+    if (!files.empty()) {
+      os << indent << "list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES\n";
+      os << indent << " \"";
+      bool firstIteration = true;
+      for (std::string const& file : files) {
+        if (!firstIteration) {
+          os << ";";
+        }
+        os << dest << "/";
+        if (rename && *rename) {
+          os << rename;
+        } else {
+          os << cmSystemTools::GetFilenameNameView(file);
+        }
+        firstIteration = false;
       }
-      os << dest << "/";
-      if (rename && *rename) {
-        os << rename;
-      } else {
-        os << cmSystemTools::GetFilenameName(*fi);
-      }
+      os << "\")\n";
     }
-    os << "\")\n";
+    if (filesVar) {
+      os << indent << "foreach(_cmake_abs_file IN LISTS " << filesVar << ")\n";
+      os << indent.Next()
+         << "get_filename_component(_cmake_abs_file_name "
+            "\"${_cmake_abs_file}\" NAME)\n";
+      os << indent.Next() << "list(APPEND CMAKE_ABSOLUTE_DESTINATION_FILES \""
+         << dest << "/${_cmake_abs_file_name}\")\n";
+      os << indent << "endforeach()\n";
+      os << indent << "unset(_cmake_abs_file_name)\n";
+      os << indent << "unset(_cmake_abs_file)\n";
+    }
     os << indent << "if(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION)\n";
-    os << indent << indent << "message(WARNING \"ABSOLUTE path INSTALL "
-       << "DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}\")\n";
+    os << indent.Next()
+       << "message(WARNING \"ABSOLUTE path INSTALL "
+          "DESTINATION : ${CMAKE_ABSOLUTE_DESTINATION_FILES}\")\n";
     os << indent << "endif()\n";
 
     os << indent << "if(CMAKE_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION)\n";
-    os << indent << indent << "message(FATAL_ERROR \"ABSOLUTE path INSTALL "
-       << "DESTINATION forbidden (by caller): "
-       << "${CMAKE_ABSOLUTE_DESTINATION_FILES}\")\n";
+    os << indent.Next()
+       << "message(FATAL_ERROR \"ABSOLUTE path INSTALL "
+          "DESTINATION forbidden (by caller): "
+          "${CMAKE_ABSOLUTE_DESTINATION_FILES}\")\n";
     os << indent << "endif()\n";
   }
-  std::string absDest = this->ConvertToAbsoluteDestination(dest);
-  os << "file(INSTALL DESTINATION \"" << absDest << "\" TYPE " << stype;
+  std::string absDest = ConvertToAbsoluteDestination(dest);
+  os << indent << "file(INSTALL DESTINATION \"" << absDest << "\" TYPE "
+     << stype;
   if (optional) {
     os << " OPTIONAL";
   }
@@ -100,11 +141,11 @@ void cmInstallGenerator::AddInstallRule(
       os << " MESSAGE_NEVER";
       break;
   }
-  if (permissions_file && *permissions_file) {
-    os << " PERMISSIONS" << permissions_file;
+  if (permissionsFile && *permissionsFile) {
+    os << " PERMISSIONS" << permissionsFile;
   }
-  if (permissions_dir && *permissions_dir) {
-    os << " DIR_PERMISSIONS" << permissions_dir;
+  if (permissionsDir && *permissionsDir) {
+    os << " DIR_PERMISSIONS" << permissionsDir;
   }
   if (rename && *rename) {
     os << " RENAME \"" << rename << "\"";
@@ -113,30 +154,40 @@ void cmInstallGenerator::AddInstallRule(
   if (files.size() == 1) {
     os << " \"" << files[0] << "\"";
   } else {
-    for (std::vector<std::string>::const_iterator fi = files.begin();
-         fi != files.end(); ++fi) {
-      os << "\n" << indent << "  \"" << *fi << "\"";
+    for (std::string const& f : files) {
+      os << "\n" << indent << "  \"" << f << "\"";
+    }
+    if (filesVar) {
+      os << " ${" << filesVar << "}";
     }
     os << "\n" << indent << " ";
-    if (!(literal_args && *literal_args)) {
+    if (!(literalArgs && *literalArgs)) {
       os << " ";
     }
   }
-  if (literal_args && *literal_args) {
-    os << literal_args;
+  if (literalArgs && *literalArgs) {
+    os << literalArgs;
   }
   os << ")\n";
 }
 
-std::string cmInstallGenerator::CreateComponentTest(const char* component,
-                                                    bool exclude_from_all)
+std::string cmInstallGenerator::CreateComponentTest(
+  std::string const& component, bool excludeFromAll, bool allComponents)
 {
-  std::string result = "\"${CMAKE_INSTALL_COMPONENT}\" STREQUAL \"";
+  if (allComponents) {
+    if (excludeFromAll) {
+      return "CMAKE_INSTALL_COMPONENT";
+    }
+    return {};
+  }
+
+  std::string result = "CMAKE_INSTALL_COMPONENT STREQUAL \"";
   result += component;
   result += "\"";
-  if (!exclude_from_all) {
+  if (!excludeFromAll) {
     result += " OR NOT CMAKE_INSTALL_COMPONENT";
   }
+
   return result;
 }
 
@@ -145,32 +196,50 @@ void cmInstallGenerator::GenerateScript(std::ostream& os)
   // Track indentation.
   Indent indent;
 
+  std::string componentTest = this->CreateComponentTest(
+    this->Component, this->ExcludeFromAll, this->AllComponents);
+
   // Begin this block of installation.
-  std::string component_test =
-    this->CreateComponentTest(this->Component.c_str(), this->ExcludeFromAll);
-  os << indent << "if(" << component_test << ")\n";
+  if (!componentTest.empty()) {
+    os << indent << "if(" << componentTest << ")\n";
+  }
 
   // Generate the script possibly with per-configuration code.
-  this->GenerateScriptConfigs(os, indent.Next());
+  this->GenerateScriptConfigs(os,
+                              this->AllComponents ? indent : indent.Next());
 
   // End this block of installation.
-  os << indent << "endif()\n\n";
+  if (!componentTest.empty()) {
+    os << indent << "endif()\n\n";
+  }
 }
 
-bool cmInstallGenerator::InstallsForConfig(const std::string& config)
+bool cmInstallGenerator::InstallsForConfig(std::string const& config)
 {
   return this->GeneratesForConfig(config);
 }
 
 std::string cmInstallGenerator::ConvertToAbsoluteDestination(
-  std::string const& dest) const
+  std::string const& dest)
 {
   std::string result;
-  if (!dest.empty() && !cmSystemTools::FileIsFullPath(dest.c_str())) {
+  if (!dest.empty() && !cmSystemTools::FileIsFullPath(dest)) {
     result = "${CMAKE_INSTALL_PREFIX}/";
   }
   result += dest;
   return result;
+}
+
+void cmInstallGenerator::CheckAbsoluteDestination(
+  std::string const& dest, cmLocalGenerator const* lg) const
+{
+  if (!cmSystemTools::FileIsFullPath(dest)) {
+    return;
+  }
+  lg->IssueDiagnostic(
+    cmDiagnostics::CMD_INSTALL_ABSOLUTE_DESTINATION,
+    cmStrCat("INSTALL command given absolute DESTINATION path:\n  ", dest),
+    this->Context);
 }
 
 cmInstallGenerator::MessageLevel cmInstallGenerator::SelectMessageLevel(
@@ -190,4 +259,139 @@ cmInstallGenerator::MessageLevel cmInstallGenerator::SelectMessageLevel(
     return MessageNever;
   }
   return MessageDefault;
+}
+
+cmDiagnosticContext cmInstallGenerator::CaptureContext(cmMakefile const& mf)
+{
+  cmDiagnosticContext context{ mf.GetBacktrace() };
+  context.RecordDiagnostic(cmDiagnostics::CMD_AUTHOR, mf.GetStateSnapshot());
+  context.RecordDiagnostic(cmDiagnostics::CMD_INSTALL_ABSOLUTE_DESTINATION,
+                           mf.GetStateSnapshot());
+  return context;
+}
+
+bool cmInstallGenerator::ResolveBuildDepends(
+  cmLocalGenerator* lg, std::string const& signature,
+  std::vector<std::string> const& names, BuildDependsEntries& entries)
+{
+  entries = BuildDependsEntries();
+  cmGlobalGenerator* gg = lg->GetGlobalGenerator();
+  std::vector<std::string> const configs =
+    lg->GetMakefile()->GetGeneratorConfigs(cmMakefile::IncludeEmptyConfig);
+  auto const isArtifact = [gg, &configs](std::string const& file) {
+    return std::any_of(configs.begin(), configs.end(),
+                       [gg, &file](std::string const& config) {
+                         return gg->FindArtifactOwningTarget(file, config);
+                       });
+  };
+  for (std::string const& name : names) {
+    if (cmGeneratorTarget const* target = lg->FindGeneratorTargetToUse(name)) {
+      entries.Targets.push_back(target);
+      continue;
+    }
+    // A relative path is interpreted with respect to the current source
+    // directory if the file exists there, and otherwise the current binary
+    // directory.
+    std::string file = lg->GetRealFileDependency(name);
+    if (gg->IsGeneratedByBuild(file) || isArtifact(file) ||
+        cmSystemTools::FileExists(file)) {
+      entries.Files.push_back(std::move(file));
+    } else {
+      lg->IssueMessage(
+        MessageType::FATAL_ERROR,
+        cmStrCat("install(", signature, ") BUILD_DEPENDS entry \"", name,
+                 "\" is neither a target nor a file that exists or is "
+                 "generated by the build."),
+        this->GetBacktrace());
+      return false;
+    }
+  }
+  return true;
+}
+
+void cmInstallGenerator::AddBuildDependsDependencies(
+  cmLocalGenerator* lg, std::string const& config,
+  BuildDependsEntries const& entries,
+  std::vector<BuildDependency>& dependencies)
+{
+  for (cmGeneratorTarget const* target : entries.Targets) {
+    dependencies.push_back({ target, BuildDependencyType::Normal });
+  }
+  AddGeneratedFileDependencies(lg->GetGlobalGenerator(), config, nullptr,
+                               entries.Files, dependencies);
+}
+
+std::string cmInstallGenerator::GetDestDirPath(std::string const& file)
+{
+  // Construct the path of the file on disk after installation on
+  // which tweaks may be performed.
+  std::string toDestDirPath = "$ENV{DESTDIR}";
+  if (file[0] != '/' && file[0] != '$') {
+    toDestDirPath += "/";
+  }
+  toDestDirPath += file;
+  return toDestDirPath;
+}
+
+void cmInstallGenerator::AddGeneratedFileDependencies(
+  cmGlobalGenerator* gg, std::string const& config,
+  cmGeneratorTarget const* target, std::vector<std::string> const& files,
+  std::vector<BuildDependency>& dependencies)
+{
+  for (std::string const& file : files) {
+    if (cmGeneratorTarget const* owner = gg->FindOutputOwningTarget(file)) {
+      dependencies.push_back(
+        { owner, BuildDependencyType::GeneratedFile, file });
+    } else if (cmGeneratorTarget const* linker =
+                 gg->FindArtifactOwningTarget(file, config)) {
+      dependencies.push_back({ linker, BuildDependencyType::Normal });
+    } else if (gg->IsGeneratedByBuild(file)) {
+      dependencies.push_back(
+        { target, BuildDependencyType::GeneratedFile, file });
+    }
+  }
+}
+
+void cmInstallGenerator::AddTweak(std::ostream& os, Indent indent,
+                                  std::string const& config,
+                                  std::string const& file,
+                                  TweakMethod const& tweak)
+{
+  std::ostringstream tw;
+  tweak(tw, indent.Next(), config, file);
+  std::string tws = tw.str();
+  if (!tws.empty()) {
+    os << indent << "if(EXISTS \"" << file << "\" AND\n"
+       << indent << "   NOT IS_SYMLINK \"" << file << "\")\n";
+    os << tws;
+    os << indent << "endif()\n";
+  }
+}
+
+void cmInstallGenerator::AddTweak(std::ostream& os, Indent indent,
+                                  std::string const& config,
+                                  std::string const& dir,
+                                  std::vector<std::string> const& files,
+                                  TweakMethod const& tweak)
+{
+  if (files.size() == 1) {
+    // Tweak a single file.
+    AddTweak(os, indent, config, GetDestDirPath(cmStrCat(dir, files[0])),
+             tweak);
+  } else {
+    // Generate a foreach loop to tweak multiple files.
+    std::ostringstream tw;
+    AddTweak(tw, indent.Next(), config, "${file}", tweak);
+    std::string tws = tw.str();
+    if (!tws.empty()) {
+      Indent indent2 = indent.Next().Next();
+      os << indent << "foreach(file\n";
+      for (std::string const& f : files) {
+        os << indent2 << "\"" << GetDestDirPath(cmStrCat(dir, f)) << "\"\n";
+      }
+      os << indent2 << ")\n";
+      os << tws;
+      os << indent << "endforeach()\n";
+    }
+  }
 }

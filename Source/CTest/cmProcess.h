@@ -1,13 +1,28 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmProcess_h
-#define cmProcess_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmsys/Process.h"
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include <cm/optional>
+
+#include <cm3p/uv.h>
+
+#include <sys/types.h>
+
+#include "cmDuration.h"
+#include "cmProcessOutput.h"
+#include "cmUVHandlePtr.h"
+
+class cmCTestRunTest;
 
 /** \class cmProcess
  * \brief run a process with c++
@@ -17,53 +32,128 @@
 class cmProcess
 {
 public:
-  cmProcess();
+  explicit cmProcess(std::unique_ptr<cmCTestRunTest> runner);
   ~cmProcess();
-  const char* GetCommand() { return this->Command.c_str(); }
-  void SetCommand(const char* command);
-  void SetCommandArguments(std::vector<std::string> const& arg);
-  void SetWorkingDirectory(const char* dir) { this->WorkingDirectory = dir; }
-  void SetTimeout(double t) { this->Timeout = t; }
-  void ChangeTimeout(double t);
+  void SetCommand(std::string command);
+  void SetCommandArguments(std::vector<std::string> arg);
+  void SetEnvironment(std::vector<std::string> env);
+  void SetWorkingDirectory(std::string dir);
+  void SetStopTimeout(cmDuration t) { this->StopTimeout = t; }
+  void SetTimeout(cmDuration t) { this->Timeout = t; }
+  void ChangeTimeout(cmDuration t);
   void ResetStartTime();
   // Return true if the process starts
-  bool StartProcess();
+  bool StartProcess(uv_loop_t& loop, std::vector<size_t>* affinity);
 
-  // return the process status
-  int GetProcessStatus();
-  // Report the status of the program
-  int ReportStatus();
-  int GetId() { return this->Id; }
+  enum class TimeoutReason
+  {
+    Normal,
+    StopTime,
+  };
+  TimeoutReason GetTimeoutReason() const { return this->TimeoutReason_; }
+  struct ComputedTimeout
+  {
+    TimeoutReason Reason;
+    cmDuration Duration;
+  };
+  cm::optional<ComputedTimeout> GetComputedTimeout() const;
+
+  enum class State
+  {
+    Starting,
+    Error,
+    Exception,
+    Executing,
+    Exited,
+    Expired,
+    Killed,
+    Disowned
+  };
+
+  State GetProcessStatus();
+  int GetId() const { return this->Id; }
   void SetId(int id) { this->Id = id; }
-  int GetExitValue() { return this->ExitValue; }
-  double GetTotalTime() { return this->TotalTime; }
-  int GetExitException();
-  /**
-   * Read one line of output but block for no more than timeout.
-   * Returns:
-   *   cmsysProcess_Pipe_None    = Process terminated and all output read
-   *   cmsysProcess_Pipe_STDOUT  = Line came from stdout or stderr
-   *   cmsysProcess_Pipe_Timeout = Timeout expired while waiting
-   */
-  int GetNextOutputLine(std::string& line, double timeout);
+  int64_t GetExitValue() const { return this->ExitValue; }
+  cmDuration GetTotalTime() { return this->TotalTime; }
+  std::chrono::steady_clock::time_point GetStartTime()
+  {
+    return this->StartTime;
+  }
+  std::chrono::system_clock::time_point GetSystemStartTime()
+  {
+    return this->SystemStartTime;
+  }
+
+  enum class Exception
+  {
+    None,
+    Fault,
+    Illegal,
+    Interrupt,
+    Numerical,
+    Other
+  };
+
+  Exception GetExitException() const;
+  std::string GetExitExceptionString() const;
+
+  std::unique_ptr<cmCTestRunTest> GetRunner()
+  {
+    return std::move(this->Runner);
+  }
+
+  enum class Termination
+  {
+    Normal,
+    Custom,
+    Forced,
+  };
+  Termination GetTerminationStyle() const { return this->TerminationStyle; }
 
 private:
-  double Timeout;
-  double StartTime;
-  double TotalTime;
-  cmsysProcess* Process;
+  cm::optional<cmDuration> StopTimeout;
+  cm::optional<cmDuration> Timeout;
+  TimeoutReason TimeoutReason_ = TimeoutReason::Normal;
+  std::chrono::steady_clock::time_point StartTime;
+  std::chrono::system_clock::time_point SystemStartTime;
+  cmDuration TotalTime;
+  bool ReadHandleClosed = false;
+  bool ProcessHandleClosed = false;
+
+  cm::uv_process_ptr Process;
+  cm::uv_pipe_ptr PipeReader;
+  cm::uv_timer_ptr Timer;
+  std::vector<char> Buf;
+
+  std::unique_ptr<cmCTestRunTest> Runner;
+  cmProcessOutput Conv;
+  int Signal = 0;
+  cmProcess::State ProcessState = cmProcess::State::Starting;
+
+  static void OnExitCB(uv_process_t* process, int64_t exit_status,
+                       int term_signal);
+  static void OnTimeoutCB(uv_timer_t* timer);
+  static void OnReadCB(uv_stream_t* stream, ssize_t nread,
+                       uv_buf_t const* buf);
+  static void OnAllocateCB(uv_handle_t* handle, size_t suggested_size,
+                           uv_buf_t* buf);
+
+  void OnExit(int64_t exit_status, int term_signal);
+  void OnTimeout();
+  void OnRead(ssize_t nread, uv_buf_t const* buf);
+  void OnAllocate(size_t suggested_size, uv_buf_t* buf);
+
+  void StartTimer();
+  void Finish();
+
   class Buffer : public std::vector<char>
   {
     // Half-open index range of partial line already scanned.
-    size_type First;
-    size_type Last;
+    size_type First = 0;
+    size_type Last = 0;
 
   public:
-    Buffer()
-      : First(0)
-      , Last(0)
-    {
-    }
+    Buffer() = default;
     bool GetLine(std::string& line);
     bool GetLast(std::string& line);
   };
@@ -71,9 +161,10 @@ private:
   std::string Command;
   std::string WorkingDirectory;
   std::vector<std::string> Arguments;
-  std::vector<const char*> ProcessArgs;
+  std::vector<char const*> ProcessArgs;
+  std::vector<std::string> Environment;
+  std::vector<char const*> Env;
   int Id;
-  int ExitValue;
+  int64_t ExitValue;
+  Termination TerminationStyle = Termination::Normal;
 };
-
-#endif

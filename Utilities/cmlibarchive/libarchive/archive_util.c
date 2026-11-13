@@ -25,7 +25,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_util.c 201098 2009-12-28 02:58:14Z kientzle $");
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -42,17 +41,22 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_util.c 201098 2009-12-28 02:58:1
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
-#if defined(HAVE_WINCRYPT_H) && !defined(__CYGWIN__)
-#include <wincrypt.h>
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#include <bcrypt.h>
+
+/* Common in other bcrypt implementations, but missing from VS2008. */
+#ifndef BCRYPT_SUCCESS
+#define BCRYPT_SUCCESS(r) ((NTSTATUS)(r) == STATUS_SUCCESS)
+#endif
 #endif
 #ifdef HAVE_ZLIB_H
-#include <cm_zlib.h>
+#include <cm3p/zlib.h>
 #endif
 #ifdef HAVE_LZMA_H
-#include <cm_lzma.h>
+#include <cm3p/lzma.h>
 #endif
 #ifdef HAVE_BZLIB_H
-#include <cm_bzlib.h>
+#include <cm3p/bzlib.h>
 #endif
 #ifdef HAVE_LZ4_H
 #include <lz4.h>
@@ -67,7 +71,9 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_util.c 201098 2009-12-28 02:58:1
 #define O_CLOEXEC	0
 #endif
 
-static int archive_utility_string_sort_helper(char **, unsigned int);
+#if ARCHIVE_VERSION_NUMBER < 4000000
+static int __LA_LIBC_CC archive_utility_string_sort_helper(const void *, const void *);
+#endif
 
 /* Generic initialization of 'struct archive' objects. */
 int
@@ -89,88 +95,6 @@ archive_version_string(void)
 	return (ARCHIVE_VERSION_STRING);
 }
 
-const char *
-archive_version_details(void)
-{
-	static struct archive_string str;
-	static int init = 0;
-	const char *zlib = archive_zlib_version();
-	const char *liblzma = archive_liblzma_version();
-	const char *bzlib = archive_bzlib_version();
-	const char *liblz4 = archive_liblz4_version();
-
-	if (!init) {
-		archive_string_init(&str);
-
-		archive_strcat(&str, ARCHIVE_VERSION_STRING);
-		if (zlib != NULL) {
-			archive_strcat(&str, " zlib/");
-			archive_strcat(&str, zlib);
-		}
-		if (liblzma) {
-			archive_strcat(&str, " liblzma/");
-			archive_strcat(&str, liblzma);
-		}
-		if (bzlib) {
-			const char *p = bzlib;
-			const char *sep = strchr(p, ',');
-			if (sep == NULL)
-				sep = p + strlen(p);
-			archive_strcat(&str, " bz2lib/");
-			archive_strncat(&str, p, sep - p);
-		}
-		if (liblz4) {
-			archive_strcat(&str, " liblz4/");
-			archive_strcat(&str, liblz4);
-		}
-	}
-	return str.s;
-}
-
-const char *
-archive_zlib_version(void)
-{
-#ifdef HAVE_ZLIB_H
-	return ZLIB_VERSION;
-#else
-	return NULL;
-#endif
-}
-
-const char *
-archive_liblzma_version(void)
-{
-#ifdef HAVE_LZMA_H
-	return LZMA_VERSION_STRING;
-#else
-	return NULL;
-#endif
-}
-
-const char *
-archive_bzlib_version(void)
-{
-#ifdef HAVE_BZLIB_H
-	return BZ2_bzlibVersion();
-#else
-	return NULL;
-#endif
-}
-
-const char *
-archive_liblz4_version(void)
-{
-#if defined(HAVE_LZ4_H) && defined(HAVE_LIBLZ4)
-#define str(s) #s
-#define NUMBER(x) str(x)
-	return NUMBER(LZ4_VERSION_MAJOR) "." NUMBER(LZ4_VERSION_MINOR) "." NUMBER(LZ4_VERSION_RELEASE);
-#undef NUMBER
-#undef str
-#else
-	return NULL;
-#endif
-}
-
 int
 archive_errno(struct archive *a)
 {
@@ -180,8 +104,7 @@ archive_errno(struct archive *a)
 const char *
 archive_error_string(struct archive *a)
 {
-
-	if (a->error != NULL  &&  *a->error != '\0')
+	if (a->error != NULL && *a->error != '\0')
 		return (a->error);
 	else
 		return (NULL);
@@ -222,7 +145,7 @@ archive_compression_name(struct archive *a)
 /*
  * Return a count of the number of compressed bytes processed.
  */
-int64_t
+la_int64_t
 archive_position_compressed(struct archive *a)
 {
 	return archive_filter_bytes(a, -1);
@@ -231,7 +154,7 @@ archive_position_compressed(struct archive *a)
 /*
  * Return a count of the number of uncompressed bytes processed.
  */
-int64_t
+la_int64_t
 archive_position_uncompressed(struct archive *a)
 {
 	return archive_filter_bytes(a, 0);
@@ -275,7 +198,7 @@ archive_copy_error(struct archive *dest, struct archive *src)
 void
 __archive_errx(int retvalue, const char *msg)
 {
-	static const char *msg1 = "Fatal Internal Error in libarchive: ";
+	static const char msg1[] = "Fatal Internal Error in libarchive: ";
 	size_t s;
 
 	s = write(2, msg1, strlen(msg1));
@@ -300,11 +223,11 @@ __archive_errx(int retvalue, const char *msg)
  * Also Windows version of mktemp family including _mktemp_s
  * are not secure.
  */
-int
-__archive_mktemp(const char *tmpdir)
+static int
+__archive_mktempx(const char *tmpdir, wchar_t *template)
 {
-	static const wchar_t *prefix = L"libarchive_";
-	static const wchar_t *suffix = L"XXXXXXXXXX";
+	static const wchar_t prefix[] = L"libarchive_";
+	static const wchar_t suffix[] = L"XXXXXXXXXX";
 	static const wchar_t num[] = {
 		L'0', L'1', L'2', L'3', L'4', L'5', L'6', L'7',
 		L'8', L'9', L'A', L'B', L'C', L'D', L'E', L'F',
@@ -315,77 +238,101 @@ __archive_mktemp(const char *tmpdir)
 		L'm', L'n', L'o', L'p', L'q', L'r', L's', L't',
 		L'u', L'v', L'w', L'x', L'y', L'z'
 	};
-	HCRYPTPROV hProv;
 	struct archive_wstring temp_name;
 	wchar_t *ws;
 	DWORD attr;
 	wchar_t *xp, *ep;
 	int fd;
-
-	hProv = (HCRYPTPROV)NULL;
+	BCRYPT_ALG_HANDLE hAlg = NULL;
 	fd = -1;
 	ws = NULL;
 	archive_string_init(&temp_name);
 
-	/* Get a temporary directory. */
-	if (tmpdir == NULL) {
-		size_t l;
-		wchar_t *tmp;
+	if (template == NULL) {
+		/* Get a temporary directory. */
+		if (tmpdir == NULL) {
+			wchar_t buf[MAX_PATH + 1];
+			wchar_t *p = buf, *buf2 = NULL;
+			size_t l, s;
 
-		l = GetTempPathW(0, NULL);
-		if (l == 0) {
-			la_dosmaperr(GetLastError());
-			goto exit_tmpfile;
-		}
-		tmp = malloc(l*sizeof(wchar_t));
-		if (tmp == NULL) {
-			errno = ENOMEM;
-			goto exit_tmpfile;
-		}
-		GetTempPathW((DWORD)l, tmp);
-		archive_wstrcpy(&temp_name, tmp);
-		free(tmp);
-	} else {
-		if (archive_wstring_append_from_mbs(&temp_name, tmpdir,
-		    strlen(tmpdir)) < 0)
-			goto exit_tmpfile;
-		if (temp_name.s[temp_name.length-1] != L'/')
-			archive_wstrappend_wchar(&temp_name, L'/');
-	}
+			s = MAX_PATH + 1;
+			l = GetTempPathW((DWORD)s, buf);
+			if (l == 0) {
+				la_dosmaperr(GetLastError());
+				goto exit_tmpfile;
+			}
+			while (l > s) {
+				wchar_t *tmp;
 
-	/* Check if temp_name is a directory. */
-	attr = GetFileAttributesW(temp_name.s);
-	if (attr == (DWORD)-1) {
-		if (GetLastError() != ERROR_FILE_NOT_FOUND) {
-			la_dosmaperr(GetLastError());
-			goto exit_tmpfile;
+				s = l;
+				tmp = realloc(buf2, s * sizeof(wchar_t));
+				if (tmp == NULL) {
+					free(buf2);
+					errno = ENOMEM;
+					goto exit_tmpfile;
+				}
+				p = buf2 = tmp;
+				l = GetTempPathW((DWORD)s, buf2);
+				if (l == 0) {
+					free(buf2);
+					la_dosmaperr(GetLastError());
+					goto exit_tmpfile;
+				}
+			}
+			archive_wstrcpy(&temp_name, p);
+			free(buf2);
+		} else {
+			if (archive_wstring_append_from_mbs(&temp_name, tmpdir,
+			    strlen(tmpdir)) < 0)
+				goto exit_tmpfile;
+			if (temp_name.length == 0 ||
+			    temp_name.s[temp_name.length-1] != L'/')
+				archive_wstrappend_wchar(&temp_name, L'/');
 		}
-		ws = __la_win_permissive_name_w(temp_name.s);
-		if (ws == NULL) {
-			errno = EINVAL;
-			goto exit_tmpfile;
-		}
-		attr = GetFileAttributesW(ws);
+
+		/* Check if temp_name is a directory. */
+		attr = GetFileAttributesW(temp_name.s);
 		if (attr == (DWORD)-1) {
-			la_dosmaperr(GetLastError());
+			if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+				la_dosmaperr(GetLastError());
+				goto exit_tmpfile;
+			}
+			ws = __la_win_permissive_name_w(temp_name.s);
+			if (ws == NULL) {
+				errno = EINVAL;
+				goto exit_tmpfile;
+			}
+			attr = GetFileAttributesW(ws);
+			if (attr == (DWORD)-1) {
+				la_dosmaperr(GetLastError());
+				goto exit_tmpfile;
+			}
+		}
+		if (!(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+			errno = ENOTDIR;
 			goto exit_tmpfile;
 		}
-	}
-	if (!(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-		errno = ENOTDIR;
-		goto exit_tmpfile;
+
+		/*
+		 * Create a temporary file.
+		 */
+		archive_wstrcat(&temp_name, prefix);
+		archive_wstrcat(&temp_name, suffix);
+		ep = temp_name.s + archive_strlen(&temp_name);
+		xp = ep - wcslen(suffix);
+		template = temp_name.s;
+	} else {
+		xp = wcschr(template, L'X');
+		if (xp == NULL)	/* No X, programming error */
+			abort();
+		for (ep = xp; *ep == L'X'; ep++)
+			continue;
+		if (*ep)	/* X followed by non X, programming error */
+			abort();
 	}
 
-	/*
-	 * Create a temporary file.
-	 */
-	archive_wstrcat(&temp_name, prefix);
-	archive_wstrcat(&temp_name, suffix);
-	ep = temp_name.s + archive_strlen(&temp_name);
-	xp = ep - wcslen(suffix);
-
-	if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL,
-		CRYPT_VERIFYCONTEXT)) {
+	if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_RNG_ALGORITHM,
+		NULL, 0))) {
 		la_dosmaperr(GetLastError());
 		goto exit_tmpfile;
 	}
@@ -393,11 +340,14 @@ __archive_mktemp(const char *tmpdir)
 	for (;;) {
 		wchar_t *p;
 		HANDLE h;
+# if _WIN32_WINNT >= 0x0602 /* _WIN32_WINNT_WIN8 */
+		CREATEFILE2_EXTENDED_PARAMETERS createExParams;
+#endif
 
 		/* Generate a random file name through CryptGenRandom(). */
 		p = xp;
-		if (!CryptGenRandom(hProv, (DWORD)(ep - p)*sizeof(wchar_t),
-		    (BYTE*)p)) {
+		if (!BCRYPT_SUCCESS(BCryptGenRandom(hAlg, (PUCHAR)p,
+		    (DWORD)(ep - p)*sizeof(wchar_t), 0))) {
 			la_dosmaperr(GetLastError());
 			goto exit_tmpfile;
 		}
@@ -405,21 +355,37 @@ __archive_mktemp(const char *tmpdir)
 			*p = num[((DWORD)*p) % (sizeof(num)/sizeof(num[0]))];
 
 		free(ws);
-		ws = __la_win_permissive_name_w(temp_name.s);
+		ws = __la_win_permissive_name_w(template);
 		if (ws == NULL) {
 			errno = EINVAL;
 			goto exit_tmpfile;
 		}
-		/* Specifies FILE_FLAG_DELETE_ON_CLOSE flag is to
-		 * delete this temporary file immediately when this
-		 * file closed. */
+		if (template == temp_name.s) {
+			attr = FILE_ATTRIBUTE_TEMPORARY |
+			       FILE_FLAG_DELETE_ON_CLOSE;
+		} else {
+			/* mkstemp */
+			attr = FILE_ATTRIBUTE_NORMAL;
+		}
+# if _WIN32_WINNT >= 0x0602 /* _WIN32_WINNT_WIN8 */
+		ZeroMemory(&createExParams, sizeof(createExParams));
+		createExParams.dwSize = sizeof(createExParams);
+		createExParams.dwFileAttributes = attr & 0xFFFF;
+		createExParams.dwFileFlags = attr & 0xFFF00000;
+		h = CreateFile2(ws,
+		    GENERIC_READ | GENERIC_WRITE | DELETE,
+		    0,/* Not share */
+			CREATE_NEW,
+			&createExParams);
+#else
 		h = CreateFileW(ws,
 		    GENERIC_READ | GENERIC_WRITE | DELETE,
 		    0,/* Not share */
 		    NULL,
 		    CREATE_NEW,/* Create a new file only */
-		    FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
+		    attr,
 		    NULL);
+#endif
 		if (h == INVALID_HANDLE_VALUE) {
 			/* The same file already exists. retry with
 			 * a new filename. */
@@ -431,27 +397,69 @@ __archive_mktemp(const char *tmpdir)
 		}
 		fd = _open_osfhandle((intptr_t)h, _O_BINARY | _O_RDWR);
 		if (fd == -1) {
+			la_dosmaperr(GetLastError());
 			CloseHandle(h);
 			goto exit_tmpfile;
 		} else
 			break;/* success! */
 	}
 exit_tmpfile:
-	if (hProv != (HCRYPTPROV)NULL)
-		CryptReleaseContext(hProv, 0);
+	if (hAlg != NULL)
+		BCryptCloseAlgorithmProvider(hAlg, 0);
 	free(ws);
-	archive_wstring_free(&temp_name);
+	if (template == temp_name.s)
+		archive_wstring_free(&temp_name);
 	return (fd);
+}
+
+int
+__archive_mktemp(const char *tmpdir)
+{
+	return __archive_mktempx(tmpdir, NULL);
+}
+
+int
+__archive_mkstemp(wchar_t *template)
+{
+	return __archive_mktempx(NULL, template);
 }
 
 #else
 
 static int
-get_tempdir(struct archive_string *temppath)
+__archive_issetugid(void)
 {
-	const char *tmp;
+#ifdef HAVE_ISSETUGID
+	return (issetugid());
+#elif HAVE_GETRESUID
+	uid_t ruid, euid, suid;
+	gid_t rgid, egid, sgid;
+	if (getresuid(&ruid, &euid, &suid) != 0)
+		return (-1);
+	if (ruid != euid || ruid != suid)
+		return (1);
+	if (getresgid(&rgid, &egid, &sgid) != 0)
+		return (-1);
+	if (rgid != egid || rgid != sgid)
+		return (1);
+#elif HAVE_GETEUID
+	if (geteuid() != getuid())
+		return (1);
+#if HAVE_GETEGID
+	if (getegid() != getgid())
+		return (1);
+#endif
+#endif
+	return (0);
+}
 
-	tmp = getenv("TMPDIR");
+int
+__archive_get_tempdir(struct archive_string *temppath)
+{
+	const char *tmp = NULL;
+
+	if (__archive_issetugid() == 0)
+		tmp = getenv("TMPDIR");
 	if (tmp == NULL)
 #ifdef _PATH_TMP
 		tmp = _PATH_TMP;
@@ -459,7 +467,7 @@ get_tempdir(struct archive_string *temppath)
                 tmp = "/tmp";
 #endif
 	archive_strcpy(temppath, tmp);
-	if (temppath->s[temppath->length-1] != '/')
+	if (temppath->length == 0 || temppath->s[temppath->length-1] != '/')
 		archive_strappend_char(temppath, '/');
 	return (ARCHIVE_OK);
 }
@@ -478,13 +486,19 @@ __archive_mktemp(const char *tmpdir)
 
 	archive_string_init(&temp_name);
 	if (tmpdir == NULL) {
-		if (get_tempdir(&temp_name) != ARCHIVE_OK)
+		if (__archive_get_tempdir(&temp_name) != ARCHIVE_OK)
 			goto exit_tmpfile;
 	} else {
 		archive_strcpy(&temp_name, tmpdir);
-		if (temp_name.s[temp_name.length-1] != '/')
+		if (temp_name.length == 0 ||
+		    temp_name.s[temp_name.length-1] != '/')
 			archive_strappend_char(&temp_name, '/');
 	}
+#ifdef O_TMPFILE
+	fd = open(temp_name.s, O_RDWR|O_CLOEXEC|O_TMPFILE|O_EXCL, 0600); 
+	if(fd >= 0)
+		goto exit_tmpfile;
+#endif
 	archive_strcat(&temp_name, "libarchive_XXXXXX");
 	fd = mkstemp(temp_name.s);
 	if (fd < 0)
@@ -496,14 +510,24 @@ exit_tmpfile:
 	return (fd);
 }
 
-#else
+int
+__archive_mkstemp(char *template)
+{
+	int fd = -1;
+	fd = mkstemp(template);
+	if (fd >= 0)
+		__archive_ensure_cloexec_flag(fd);
+	return (fd);
+}
+
+#else /* !HAVE_MKSTEMP */
 
 /*
  * We use a private routine.
  */
 
-int
-__archive_mktemp(const char *tmpdir)
+static int
+__archive_mktempx(const char *tmpdir, char *template)
 {
         static const char num[] = {
 		'0', '1', '2', '3', '4', '5', '6', '7',
@@ -521,26 +545,37 @@ __archive_mktemp(const char *tmpdir)
 	char *tp, *ep;
 
 	fd = -1;
-	archive_string_init(&temp_name);
-	if (tmpdir == NULL) {
-		if (get_tempdir(&temp_name) != ARCHIVE_OK)
+	if (template == NULL) {
+		archive_string_init(&temp_name);
+		if (tmpdir == NULL) {
+			if (__archive_get_tempdir(&temp_name) != ARCHIVE_OK)
+				goto exit_tmpfile;
+		} else
+			archive_strcpy(&temp_name, tmpdir);
+		if (temp_name.length > 0 && temp_name.s[temp_name.length-1] == '/') {
+			temp_name.s[temp_name.length-1] = '\0';
+			temp_name.length --;
+		}
+		if (la_stat(temp_name.s, &st) < 0)
 			goto exit_tmpfile;
-	} else
-		archive_strcpy(&temp_name, tmpdir);
-	if (temp_name.s[temp_name.length-1] == '/') {
-		temp_name.s[temp_name.length-1] = '\0';
-		temp_name.length --;
+		if (!S_ISDIR(st.st_mode)) {
+			errno = ENOTDIR;
+			goto exit_tmpfile;
+		}
+		archive_strcat(&temp_name, "/libarchive_");
+		tp = temp_name.s + archive_strlen(&temp_name);
+		archive_strcat(&temp_name, "XXXXXXXXXX");
+		ep = temp_name.s + archive_strlen(&temp_name);
+		template = temp_name.s;
+	} else {
+		tp = strchr(template, 'X');
+		if (tp == NULL)	/* No X, programming error */
+			abort();
+		for (ep = tp; *ep == 'X'; ep++)
+			continue;
+		if (*ep)	/* X followed by non X, programming error */
+			abort();
 	}
-	if (stat(temp_name.s, &st) < 0)
-		goto exit_tmpfile;
-	if (!S_ISDIR(st.st_mode)) {
-		errno = ENOTDIR;
-		goto exit_tmpfile;
-	}
-	archive_strcat(&temp_name, "/libarchive_");
-	tp = temp_name.s + archive_strlen(&temp_name);
-	archive_strcat(&temp_name, "XXXXXXXXXX");
-	ep = temp_name.s + archive_strlen(&temp_name);
 
 	do {
 		char *p;
@@ -551,19 +586,33 @@ __archive_mktemp(const char *tmpdir)
 			int d = *((unsigned char *)p) % sizeof(num);
 			*p++ = num[d];
 		}
-		fd = open(temp_name.s, O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC,
+		fd = open(template, O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC,
 			  0600);
 	} while (fd < 0 && errno == EEXIST);
 	if (fd < 0)
 		goto exit_tmpfile;
 	__archive_ensure_cloexec_flag(fd);
-	unlink(temp_name.s);
+	if (template == temp_name.s)
+		unlink(temp_name.s);
 exit_tmpfile:
-	archive_string_free(&temp_name);
+	if (template == temp_name.s)
+		archive_string_free(&temp_name);
 	return (fd);
 }
 
-#endif /* HAVE_MKSTEMP */
+int
+__archive_mktemp(const char *tmpdir)
+{
+	return __archive_mktempx(tmpdir, NULL);
+}
+
+int
+__archive_mkstemp(char *template)
+{
+	return __archive_mktempx(NULL, template);
+}
+
+#endif /* !HAVE_MKSTEMP */
 #endif /* !_WIN32 || __CYGWIN__ */
 
 /*
@@ -592,76 +641,28 @@ __archive_ensure_cloexec_flag(int fd)
 #endif
 }
 
+#if ARCHIVE_VERSION_NUMBER < 4000000
 /*
- * Utility function to sort a group of strings using quicksort.
+ * Utility functions to sort a group of strings using quicksort.
  */
 static int
-archive_utility_string_sort_helper(char **strings, unsigned int n)
+__LA_LIBC_CC
+archive_utility_string_sort_helper(const void *p1, const void *p2)
 {
-	unsigned int i, lesser_count, greater_count;
-	char **lesser, **greater, **tmp, *pivot;
-	int retval1, retval2;
+	const char * const * const s1 = p1;
+	const char * const * const s2 = p2;
 
-	/* A list of 0 or 1 elements is already sorted */
-	if (n <= 1)
-		return (ARCHIVE_OK);
-
-	lesser_count = greater_count = 0;
-	lesser = greater = NULL;
-	pivot = strings[0];
-	for (i = 1; i < n; i++)
-	{
-		if (strcmp(strings[i], pivot) < 0)
-		{
-			lesser_count++;
-			tmp = (char **)realloc(lesser,
-				lesser_count * sizeof(char *));
-			if (!tmp) {
-				free(greater);
-				free(lesser);
-				return (ARCHIVE_FATAL);
-			}
-			lesser = tmp;
-			lesser[lesser_count - 1] = strings[i];
-		}
-		else
-		{
-			greater_count++;
-			tmp = (char **)realloc(greater,
-				greater_count * sizeof(char *));
-			if (!tmp) {
-				free(greater);
-				free(lesser);
-				return (ARCHIVE_FATAL);
-			}
-			greater = tmp;
-			greater[greater_count - 1] = strings[i];
-		}
-	}
-
-	/* quicksort(lesser) */
-	retval1 = archive_utility_string_sort_helper(lesser, lesser_count);
-	for (i = 0; i < lesser_count; i++)
-		strings[i] = lesser[i];
-	free(lesser);
-
-	/* pivot */
-	strings[lesser_count] = pivot;
-
-	/* quicksort(greater) */
-	retval2 = archive_utility_string_sort_helper(greater, greater_count);
-	for (i = 0; i < greater_count; i++)
-		strings[lesser_count + 1 + i] = greater[i];
-	free(greater);
-
-	return (retval1 < retval2) ? retval1 : retval2;
+	return strcmp(*s1, *s2);
 }
 
 int
 archive_utility_string_sort(char **strings)
 {
-	  unsigned int size = 0;
-	  while (strings[size] != NULL)
+	size_t size = 0;
+	while (strings[size] != NULL)
 		size++;
-	  return archive_utility_string_sort_helper(strings, size);
+	qsort(strings, size, sizeof(char *),
+	      archive_utility_string_sort_helper);
+	return (ARCHIVE_OK);
 }
+#endif

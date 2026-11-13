@@ -1,39 +1,76 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmMessenger_h
-#define cmMessenger_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmListFileCache.h"
-#include "cmake.h"
-
+#include <iosfwd>
+#include <memory>
 #include <string>
+#include <vector>
 
-class cmState;
+#include <cm/optional>
+
+#include "cmDiagnosticContext.h"
+#include "cmDiagnostics.h"
+#include "cmListFileCache.h"
+#include "cmMessageType.h" // IWYU pragma: keep
+
+class cmStateSnapshot;
+
+#ifdef CMake_ENABLE_DEBUGGER
+namespace cmDebugger {
+class cmDebuggerAdapter;
+}
+#endif
 
 class cmMessenger
 {
 public:
-  cmMessenger(cmState* state);
-
   void IssueMessage(
-    cmake::MessageType t, std::string const& text,
-    cmListFileBacktrace const& backtrace = cmListFileBacktrace()) const;
+    MessageType type, std::string const& text,
+    cmListFileBacktrace const& backtrace = cmListFileBacktrace());
 
-  void DisplayMessage(cmake::MessageType t, std::string const& text,
-                      cmListFileBacktrace const& backtrace) const;
+  void IssueDiagnostic(cmDiagnosticCategory category, std::string const& text,
+                       cmStateSnapshot const& fallbackContext,
+                       cmDiagnosticContext const& context = {});
 
-  bool GetSuppressDevWarnings() const;
-  bool GetSuppressDeprecatedWarnings() const;
-  bool GetDevWarningsAsErrors() const;
-  bool GetDeprecatedWarningsAsErrors() const;
+  void DisplayMessage(MessageType type, cmDiagnosticCategory category,
+                      std::string const& text,
+                      cmListFileBacktrace const& backtrace);
+
+  void SetTopSource(cm::optional<std::string> topSource);
+
+  // Print the top of a backtrace.
+  void PrintBacktraceTitle(std::ostream& out,
+                           cmListFileBacktrace const& bt) const;
+#ifdef CMake_ENABLE_DEBUGGER
+  void SetDebuggerAdapter(
+    std::shared_ptr<cmDebugger::cmDebuggerAdapter> const& debuggerAdapter)
+  {
+    DebuggerAdapter = debuggerAdapter;
+  }
+#endif
+
+  struct Message
+  {
+    MessageType Type;
+    cmDiagnosticCategory Category;
+    cmListFileBacktrace Backtrace;
+    std::string Text;
+  };
+
+  std::vector<Message> const& GetDisplayedMessages() const
+  {
+    return this->DisplayedMessages;
+  }
 
 private:
-  bool IsMessageTypeVisible(cmake::MessageType t) const;
-  cmake::MessageType ConvertMessageType(cmake::MessageType t) const;
+  cm::optional<std::string> TopSource;
 
-  cmState* State;
-};
+  std::vector<Message> DisplayedMessages;
 
+#ifdef CMake_ENABLE_DEBUGGER
+  std::shared_ptr<cmDebugger::cmDebuggerAdapter> DebuggerAdapter;
 #endif
+};

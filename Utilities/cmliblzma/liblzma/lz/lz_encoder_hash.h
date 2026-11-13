@@ -1,12 +1,11 @@
+// SPDX-License-Identifier: 0BSD
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 /// \file       lz_encoder_hash.h
 /// \brief      Hash macros for match finders
 //
 //  Author:     Igor Pavlov
-//
-//  This file has been put into the public domain.
-//  You can do whatever you want with this file.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -17,6 +16,7 @@
 	// This is to make liblzma produce the same output on big endian
 	// systems that it does on little endian systems. lz_encoder.c
 	// takes care of including the actual table.
+	lzma_attr_visibility_hidden
 	extern const uint32_t lzma_lz_hash_table[256];
 #	define hash_table lzma_lz_hash_table
 #else
@@ -39,22 +39,25 @@
 // Endianness doesn't matter in hash_2_calc() (no effect on the output).
 #ifdef TUKLIB_FAST_UNALIGNED_ACCESS
 #	define hash_2_calc() \
-		hash_value = *(const uint16_t *)(cur)
+		const uint32_t hash_value = read16ne(cur)
 #else
 #	define hash_2_calc() \
-		hash_value = (uint32_t)(cur[0]) | ((uint32_t)(cur[1]) << 8)
+		const uint32_t hash_value \
+			= (uint32_t)(cur[0]) | ((uint32_t)(cur[1]) << 8)
 #endif
 
 #define hash_3_calc() \
-	temp = hash_table[cur[0]] ^ cur[1]; \
-	hash_2_value = temp & HASH_2_MASK; \
-	hash_value = (temp ^ ((uint32_t)(cur[2]) << 8)) & mf->hash_mask
+	const uint32_t temp = hash_table[cur[0]] ^ cur[1]; \
+	const uint32_t hash_2_value = temp & HASH_2_MASK; \
+	const uint32_t hash_value \
+			= (temp ^ ((uint32_t)(cur[2]) << 8)) & mf->hash_mask
 
 #define hash_4_calc() \
-	temp = hash_table[cur[0]] ^ cur[1]; \
-	hash_2_value = temp & HASH_2_MASK; \
-	hash_3_value = (temp ^ ((uint32_t)(cur[2]) << 8)) & HASH_3_MASK; \
-	hash_value = (temp ^ ((uint32_t)(cur[2]) << 8) \
+	const uint32_t temp = hash_table[cur[0]] ^ cur[1]; \
+	const uint32_t hash_2_value = temp & HASH_2_MASK; \
+	const uint32_t hash_3_value \
+			= (temp ^ ((uint32_t)(cur[2]) << 8)) & HASH_3_MASK; \
+	const uint32_t hash_value = (temp ^ ((uint32_t)(cur[2]) << 8) \
 			^ (hash_table[cur[3]] << 5)) & mf->hash_mask
 
 

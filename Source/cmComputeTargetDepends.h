@@ -1,21 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmComputeTargetDepends_h
-#define cmComputeTargetDepends_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmGraphAdjacencyList.h"
-
+#include <cstddef>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "cmGraphAdjacencyList.h"
+
 class cmComputeComponentGraph;
 class cmGeneratorTarget;
 class cmGlobalGenerator;
 class cmLinkItem;
+class cmListFileBacktrace;
+class cmSourceFile;
 class cmTargetDependSet;
 
 /** \class cmComputeTargetDepends
@@ -41,49 +43,74 @@ public:
                               cmTargetDependSet& deps);
 
 private:
+  struct TargetSideEffects
+  {
+    std::set<cmGeneratorTarget const*> CustomCommandSideEffects;
+    std::map<std::string, std::set<cmGeneratorTarget const*>>
+      LanguageSideEffects;
+  };
+
   void CollectTargets();
   void CollectDepends();
-  void CollectTargetDepends(int depender_index);
-  void AddTargetDepend(int depender_index, cmLinkItem const& dependee_name,
-                       bool linking);
-  void AddTargetDepend(int depender_index, cmGeneratorTarget const* dependee,
-                       bool linking);
+  void CollectTargetDepends(size_t depender_index);
+  void AddTargetDepend(size_t depender_index, cmLinkItem const& dependee_name,
+                       bool linking, bool cross,
+                       std::set<cmLinkItem>& emitted);
+  void AddTargetDepend(size_t depender_index,
+                       cmGeneratorTarget const* dependee,
+                       cmListFileBacktrace const& dependee_backtrace,
+                       bool linking, bool cross,
+                       std::set<cmLinkItem>& emitted);
+  void CollectSideEffects();
+  void CollectSideEffectsForTarget(std::set<size_t>& visited,
+                                   size_t depender_index);
+  void ComputeIntermediateGraph();
+  void OptimizeLinkDependencies(cmGeneratorTarget const* gt,
+                                cmGraphEdgeList& outputEdges,
+                                cmGraphEdgeList const& inputEdges);
   bool ComputeFinalDepends(cmComputeComponentGraph const& ccg);
-  void AddInterfaceDepends(int depender_index, cmLinkItem const& dependee_name,
-                           const std::string& config,
-                           std::set<std::string>& emitted);
-  void AddInterfaceDepends(int depender_index,
+  void AddInterfaceDepends(size_t depender_index,
+                           cmLinkItem const& dependee_name,
+                           std::string const& config,
+                           std::set<cmLinkItem>& emitted);
+  void AddInterfaceDepends(size_t depender_index,
                            cmGeneratorTarget const* dependee,
-                           const std::string& config,
-                           std::set<std::string>& emitted);
+                           cmListFileBacktrace const& dependee_backtrace,
+                           std::string const& config,
+                           std::set<cmLinkItem>& emitted);
+  void AddObjectDepends(size_t depender_index, cmSourceFile const* o,
+                        std::set<cmLinkItem>& emitted);
   cmGlobalGenerator* GlobalGenerator;
   bool DebugMode;
   bool NoCycles;
 
   // Collect all targets.
   std::vector<cmGeneratorTarget const*> Targets;
-  std::map<cmGeneratorTarget const*, int> TargetIndex;
+  std::map<cmGeneratorTarget const*, size_t> TargetIndex;
 
   // Represent the target dependency graph.  The entry at each
   // top-level index corresponds to a depender whose dependencies are
   // listed.
-  typedef cmGraphNodeList NodeList;
-  typedef cmGraphEdgeList EdgeList;
-  typedef cmGraphAdjacencyList Graph;
+  using NodeList = cmGraphNodeList;
+  using EdgeList = cmGraphEdgeList;
+  using Graph = cmGraphAdjacencyList;
   Graph InitialGraph;
+  Graph IntermediateGraph;
   Graph FinalGraph;
-  void DisplayGraph(Graph const& graph, const std::string& name);
+  std::vector<TargetSideEffects> SideEffects;
+  void DisplayGraph(Graph const& graph, std::string const& name);
+  void DisplaySideEffects();
 
   // Deal with connected components.
-  void DisplayComponents(cmComputeComponentGraph const& ccg);
+  void DisplayComponents(cmComputeComponentGraph const& ccg,
+                         std::string const& name);
   bool CheckComponents(cmComputeComponentGraph const& ccg);
-  void ComplainAboutBadComponent(cmComputeComponentGraph const& ccg, int c,
+  void ComplainAboutBadComponent(cmComputeComponentGraph const& ccg, size_t c,
                                  bool strong = false);
 
-  std::vector<int> ComponentHead;
-  std::vector<int> ComponentTail;
-  bool IntraComponent(std::vector<int> const& cmap, int c, int i, int* head,
-                      std::set<int>& emitted, std::set<int>& visited);
+  std::vector<size_t> ComponentHead;
+  std::vector<size_t> ComponentTail;
+  bool IntraComponent(std::vector<size_t> const& cmap, size_t c, size_t i,
+                      size_t* head, std::set<size_t>& emitted,
+                      std::set<size_t>& visited);
 };
-
-#endif

@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 function(_readFile file)
@@ -13,11 +13,12 @@ endfunction()
 
 function(compiler_id_detection outvar lang)
 
-  if (NOT lang STREQUAL Fortran AND NOT lang STREQUAL CSharp)
+  if (NOT "x${lang}" STREQUAL "xFortran" AND NOT "x${lang}" STREQUAL "xCSharp"
+      AND NOT "x${lang}" STREQUAL "xISPC")
     file(GLOB lang_files
       "${CMAKE_ROOT}/Modules/Compiler/*-DetermineCompiler.cmake")
     set(nonlang CXX)
-    if (lang STREQUAL CXX)
+    if ("x${lang}" STREQUAL "xCXX")
       set(nonlang C)
     endif()
 
@@ -41,13 +42,10 @@ function(compiler_id_detection outvar lang)
 
     # Order is relevant here. For example, compilers which pretend to be
     # GCC must appear before the actual GCC.
-    if (lang STREQUAL CXX)
-      list(APPEND ordered_compilers
-        Comeau
-      )
-    endif()
     list(APPEND ordered_compilers
       Intel
+      IntelLLVM
+      DPClang
       PathScale
       Embarcadero
       Borland
@@ -57,46 +55,69 @@ function(compiler_id_detection outvar lang)
       HP
       Compaq
       zOS
+      IBMClang
+      XLClang
       XL
       VisualAge
+      NVHPC
       PGI
+      CrayClang
       Cray
       TI
+      FujitsuClang
       Fujitsu
+      GHS
+      Tasking
+      OrangeC
+      Renesas
     )
-    if (lang STREQUAL C)
+    if ("x${lang}" STREQUAL "xC")
       list(APPEND ordered_compilers
         TinyCC
         Bruce
+        PellesC
       )
     endif()
     list(APPEND ordered_compilers
       SCO
+      ARMCC
       AppleClang
+      ARMClang
+      TIClang
+    )
+    list(APPEND ordered_compilers
       Clang
+      LCC
       GNU
       MSVC
       ADSP
       IAR
-      ARMCC
+      Diab
     )
-    if (lang STREQUAL C)
+    if ("x${lang}" STREQUAL "xC")
       list(APPEND ordered_compilers
         SDCC
       )
     endif()
-    list(APPEND ordered_compilers
-      MIPSpro)
 
-    #Currently the only CUDA compilers are NVIDIA
-    if(lang STREQUAL CUDA)
-      set(ordered_compilers NVIDIA)
+    if("x${lang}" STREQUAL "xCUDA")
+      set(ordered_compilers NVIDIA Clang)
+    endif()
+
+    if("x${lang}" STREQUAL "xHIP")
+      set(ordered_compilers NVIDIA Clang)
+    endif()
+
+    if("x${lang}" STREQUAL "xSYCL")
+      list(PREPEND ordered_compilers AdaptiveCpp)
     endif()
 
     if(CID_ID_DEFINE)
       foreach(Id ${ordered_compilers})
         string(APPEND CMAKE_${lang}_COMPILER_ID_CONTENT "# define ${CID_PREFIX}COMPILER_IS_${Id} 0\n")
       endforeach()
+      # Hard-code definitions for compilers that are no longer supported.
+      string(APPEND CMAKE_${lang}_COMPILER_ID_CONTENT "# define ${CID_PREFIX}COMPILER_IS_MIPSpro 0\n")
     endif()
 
     set(pp_if "#if")
@@ -135,9 +156,6 @@ function(compiler_id_detection outvar lang)
 /* These compilers are either not known or too old to define an
   identification macro.  Try to identify the platform and guess that
   it is the native compiler.  */
-#elif defined(__sgi)
-# define ${CID_PREFIX}COMPILER_ID \"MIPSpro\"
-
 #elif defined(__hpux) || defined(__hpua)
 # define ${CID_PREFIX}COMPILER_ID \"HP\"
 

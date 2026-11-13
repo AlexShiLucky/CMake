@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
+@CASE_TEST_PREFIX_CODE@
 
 set(CTEST_SITE                          "test-site")
 set(CTEST_BUILD_NAME                    "test-build-name")
@@ -9,6 +10,7 @@ set(CTEST_CMAKE_GENERATOR_PLATFORM      "@RunCMake_GENERATOR_PLATFORM@")
 set(CTEST_CMAKE_GENERATOR_TOOLSET       "@RunCMake_GENERATOR_TOOLSET@")
 set(CTEST_BUILD_CONFIGURATION           "$ENV{CMAKE_CONFIG_TYPE}")
 
+set_property(GLOBAL PROPERTY SubProject "mysubproj")
 ctest_start(Experimental)
 ctest_configure()
 

@@ -1,6 +1,6 @@
 # test if CSharp application correctly links
 # to managed C++ binary
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.10)
 project (CSharpLinkToCxx CXX CSharp)
 
 # we have to change the default flags for the
@@ -21,3 +21,9 @@ target_link_libraries(CSharpLinkToCxx CLIApp)
 # because it is unmanaged
 add_library(CppNativeApp SHARED cpp_native.hpp cpp_native.cpp)
 target_link_libraries(CSharpLinkToCxx CppNativeApp)
+
+# Link a static C++ library into the CSharp executable.
+# We do not actually use any symbols but this helps cover
+# link language selection.
+add_library(CppStaticLib STATIC cpp_static.cpp)
+target_link_libraries(CSharpLinkToCxx CppStaticLib)

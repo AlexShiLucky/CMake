@@ -1,118 +1,107 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmSearchPath.h"
 
 #include <algorithm>
 #include <cassert>
 #include <utility>
 
-#include "cmAlgorithms.h"
+#include <cm/optional>
+
 #include "cmFindCommon.h"
+#include "cmList.h"
 #include "cmMakefile.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
+#include "cmValue.h"
+#include "cmWindowsRegistry.h"
 
 cmSearchPath::cmSearchPath(cmFindCommon* findCmd)
   : FC(findCmd)
 {
 }
 
-cmSearchPath::~cmSearchPath()
-{
-}
+cmSearchPath::~cmSearchPath() = default;
 
-void cmSearchPath::ExtractWithout(const std::set<std::string>& ignore,
-                                  std::vector<std::string>& outPaths,
-                                  bool clear) const
+void cmSearchPath::ExtractWithout(std::set<std::string> const& ignorePaths,
+                                  std::set<std::string> const& ignorePrefixes,
+                                  std::vector<std::string>& outPaths) const
 {
-  if (clear) {
-    outPaths.clear();
-  }
-  for (std::vector<std::string>::const_iterator p = this->Paths.begin();
-       p != this->Paths.end(); ++p) {
-    if (ignore.count(*p) == 0) {
-      outPaths.push_back(*p);
+  for (auto const& path : this->Paths) {
+    if (ignorePaths.find(path.Path) == ignorePaths.end() &&
+        ignorePrefixes.find(path.Prefix) == ignorePrefixes.end()) {
+      outPaths.push_back(path.Path);
     }
   }
 }
 
-void cmSearchPath::AddPath(const std::string& path)
+void cmSearchPath::AddPath(std::string const& path)
 {
-  this->AddPathInternal(path);
+  this->AddPathInternal(path, "");
 }
 
-void cmSearchPath::AddUserPath(const std::string& path)
+void cmSearchPath::AddUserPath(std::string const& path)
 {
-  assert(this->FC != CM_NULLPTR);
+  assert(this->FC);
 
   std::vector<std::string> outPaths;
 
-  // We should view the registry as the target application would view
-  // it.
-  cmSystemTools::KeyWOW64 view = cmSystemTools::KeyWOW64_32;
-  cmSystemTools::KeyWOW64 other_view = cmSystemTools::KeyWOW64_64;
-  if (this->FC->Makefile->PlatformIs64Bit()) {
-    view = cmSystemTools::KeyWOW64_64;
-    other_view = cmSystemTools::KeyWOW64_32;
-  }
-
-  // Expand using the view of the target application.
-  std::string expanded = path;
-  cmSystemTools::ExpandRegistryValues(expanded, view);
-  cmSystemTools::GlobDirs(expanded, outPaths);
-
-  // Executables can be either 32-bit or 64-bit, so expand using the
-  // alternative view.
-  if (expanded != path && this->FC->CMakePathName == "PROGRAM") {
-    expanded = path;
-    cmSystemTools::ExpandRegistryValues(expanded, other_view);
-    cmSystemTools::GlobDirs(expanded, outPaths);
+  cmWindowsRegistry registry(*this->FC->Makefile,
+                             cmWindowsRegistry::SimpleTypes);
+  auto expandedPaths = registry.ExpandExpression(path, this->FC->RegistryView);
+  if (expandedPaths) {
+    for (auto const& expandedPath : expandedPaths.value()) {
+      cmSystemTools::GlobDirs(expandedPath, outPaths);
+    }
   }
 
   // Process them all from the current directory
-  for (std::vector<std::string>::const_iterator p = outPaths.begin();
-       p != outPaths.end(); ++p) {
-    this->AddPathInternal(*p, this->FC->Makefile->GetCurrentSourceDirectory());
+  for (std::string const& p : outPaths) {
+    this->AddPathInternal(
+      cmSystemTools::CollapseFullPath(
+        p, this->FC->Makefile->GetCurrentSourceDirectory()),
+      "");
   }
 }
 
-void cmSearchPath::AddCMakePath(const std::string& variable)
+void cmSearchPath::AddCMakePath(std::string const& variable)
 {
-  assert(this->FC != CM_NULLPTR);
+  assert(this->FC);
 
   // Get a path from a CMake variable.
-  if (const char* value = this->FC->Makefile->GetDefinition(variable)) {
-    std::vector<std::string> expanded;
-    cmSystemTools::ExpandListArgument(value, expanded);
+  if (cmValue value = this->FC->Makefile->GetDefinition(variable)) {
+    cmList expanded{ *value };
 
-    for (std::vector<std::string>::const_iterator p = expanded.begin();
-         p != expanded.end(); ++p) {
-      this->AddPathInternal(*p,
-                            this->FC->Makefile->GetCurrentSourceDirectory());
+    for (std::string const& p : expanded) {
+      this->AddPathInternal(
+        cmSystemTools::CollapseFullPath(
+          p, this->FC->Makefile->GetCurrentSourceDirectory()),
+        "");
     }
   }
 }
 
-void cmSearchPath::AddEnvPath(const std::string& variable)
+void cmSearchPath::AddEnvPath(std::string const& variable)
 {
-  std::vector<std::string> expanded;
-  cmSystemTools::GetPath(expanded, variable.c_str());
-  for (std::vector<std::string>::const_iterator p = expanded.begin();
-       p != expanded.end(); ++p) {
-    this->AddPathInternal(*p);
+  std::vector<std::string> expanded =
+    cmSystemTools::GetEnvPathNormalized(variable);
+  for (std::string const& p : expanded) {
+    this->AddPathInternal(p, "");
   }
 }
 
-void cmSearchPath::AddCMakePrefixPath(const std::string& variable)
+void cmSearchPath::AddCMakePrefixPath(std::string const& variable)
 {
-  assert(this->FC != CM_NULLPTR);
+  assert(this->FC);
 
   // Get a path from a CMake variable.
-  if (const char* value = this->FC->Makefile->GetDefinition(variable)) {
-    std::vector<std::string> expanded;
-    cmSystemTools::ExpandListArgument(value, expanded);
-
-    this->AddPrefixPaths(expanded,
-                         this->FC->Makefile->GetCurrentSourceDirectory());
+  if (cmValue value = this->FC->Makefile->GetDefinition(variable)) {
+    cmList expanded{ *value };
+    for (std::string& p : expanded) {
+      p = cmSystemTools::CollapseFullPath(
+        p, this->FC->Makefile->GetCurrentSourceDirectory());
+    }
+    this->AddPrefixPaths(expanded);
   }
 }
 
@@ -125,10 +114,10 @@ static std::string cmSearchPathStripBin(std::string const& s)
   return s;
 }
 
-void cmSearchPath::AddEnvPrefixPath(const std::string& variable, bool stripBin)
+void cmSearchPath::AddEnvPrefixPath(std::string const& variable, bool stripBin)
 {
-  std::vector<std::string> expanded;
-  cmSystemTools::GetPath(expanded, variable.c_str());
+  std::vector<std::string> expanded =
+    cmSystemTools::GetEnvPathNormalized(variable);
   if (stripBin) {
     std::transform(expanded.begin(), expanded.end(), expanded.begin(),
                    cmSearchPathStripBin);
@@ -136,39 +125,37 @@ void cmSearchPath::AddEnvPrefixPath(const std::string& variable, bool stripBin)
   this->AddPrefixPaths(expanded);
 }
 
-void cmSearchPath::AddSuffixes(const std::vector<std::string>& suffixes)
+void cmSearchPath::AddSuffixes(std::vector<std::string> const& suffixes)
 {
-  std::vector<std::string> inPaths;
+  std::vector<PathWithPrefix> inPaths;
   inPaths.swap(this->Paths);
   this->Paths.reserve(inPaths.size() * (suffixes.size() + 1));
 
-  for (std::vector<std::string>::iterator ip = inPaths.begin();
-       ip != inPaths.end(); ++ip) {
-    cmSystemTools::ConvertToUnixSlashes(*ip);
+  for (PathWithPrefix& inPath : inPaths) {
+    cmSystemTools::ConvertToUnixSlashes(inPath.Path);
+    cmSystemTools::ConvertToUnixSlashes(inPath.Prefix);
 
     // if *i is only / then do not add a //
     // this will get incorrectly considered a network
     // path on windows and cause huge delays.
-    std::string p = *ip;
-    if (!p.empty() && *p.rbegin() != '/') {
-      p += "/";
+    std::string p = inPath.Path;
+    if (!p.empty() && p.back() != '/') {
+      p += '/';
     }
 
     // Combine with all the suffixes
-    for (std::vector<std::string>::const_iterator s = suffixes.begin();
-         s != suffixes.end(); ++s) {
-      this->Paths.push_back(p + *s);
+    for (std::string const& suffix : suffixes) {
+      this->Paths.emplace_back(PathWithPrefix{ p + suffix, inPath.Prefix });
     }
 
     // And now the original w/o any suffix
-    this->Paths.push_back(*ip);
+    this->Paths.emplace_back(std::move(inPath));
   }
 }
 
-void cmSearchPath::AddPrefixPaths(const std::vector<std::string>& paths,
-                                  const char* base)
+void cmSearchPath::AddPrefixPaths(std::vector<std::string> const& paths)
 {
-  assert(this->FC != CM_NULLPTR);
+  assert(this->FC);
 
   // default for programs
   std::string subdir = "bin";
@@ -178,47 +165,72 @@ void cmSearchPath::AddPrefixPaths(const std::vector<std::string>& paths,
   } else if (this->FC->CMakePathName == "LIBRARY") {
     subdir = "lib";
   } else if (this->FC->CMakePathName == "FRAMEWORK") {
-    subdir = ""; // ? what to do for frameworks ?
+    subdir.clear(); // ? what to do for frameworks ?
   }
 
-  for (std::vector<std::string>::const_iterator p = paths.begin();
-       p != paths.end(); ++p) {
-    std::string dir = *p;
-    if (!subdir.empty() && !dir.empty() && *dir.rbegin() != '/') {
+  for (std::string const& path : paths) {
+    std::string dir = path;
+    if (!subdir.empty() && !dir.empty() && dir.back() != '/') {
       dir += "/";
     }
+    std::string prefix = dir;
+    if (!prefix.empty() && prefix != "/") {
+      prefix.erase(prefix.size() - 1);
+    }
     if (subdir == "include" || subdir == "lib") {
-      const char* arch =
+      cmValue arch =
         this->FC->Makefile->GetDefinition("CMAKE_LIBRARY_ARCHITECTURE");
-      if (arch && *arch) {
-        this->AddPathInternal(dir + subdir + "/" + arch, base);
+      if (cmNonempty(arch)) {
+        std::string archNoUnknown = *arch;
+        auto unknownAtPos = archNoUnknown.find("-unknown-");
+        bool foundUnknown = unknownAtPos != std::string::npos;
+        if (foundUnknown) {
+          // Replace "-unknown-" with "-".
+          archNoUnknown.replace(unknownAtPos, 9, "-");
+        }
+        if (this->FC->Makefile->IsDefinitionSet("CMAKE_SYSROOT") &&
+            this->FC->Makefile->IsDefinitionSet(
+              "CMAKE_PREFIX_LIBRARY_ARCHITECTURE")) {
+          if (foundUnknown) {
+            this->AddPathInternal(cmStrCat('/', archNoUnknown, dir, subdir),
+                                  cmStrCat('/', archNoUnknown, prefix));
+          }
+          this->AddPathInternal(cmStrCat('/', *arch, dir, subdir),
+                                cmStrCat('/', *arch, prefix));
+        } else {
+          if (foundUnknown) {
+            this->AddPathInternal(cmStrCat(dir, subdir, '/', archNoUnknown),
+                                  prefix);
+          }
+          this->AddPathInternal(cmStrCat(dir, subdir, '/', *arch), prefix);
+        }
       }
     }
     std::string add = dir + subdir;
     if (add != "/") {
-      this->AddPathInternal(add, base);
+      this->AddPathInternal(add, prefix);
     }
     if (subdir == "bin") {
-      this->AddPathInternal(dir + "sbin", base);
+      this->AddPathInternal(dir + "sbin", prefix);
     }
-    if (!subdir.empty() && *p != "/") {
-      this->AddPathInternal(*p, base);
+    if (!subdir.empty() && path != "/") {
+      this->AddPathInternal(path, prefix);
     }
   }
 }
 
-void cmSearchPath::AddPathInternal(const std::string& path, const char* base)
+void cmSearchPath::AddPathInternal(std::string const& path,
+                                   std::string const& prefix)
 {
-  assert(this->FC != CM_NULLPTR);
+  assert(this->FC);
 
-  std::string collapsed = cmSystemTools::CollapseFullPath(path, base);
-
-  if (collapsed.empty()) {
+  if (path.empty()) {
     return;
   }
 
   // Insert the path if has not already been emitted.
-  if (this->FC->SearchPathsEmitted.insert(collapsed).second) {
-    this->Paths.push_back(collapsed);
+  PathWithPrefix pathWithPrefix{ path, prefix };
+  if (this->FC->SearchPathsEmitted.insert(pathWithPrefix).second) {
+    this->Paths.emplace_back(std::move(pathWithPrefix));
   }
 }

@@ -3,10 +3,11 @@ ctest_build
 
 Perform the :ref:`CTest Build Step` as a :ref:`Dashboard Client`.
 
-::
+.. code-block:: cmake
 
   ctest_build([BUILD <build-dir>] [APPEND]
               [CONFIGURATION <config>]
+              [PARALLEL_LEVEL <parallel>]
               [FLAGS <flags>]
               [PROJECT_NAME <project-name>]
               [TARGET <target-name>]
@@ -14,14 +15,16 @@ Perform the :ref:`CTest Build Step` as a :ref:`Dashboard Client`.
               [NUMBER_WARNINGS <num-warn-var>]
               [RETURN_VALUE <result-var>]
               [CAPTURE_CMAKE_ERROR <result-var>]
+              [PRESET <preset>]
+              [PRESETS_FILE <file>]
               )
 
 Build the project and store results in ``Build.xml``
 for submission with the :command:`ctest_submit` command.
 
 The :variable:`CTEST_BUILD_COMMAND` variable may be set to explicitly
-specify the build command line.  Otherwise the build command line is
-computed automatically based on the options given.
+specify the build command line when no preset is selected.  Otherwise
+the build command line is computed automatically based on the options given.
 
 The options are:
 
@@ -39,20 +42,28 @@ The options are:
 ``CONFIGURATION <config>``
   Specify the build configuration (e.g. ``Debug``).  If not
   specified the ``CTEST_BUILD_CONFIGURATION`` variable will be checked.
-  Otherwise the ``-C <cfg>`` option given to the :manual:`ctest(1)`
-  command will be used, if any.
+  Otherwise the :option:`-C \<cfg\> <ctest -C>` option given to the
+  :manual:`ctest(1)` command will be used, if any.
+
+``PARALLEL_LEVEL <parallel>``
+  .. versionadded:: 3.21
+
+  Specify the parallel level of the underlying build system.  If not
+  specified, the :envvar:`CMAKE_BUILD_PARALLEL_LEVEL` environment
+  variable will be checked.
 
 ``FLAGS <flags>``
   Pass additional arguments to the underlying build command.
   If not specified the ``CTEST_BUILD_FLAGS`` variable will be checked.
   This can, e.g., be used to trigger a parallel build using the
-  ``-j`` option of make. See the :module:`ProcessorCount` module
+  ``-j`` option of ``make``. See the :module:`ProcessorCount` module
   for an example.
 
 ``PROJECT_NAME <project-name>``
-  Set the name of the project to build.  This should correspond
-  to the top-level call to the :command:`project` command.
-  If not specified the ``CTEST_PROJECT_NAME`` variable will be checked.
+  Ignored since CMake 3.0.
+
+  .. versionchanged:: 3.14
+    This value is no longer required.
 
 ``TARGET <target-name>``
   Specify the name of a target to build.  If not specified the
@@ -66,14 +77,45 @@ The options are:
 ``NUMBER_WARNINGS <num-warn-var>``
   Store the number of build warnings detected in the given variable.
 
+``PRESET <preset>``
+  .. versionadded:: 4.4
+
+  Specify a :manual:`preset <cmake-presets(7)>` to use when building the
+  project.  Any value set in the CTest script will take priority over a
+  corresponding setting from the preset.  For example, the ``TARGET``
+  argument will override the :preset:`buildPresets.targets` setting from
+  the chosen preset.
+
+  When a preset is specified, the :variable:`CTEST_BUILD_COMMAND`
+  variable is ignored so that the preset is always honored.
+
+  See also the :variable:`CTEST_BUILD_PRESET` and
+  :variable:`CTEST_PRESET` variables.
+
+``PRESETS_FILE <file>``
+  .. versionadded:: 4.4
+
+  Specify a :manual:`presets <cmake-presets(7)>` file to use instead of the
+  default ``CMakePresets.json`` in the source directory.
+  A relative path is interpreted relative to the source directory.
+  Has no effect unless a preset is selected via the ``PRESET`` argument
+  or the :variable:`CTEST_BUILD_PRESET` or :variable:`CTEST_PRESET`
+  variables.
+
+  See also the :variable:`CTEST_PRESETS_FILE` variable.
+
 ``RETURN_VALUE <result-var>``
   Store the return value of the native build tool in the given variable.
 
 ``CAPTURE_CMAKE_ERROR <result-var>``
+  .. versionadded:: 3.7
+
   Store in the ``<result-var>`` variable -1 if there are any errors running
   the command and prevent ctest from returning non-zero if an error occurs.
 
 ``QUIET``
+  .. versionadded:: 3.3
+
   Suppress any CTest-specific non-error output that would have been
   printed to the console otherwise.  The summary of warnings / errors,
   as well as the output from the native build tool is unaffected by

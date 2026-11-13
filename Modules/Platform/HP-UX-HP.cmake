@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 # This module is shared by multiple languages; use include blocker.
@@ -19,5 +19,10 @@ macro(__hpux_compiler_hp lang)
 
   string(APPEND CMAKE_${lang}_FLAGS_INIT " ")
 
-  set(CMAKE_${lang}_LINK_FLAGS "-Wl,+s,+nodefaultrpath")
+  set(CMAKE_EXECUTABLE_CREATE_${lang}_FLAGS "-Wl,+s,+nodefaultrpath")
+  cmake_policy(GET CMP0210 _CMP0210)
+  if (NOT _CMP0210 STREQUAL "NEW")
+    set(CMAKE_${lang}_LINK_FLAGS "${CMAKE_EXECUTABLE_CREATE_${lang}_FLAGS}")
+  endif()
+  unset(_CMP0210)
 endmacro()

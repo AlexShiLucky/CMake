@@ -1,19 +1,26 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackGenerator_h
-#define cmCPackGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <map>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include <cm/optional>
+#include <cm/string_view>
+
+#include "cm_sys_stat.h"
+
 #include "cmCPackComponentGroup.h"
 #include "cmSystemTools.h"
+#include "cmValue.h"
 
 class cmCPackLog;
+class cmCryptoHash;
+class cmGlobalGenerator;
 class cmInstalledFile;
 class cmMakefile;
 
@@ -24,7 +31,7 @@ class cmMakefile;
 class cmCPackGenerator
 {
 public:
-  virtual const char* GetNameOfClass() = 0;
+  virtual char const* GetNameOfClass() = 0;
   /**
    * If verbose then more information is printed out
    */
@@ -33,6 +40,16 @@ public:
     this->GeneratorVerbose =
       val ? cmSystemTools::OUTPUT_MERGE : cmSystemTools::OUTPUT_NONE;
   }
+
+  /**
+   * Put underlying cmake scripts in trace mode.
+   */
+  void SetTrace(bool val) { this->Trace = val; }
+
+  /**
+   * Put underlying cmake scripts in expanded trace mode.
+   */
+  void SetTraceExpand(bool val) { this->TraceExpand = val; }
 
   /**
    * Returns true if the generator may work on this system.
@@ -62,7 +79,7 @@ public:
   /**
    * Initialize generator
    */
-  int Initialize(const std::string& name, cmMakefile* mf);
+  int Initialize(std::string const& name, cmMakefile* mf);
 
   /**
    * Construct generator
@@ -71,22 +88,33 @@ public:
   virtual ~cmCPackGenerator();
 
   //! Set and get the options
-  void SetOption(const std::string& op, const char* value);
-  void SetOptionIfNotSet(const std::string& op, const char* value);
-  const char* GetOption(const std::string& op) const;
+  void SetOption(std::string const& op, char const* value);
+  void SetOption(std::string const& op, std::string const& value)
+  {
+    this->SetOption(op, cmValue(value));
+  }
+  void SetOption(std::string const& op, cmValue value);
+  void SetOptionIfNotSet(std::string const& op, char const* value);
+  void SetOptionIfNotSet(std::string const& op, std::string const& value)
+  {
+    this->SetOptionIfNotSet(op, cmValue(value));
+  }
+  void SetOptionIfNotSet(std::string const& op, cmValue value);
+  cmValue GetOption(std::string const& op) const;
   std::vector<std::string> GetOptions() const;
-  bool IsSet(const std::string& name) const;
-  bool IsOn(const std::string& name) const;
-  bool IsSetToOff(const std::string& op) const;
-  bool IsSetToEmpty(const std::string& op) const;
+  bool IsSet(std::string const& name) const;
+  cmValue GetOptionIfSet(std::string const& name) const;
+  bool IsOn(std::string const& name) const;
+  bool IsSetToOff(std::string const& op) const;
+  bool IsSetToEmpty(std::string const& op) const;
 
   //! Set the logger
   void SetLogger(cmCPackLog* log) { this->Logger = log; }
 
   //! Display verbose information via logger
-  void DisplayVerboseOutput(const char* msg, float progress);
+  void DisplayVerboseOutput(std::string const& msg, float progress);
 
-  bool ReadListFile(const char* moduleName);
+  bool ReadListFile(char const* moduleName);
 
 protected:
   /**
@@ -104,8 +132,8 @@ protected:
 
   cmInstalledFile const* GetInstalledFile(std::string const& name) const;
 
-  virtual const char* GetOutputExtension() { return ".cpack"; }
-  virtual const char* GetOutputPostfix() { return CM_NULLPTR; }
+  virtual char const* GetOutputExtension() { return ".cpack"; }
+  virtual char const* GetOutputPostfix() { return nullptr; }
 
   /**
    * Prepare requested grouping kind from CPACK_xxx vars
@@ -118,6 +146,18 @@ protected:
   virtual int PrepareGroupingKind();
 
   /**
+   * Ensures that the given name only contains characters that can cleanly be
+   * used as directory or file name and returns this sanitized name. Possibly,
+   * this name might be replaced by its hash.
+   * @param[in] name the name for a directory or file that shall be sanitized.
+   * @param[in] isFullName true if the result is used as the full name for a
+   *            directory or file. (Defaults to true.)
+   * @return the sanitized name.
+   */
+  virtual std::string GetSanitizedDirOrFileName(std::string const& name,
+                                                bool isFullName = true) const;
+
+  /**
    * Some CPack generators may prefer to have
    * CPack install all components belonging to the same
    * [component] group to be install in the same directory.
@@ -127,8 +167,18 @@ protected:
    * @return the name suffix the generator wants for the specified component
    *         default is "componentName"
    */
+  virtual std::string GetComponentInstallSuffix(
+    std::string const& componentName);
+
+  /**
+   * The value that GetComponentInstallSuffix returns, but sanitized.
+   * @param[in] componentName the name of the component to be installed
+   * @return the name suffix the generator wants for the specified component
+   *         (but sanitized, so that it can be used on the file-system).
+   *         default is "componentName".
+   */
   virtual std::string GetComponentInstallDirNameSuffix(
-    const std::string& componentName);
+    std::string const& componentName);
 
   /**
    * CPack specific generator may mangle CPACK_PACKAGE_FILE_NAME
@@ -140,8 +190,8 @@ protected:
    *            false otherwise
    */
   virtual std::string GetComponentPackageFileName(
-    const std::string& initialPackageFileName,
-    const std::string& groupOrComponentName, bool isGroupName);
+    std::string const& initialPackageFileName,
+    std::string const& groupOrComponentName, bool isGroupName);
 
   /**
    * Package the list of files and/or components which
@@ -153,24 +203,44 @@ protected:
    *       the list of packages generated by the specific generator.
    */
   virtual int PackageFiles();
-  virtual const char* GetInstallPath();
-  virtual const char* GetPackagingInstallPrefix();
+  virtual char const* GetInstallPath();
+  virtual char const* GetPackagingInstallPrefix();
 
-  virtual std::string FindTemplate(const char* name);
-  virtual bool ConfigureFile(const char* inName, const char* outName,
+  bool GenerateChecksumFile(cmCryptoHash& crypto,
+                            cm::string_view filename) const;
+  bool CopyPackageFile(std::string const& srcFilePath,
+                       cm::string_view filename) const;
+
+  std::string FindTemplate(cm::string_view name,
+                           cm::optional<cm::string_view> alt = cm::nullopt);
+  virtual bool ConfigureFile(std::string const& inName,
+                             std::string const& outName,
                              bool copyOnly = false);
-  virtual bool ConfigureString(const std::string& input, std::string& output);
+  virtual bool ConfigureString(std::string const& input, std::string& output);
   virtual int InitializeInternal();
 
   //! Run install commands if specified
   virtual int InstallProjectViaInstallCommands(
-    bool setDestDir, const std::string& tempInstallDirectory);
+    bool setDestDir, std::string const& tempInstallDirectory);
   virtual int InstallProjectViaInstallScript(
-    bool setDestDir, const std::string& tempInstallDirectory);
+    bool setDestDir, std::string const& tempInstallDirectory);
   virtual int InstallProjectViaInstalledDirectories(
-    bool setDestDir, const std::string& tempInstallDirectory);
+    bool setDestDir, std::string const& tempInstallDirectory,
+    mode_t const* default_dir_mode);
   virtual int InstallProjectViaInstallCMakeProjects(
-    bool setDestDir, const std::string& tempInstallDirectory);
+    bool setDestDir, std::string const& tempInstallDirectory,
+    mode_t const* default_dir_mode);
+
+  virtual int RunPreinstallTarget(std::string const& installProjectName,
+                                  std::string const& installDirectory,
+                                  cmGlobalGenerator* globalGenerator,
+                                  std::string const& buildConfig);
+  virtual int InstallCMakeProject(
+    bool setDestDir, std::string const& installDirectory,
+    std::string const& baseTempInstallDirectory,
+    mode_t const* default_dir_mode, std::string const& component,
+    bool componentInstall, std::string const& installSubDirectory,
+    std::string const& buildConfig, std::string& absoluteDestFiles);
 
   /**
    * The various level of support of
@@ -221,11 +291,11 @@ protected:
    */
   virtual bool WantsComponentInstallation() const;
   virtual cmCPackInstallationType* GetInstallationType(
-    const std::string& projectName, const std::string& name);
-  virtual cmCPackComponent* GetComponent(const std::string& projectName,
-                                         const std::string& name);
+    std::string const& projectName, std::string const& name);
+  virtual cmCPackComponent* GetComponent(std::string const& projectName,
+                                         std::string const& name);
   virtual cmCPackComponentGroup* GetComponentGroup(
-    const std::string& projectName, const std::string& name);
+    std::string const& projectName, std::string const& name);
 
   cmSystemTools::OutputOption GeneratorVerbose;
   std::string Name;
@@ -258,6 +328,7 @@ protected:
    */
   std::vector<std::string> files;
 
+  std::vector<cmCPackInstallCMakeProject> CMakeProjects;
   std::map<std::string, cmCPackInstallationType> InstallationTypes;
   /**
    * The set of components.
@@ -292,15 +363,28 @@ protected:
   ComponentPackageMethod componentPackageMethod;
 
   cmCPackLog* Logger;
+  bool Trace;
+  bool TraceExpand;
+
+  cmMakefile* MakefileMap;
 
 private:
-  cmMakefile* MakefileMap;
+  template <typename ValueType>
+  void StoreOption(std::string const& op, ValueType value);
+  template <typename ValueType>
+  void StoreOptionIfNotSet(std::string const& op, ValueType value);
 };
 
 #define cmCPackTypeMacro(klass, superclass)                                   \
-  typedef superclass Superclass;                                              \
-  const char* GetNameOfClass() CM_OVERRIDE { return #klass; }                 \
-  static cmCPackGenerator* CreateGenerator() { return new klass; }            \
+  using Superclass = superclass;                                              \
+  const char* GetNameOfClass() override                                       \
+  {                                                                           \
+    return #klass;                                                            \
+  }                                                                           \
+  static cmCPackGenerator* CreateGenerator()                                  \
+  {                                                                           \
+    return new klass;                                                         \
+  }                                                                           \
   class cmCPackTypeMacro_UseTrailingSemicolon
 
 #define cmCPackLogger(logType, msg)                                           \
@@ -310,5 +394,3 @@ private:
     this->Logger->Log(logType, __FILE__, __LINE__,                            \
                       cmCPackLog_msg.str().c_str());                          \
   } while (false)
-
-#endif

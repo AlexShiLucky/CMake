@@ -1,60 +1,34 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestCoverageCommand_h
-#define cmCTestCoverageCommand_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
+#include <string>
+#include <vector>
+
+#include <cm/optional>
+
+#include "cmArgumentParserTypes.h" // IWYU pragma: keep
 #include "cmCTestHandlerCommand.h"
 
-#include <set>
-#include <string>
-
-class cmCTestGenericHandler;
-class cmCommand;
-
-/** \class cmCTestCoverage
- * \brief Run a ctest script
- *
- * cmCTestCoverageCommand defineds the command to test the project.
- */
 class cmCTestCoverageCommand : public cmCTestHandlerCommand
 {
 public:
-  cmCTestCoverageCommand();
-
-  /**
-   * This is a virtual constructor for the command.
-   */
-  cmCommand* Clone() CM_OVERRIDE
-  {
-    cmCTestCoverageCommand* ni = new cmCTestCoverageCommand;
-    ni->CTest = this->CTest;
-    ni->CTestScriptHandler = this->CTestScriptHandler;
-    return ni;
-  }
-
-  /**
-   * The name of the command as specified in CMakeList.txt.
-   */
-  std::string GetName() const CM_OVERRIDE { return "ctest_coverage"; }
-
-  typedef cmCTestHandlerCommand Superclass;
+  using cmCTestHandlerCommand::cmCTestHandlerCommand;
 
 protected:
-  cmCTestGenericHandler* InitializeHandler() CM_OVERRIDE;
-
-  bool CheckArgumentKeyword(std::string const& arg) CM_OVERRIDE;
-  bool CheckArgumentValue(std::string const& arg) CM_OVERRIDE;
-
-  enum
+  struct CoverageArguments : HandlerArguments
   {
-    ArgumentDoingLabels = Superclass::ArgumentDoingLast1,
-    ArgumentDoingLast2
+    cm::optional<ArgumentParser::MaybeEmpty<std::vector<std::string>>> Labels;
   };
 
-  bool LabelsMentioned;
-  std::set<std::string> Labels;
-};
+private:
+  std::string GetName() const override { return "ctest_coverage"; }
 
-#endif
+  std::unique_ptr<cmCTestGenericHandler> InitializeHandler(
+    HandlerArguments& arguments, cmExecutionStatus& status) const override;
+
+  bool InitialPass(std::vector<std::string> const& args,
+                   cmExecutionStatus& status) const override;
+};

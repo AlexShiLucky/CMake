@@ -1,34 +1,39 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmGhsMultiGpj.h"
 
-#include "cmGeneratedFileStream.h"
+#include <ostream>
 
-void GhsMultiGpj::WriteGpjTag(Types const gpjType,
-                              cmGeneratedFileStream* const filestream)
+static char const* GHS_TAG[] = { "[INTEGRITY Application]",
+                                 "[Library]",
+                                 "[Project]",
+                                 "[Program]",
+                                 "[Reference]",
+                                 "[Subproject]",
+                                 "[Custom Target]" };
+
+char const* GhsMultiGpj::GetGpjTag(Types gpjType)
 {
   char const* tag;
   switch (gpjType) {
-    case INTERGRITY_APPLICATION:
-      tag = "INTEGRITY Application";
-      break;
+    case INTEGRITY_APPLICATION:
     case LIBRARY:
-      tag = "Library";
-      break;
     case PROJECT:
-      tag = "Project";
-      break;
     case PROGRAM:
-      tag = "Program";
-      break;
     case REFERENCE:
-      tag = "Reference";
-      break;
     case SUBPROJECT:
-      tag = "Subproject";
+    case CUSTOM_TARGET:
+      tag = GHS_TAG[gpjType];
       break;
     default:
       tag = "";
   }
-  *filestream << "[" << tag << "]" << std::endl;
+  return tag;
+}
+
+void GhsMultiGpj::WriteGpjTag(Types gpjType, std::ostream& fout)
+{
+  char const* tag;
+  tag = GhsMultiGpj::GetGpjTag(gpjType);
+  fout << tag << std::endl;
 }

@@ -1,52 +1,66 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmNinjaNormalTargetGenerator_h
-#define cmNinjaNormalTargetGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmNinjaTargetGenerator.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
-class cmGeneratorTarget;
+#include "cmGeneratorTarget.h"
+#include "cmNinjaTargetGenerator.h"
 
 class cmNinjaNormalTargetGenerator : public cmNinjaTargetGenerator
 {
 public:
   cmNinjaNormalTargetGenerator(cmGeneratorTarget* target);
-  ~cmNinjaNormalTargetGenerator() CM_OVERRIDE;
+  ~cmNinjaNormalTargetGenerator() override;
 
-  void Generate() CM_OVERRIDE;
+  void Generate(std::string const& config) override;
 
 private:
-  std::string LanguageLinkerRule() const;
-  std::string LanguageLinkerDeviceRule() const;
+  std::string LanguageLinkerRule(std::string const& config) const;
+  std::string LanguageLinkerDeviceRule(std::string const& config) const;
+  std::string LanguageLinkerCudaDeviceRule(std::string const& config) const;
+  std::string LanguageLinkerCudaDeviceCompileRule(
+    std::string const& config) const;
+  std::string LanguageLinkerCudaFatbinaryRule(std::string const& config) const;
+  std::string TextStubsGeneratorRule(std::string const& config) const;
+  bool CheckUseResponseFileForLibraries(std::string const& config) const;
+  char const* GetVisibleTypeName() const;
+  void WriteLanguagesRules(std::string const& config);
 
-  const char* GetVisibleTypeName() const;
-  void WriteLanguagesRules();
+  void WriteLinkRule(bool useResponseFile, std::string const& config,
+                     std::vector<std::string> const& preLinkComments,
+                     std::vector<std::string> const& postBuildComments);
+  void WriteDeviceLinkRules(std::string const& config);
+  void WriteDriverDeviceLinkRule(bool useResponseFile,
+                                 std::string const& config);
 
-  void WriteLinkRule(bool useResponseFile);
-  void WriteDeviceLinkRule(bool useResponseFile);
+  void WriteLinkStatement(std::string const& config,
+                          std::string const& fileConfig, bool firstForConfig);
+  void WriteDeviceLinkStatement(std::string const& config,
+                                std::string const& fileConfig,
+                                bool firstForConfig);
+  void WriteDeviceLinkStatements(std::string const& config,
+                                 std::vector<std::string> const& architectures,
+                                 std::string const& output);
+  void WriteDriverDeviceLinkStatement(std::string const& config,
+                                      std::string const& fileConfig,
+                                      std::string const& outputDir,
+                                      std::string const& output);
 
-  void WriteLinkStatement();
-  void WriteDeviceLinkStatement();
+  void WriteObjectLibStatement(std::string const& config);
+  void WriteCxxModuleLibraryStatement(std::string const& config,
+                                      std::string const& fileConfig,
+                                      bool firstForConfig);
 
-  void WriteObjectLibStatement();
-
-  std::vector<std::string> ComputeLinkCmd();
+  std::vector<std::string> ComputeLinkCmd(std::string const& config);
   std::vector<std::string> ComputeDeviceLinkCmd();
 
-private:
   // Target name info.
-  std::string TargetNameOut;
-  std::string TargetNameSO;
-  std::string TargetNameReal;
-  std::string TargetNameImport;
-  std::string TargetNamePDB;
-  std::string TargetLinkLanguage;
+  cmGeneratorTarget::Names TargetNames(std::string const& config) const;
+  std::string TargetLinkLanguage(std::string const& config) const;
   std::string DeviceLinkObject;
+  std::string DeviceLinkLanguage;
 };
-
-#endif // ! cmNinjaNormalTargetGenerator_h

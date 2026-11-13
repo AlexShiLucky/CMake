@@ -1,20 +1,68 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindPhysFS
-# ----------
-#
-#
-#
-# Locate PhysFS library This module defines PHYSFS_LIBRARY, the name of
-# the library to link against PHYSFS_FOUND, if false, do not try to link
-# to PHYSFS PHYSFS_INCLUDE_DIR, where to find physfs.h
-#
-# $PHYSFSDIR is an environment variable that would correspond to the
-# ./configure --prefix=$PHYSFSDIR used in building PHYSFS.
-#
-# Created by Eric Wing.
+#[=======================================================================[.rst:
+FindPhysFS
+----------
+
+Finds the PhysicsFS library (PhysFS) for file I/O abstraction:
+
+.. code-block:: cmake
+
+  find_package(PhysFS [...])
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``PhysFS_FOUND``
+  .. versionadded:: 3.3
+
+  Boolean indicating whether the PhysicsFS library was found.
+
+Cache Variables
+^^^^^^^^^^^^^^^
+
+The following cache variables may also be set:
+
+``PHYSFS_INCLUDE_DIR``
+  Directory containing the ``<physfs.h>`` and related headers needed for using
+  the library.
+``PHYSFS_LIBRARY``
+  Path to the PhysicsFS library needed to link against.
+
+Hints
+^^^^^
+
+This module accepts the following variables:
+
+``PHYSFSDIR``
+  Environment variable that can be set to help locate a PhysicsFS library
+  installed in a custom location.  It should point to the installation
+  destination that was used when configuring, building, and installing PhysicsFS
+  library: ``./configure --prefix=$PHYSFSDIR``.
+
+Deprecated Variables
+^^^^^^^^^^^^^^^^^^^^
+
+The following variables are provided for backward compatibility:
+
+``PHYSFS_FOUND``
+  .. deprecated:: 4.2
+    Use the ``PhysFS_FOUND``, which has the same value.
+
+  Boolean indicating whether the PhysicsFS library was found.
+
+Examples
+^^^^^^^^
+
+Finding the PhysicsFS library:
+
+.. code-block:: cmake
+
+  find_package(PhysFS)
+#]=======================================================================]
 
 find_path(PHYSFS_INCLUDE_DIR physfs.h
   HINTS
@@ -23,9 +71,6 @@ find_path(PHYSFS_INCLUDE_DIR physfs.h
   PATHS
   ~/Library/Frameworks
   /Library/Frameworks
-  /sw # Fink
-  /opt/local # DarwinPorts
-  /opt/csw # Blastwave
   /opt
 )
 
@@ -37,11 +82,8 @@ find_library(PHYSFS_LIBRARY
   PATHS
   ~/Library/Frameworks
   /Library/Frameworks
-  /sw
-  /opt/local
-  /opt/csw
   /opt
 )
 
-include(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(PhysFS DEFAULT_MSG PHYSFS_LIBRARY PHYSFS_INCLUDE_DIR)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(PhysFS DEFAULT_MSG PHYSFS_LIBRARY PHYSFS_INCLUDE_DIR)

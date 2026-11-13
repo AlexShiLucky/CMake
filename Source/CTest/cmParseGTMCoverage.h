@@ -1,13 +1,12 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmParseGTMCoverage_h
-#define cmParseGTMCoverage_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmParseMumpsCoverage.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
+
+#include "cmParseMumpsCoverage.h"
 
 class cmCTest;
 class cmCTestCoverageHandlerContainer;
@@ -25,9 +24,9 @@ public:
 
 protected:
   // implement virtual from parent
-  bool LoadCoverageData(const char* dir) CM_OVERRIDE;
+  bool LoadCoverageData(std::string const& dir) override;
   // Read a single mcov file
-  bool ReadMCovFile(const char* f);
+  bool ReadMCovFile(char const* f);
   // find out what line in a mumps file (filepath) the given entry point
   // or function is.  lineoffset is set by this method.
   bool FindFunctionInMumpsFile(std::string const& filepath,
@@ -37,5 +36,3 @@ protected:
   bool ParseMCOVLine(std::string const& line, std::string& routine,
                      std::string& function, int& linenumber, int& count);
 };
-
-#endif

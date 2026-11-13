@@ -1,6 +1,6 @@
 %{
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 /*-------------------------------------------------------------------------
   Portions of this source have been derived from makedepf90 version 2.8.8,
 
@@ -17,13 +17,11 @@ This file must be translated to C and modified to build everywhere.
 
 Run bison like this:
 
-  bison --yacc --name-prefix=cmFortran_yy
+  bison --name-prefix=cmFortran_yy
         --defines=cmFortranParserTokens.h
          -ocmFortranParser.cxx
           cmFortranParser.y
 
-Modify cmFortranParser.cxx:
-  - "#if 0" out yyerrorlab block in range ["goto yyerrlab1", "yyerrlab1:"]
 */
 
 #include "cmConfigure.h" // IWYU pragma: keep
@@ -35,7 +33,6 @@ Modify cmFortranParser.cxx:
 /*-------------------------------------------------------------------------*/
 #define cmFortranParser_cxx
 #include "cmFortranParser.h" /* Interface to parser object.  */
-#include "cmFortranParserTokens.h" /* Need YYSTYPE for YY_DECL.  */
 
 /* Forward declare the lexer entry point.  */
 YY_DECL;
@@ -55,6 +52,18 @@ static void cmFortran_yyerror(yyscan_t yyscanner, const char* message)
 # pragma warning (disable: 4702) /* Unreachable code.  */
 # pragma warning (disable: 4127) /* Conditional expression is constant.  */
 # pragma warning (disable: 4244) /* Conversion to smaller type, data loss. */
+#endif
+#if defined(__GNUC__) && __GNUC__ >= 8
+# pragma GCC diagnostic ignored "-Wconversion"
+# pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif
+#if defined(__GNUC__) && __GNUC__ >= 16
+# pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#endif
+#if defined(__clang__) && defined(__has_warning)
+# if __has_warning("-Wunused-but-set-variable")
+#  pragma clang diagnostic ignored "-Wunused-but-set-variable"
+# endif
 #endif
 %}
 
@@ -91,6 +100,8 @@ static void cmFortran_yyerror(yyscan_t yyscanner, const char* message)
 %token SUBMODULE
 %token USE
 
+%destructor { free($$); } WORD STRING CPP_INCLUDE_ANGLE
+
 /*-------------------------------------------------------------------------*/
 /* grammar */
 %%
@@ -107,34 +118,35 @@ stmt:
     cmFortranParser_RuleUse(parser, $2);
     free($2);
   }
-| MODULE WORD other EOSTMT {
+| MODULE WORD EOSTMT {
     cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
-    if (cmsysString_strcasecmp($2, "function") != 0 &&
-        cmsysString_strcasecmp($2, "procedure") != 0 &&
-        cmsysString_strcasecmp($2, "subroutine") != 0) {
-      cmFortranParser_RuleModule(parser, $2);
-    }
+    cmFortranParser_RuleModule(parser, $2);
     free($2);
   }
-| SUBMODULE LPAREN WORD RPAREN WORD other EOSTMT {
+| SUBMODULE LPAREN WORD RPAREN WORD EOSTMT {
     cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
-    cmFortranParser_RuleUse(parser, $3);
+    cmFortranParser_RuleSubmodule(parser, $3, $5);
     free($3);
     free($5);
   }
-| SUBMODULE LPAREN WORD COLON WORD RPAREN WORD other EOSTMT {
+| SUBMODULE LPAREN WORD COLON WORD RPAREN WORD EOSTMT {
     cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
-    cmFortranParser_RuleUse(parser, $3);
+    cmFortranParser_RuleSubmoduleNested(parser, $3, $5, $7);
     free($3);
     free($5);
     free($7);
   }
-| INTERFACE WORD other EOSTMT {
+| INTERFACE WORD EOSTMT {
     cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
     cmFortranParser_SetInInterface(parser, true);
     free($2);
   }
-| END INTERFACE other EOSTMT {
+| END INTERFACE WORD EOSTMT {
+    cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
+    cmFortranParser_SetInInterface(parser, false);
+    free($3);
+  }
+| END INTERFACE EOSTMT {
     cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
     cmFortranParser_SetInInterface(parser, false);
   }
@@ -148,10 +160,14 @@ stmt:
       cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
       cmFortranParser_RuleUse(parser, $5);
     }
+    if (cmsysString_strcasecmp($3, "intrinsic") == 0) {
+      cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
+      cmFortranParser_RuleUseIntrinsic(parser, $5);
+    }
     free($3);
     free($5);
   }
-| INCLUDE STRING other EOSTMT {
+| INCLUDE STRING EOSTMT {
     cmFortranParser* parser = cmFortran_yyget_extra(yyscanner);
     cmFortranParser_RuleInclude(parser, $2);
     free($2);
@@ -241,6 +257,7 @@ misc_code:
 | RPAREN
 | COMMA
 | UNTERMINATED_STRING
+| CPP_LINE_DIRECTIVE
 ;
 
 %%

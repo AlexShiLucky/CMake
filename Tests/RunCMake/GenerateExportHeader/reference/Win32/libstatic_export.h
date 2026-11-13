@@ -33,10 +33,11 @@
 #  define LIBSTATIC_DEPRECATED_NO_EXPORT LIBSTATIC_NO_EXPORT LIBSTATIC_DEPRECATED
 #endif
 
+/* NOLINTNEXTLINE(readability-avoid-unconditional-preprocessor-if) */
 #if 0 /* DEFINE_NO_DEPRECATED */
 #  ifndef LIBSTATIC_NO_DEPRECATED
 #    define LIBSTATIC_NO_DEPRECATED
 #  endif
 #endif
 
-#endif
+#endif /* LIBSTATIC_EXPORT_H */

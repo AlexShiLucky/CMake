@@ -1,23 +1,51 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindWish
-# --------
-#
-# Find wish installation
-#
-# This module finds if TCL is installed and determines where the include
-# files and libraries are.  It also determines what the name of the
-# library is.  This code sets the following variables:
-#
-# ::
-#
-#   TK_WISH = the path to the wish executable
-#
-#
-#
-# if UNIX is defined, then it will look for the cygwin version first
+#[=======================================================================[.rst:
+FindWish
+--------
+
+Finds ``wish``, a simple windowing shell command-line executable:
+
+.. code-block:: cmake
+
+  find_package(Wish [...])
+
+This module is commonly used in conjunction with finding a TCL installation (see
+the :module:`FindTCL` module).  It helps determine where the TCL include paths
+and libraries are, as well as identifying the name of the TCL library.
+
+If the :variable:`UNIX` variable is defined, the module will prioritize looking
+for the Cygwin version of ``wish`` executable.
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``Wish_FOUND``
+  .. versionadded:: 4.2
+
+  Boolean indicating whether the ``wish`` executable was found.
+
+Cache Variables
+^^^^^^^^^^^^^^^
+
+The following cache variables may also be set:
+
+``TK_WISH``
+  The path to the ``wish`` executable.
+
+Examples
+^^^^^^^^
+
+Finding ``wish``:
+
+.. code-block:: cmake
+
+  find_package(Wish)
+  message(STATUS "Found wish at: ${TK_WISH}")
+#]=======================================================================]
 
 if(UNIX)
   find_program(TK_WISH cygwish80 )
@@ -56,18 +84,14 @@ if(WIN32)
     NAME)
   set(TCLTK_POSSIBLE_BIN_PATHS ${TCLTK_POSSIBLE_BIN_PATHS}
     "[HKEY_LOCAL_MACHINE\\SOFTWARE\\ActiveState\\ActiveTcl\\${ActiveTcl_CurrentVersion}]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.6;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.5;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.4;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.3;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.2;Root]/bin"
-    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Scriptics\\Tcl\\8.0;Root]/bin"
     )
 endif()
 
 set(TK_WISH_NAMES
   wish
   wish${TCL_LIBRARY_VERSION} wish${TK_LIBRARY_VERSION} wish${TCL_TCLSH_VERSION}
+  wish91 wish9.1
+  wish90 wish9.0
   wish86 wish8.6
   wish85 wish8.5
   wish84 wish8.4
@@ -82,3 +106,9 @@ find_program(TK_WISH
   )
 
 mark_as_advanced(TK_WISH)
+
+if(TK_WISH)
+  set(Wish_FOUND TRUE)
+else()
+  set(Wish_FOUND FALSE)
+endif()

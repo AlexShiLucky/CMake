@@ -1,6 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "CMakeSetupDialog.h"
+
+#include <cm/memory>
 
 #include <QCloseEvent>
 #include <QCoreApplication>
@@ -14,41 +16,70 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QProcessEnvironment>
 #include <QProgressBar>
 #include <QSettings>
 #include <QShortcut>
 #include <QStatusBar>
-#include <QToolButton>
+#include <QString>
 #include <QUrl>
+#include <QVector>
 
-#include "AddCacheEntry.h"
-#include "FirstConfigure.h"
-#include "QCMake.h"
-#include "QCMakeCacheView.h"
-#include "RegexExplorer.h"
-#include "WarningMessagesDialog.h"
+#ifdef QT_WINEXTRAS
+#  include <QWinTaskbarButton>
+#  include <QWinTaskbarProgress>
+#endif
+
 #include "cmSystemTools.h"
 #include "cmVersion.h"
 
+#include "AddCacheEntry.h"
+#include "EnvironmentDialog.h"
+#include "FirstConfigure.h"
+#include "QCMake.h"
+#include "QCMakeCacheView.h"
+#include "QCMakeSizeType.h"
+#include "RegexExplorer.h"
+#include "WarningMessagesDialog.h"
+
+void OpenReferenceManual(QString const& filename)
+{
+  QString urlFormat("https://cmake.org/cmake/help/v%1.%2/");
+  QUrl url(urlFormat.arg(QString::number(cmVersion::GetMajorVersion()),
+                         QString::number(cmVersion::GetMinorVersion())));
+
+  if (!cmSystemTools::GetHTMLDoc().empty()) {
+    url = QUrl::fromLocalFile(
+      QDir(QString::fromStdString(cmSystemTools::GetHTMLDoc()))
+        .filePath(filename));
+  }
+
+  QDesktopServices::openUrl(url);
+}
+
+namespace {
+QString const PRESETS_DISABLED_TOOLTIP =
+  "This option is disabled because there are no available presets in "
+  "CMakePresets.json or CMakeUserPresets.json.";
+}
+
 QCMakeThread::QCMakeThread(QObject* p)
   : QThread(p)
-  , CMakeInstance(CM_NULLPTR)
 {
 }
 
 QCMake* QCMakeThread::cmakeInstance() const
 {
-  return this->CMakeInstance;
+  return this->CMakeInstance.get();
 }
 
 void QCMakeThread::run()
 {
-  this->CMakeInstance = new QCMake;
+  this->CMakeInstance = cm::make_unique<QCMake>();
   // emit that this cmake thread is ready for use
   emit this->cmakeInitialized();
   this->exec();
-  delete this->CMakeInstance;
-  this->CMakeInstance = CM_NULLPTR;
+  this->CMakeInstance.reset();
 }
 
 CMakeSetupDialog::CMakeSetupDialog()
@@ -81,6 +112,7 @@ CMakeSetupDialog::CMakeSetupDialog()
   this->ProgressBar->reset();
   this->RemoveEntry->setEnabled(false);
   this->AddEntry->setEnabled(false);
+  this->Preset->setStatusTip(PRESETS_DISABLED_TOOLTIP);
 
   QByteArray p = settings.value("SplitterSizes").toByteArray();
   this->Splitter->restoreState(p);
@@ -96,79 +128,91 @@ CMakeSetupDialog::CMakeSetupDialog()
 
   QMenu* FileMenu = this->menuBar()->addMenu(tr("&File"));
   this->ReloadCacheAction = FileMenu->addAction(tr("&Reload Cache"));
-  QObject::connect(this->ReloadCacheAction, SIGNAL(triggered(bool)), this,
-                   SLOT(doReloadCache()));
+  QObject::connect(this->ReloadCacheAction, &QAction::triggered, this,
+                   &CMakeSetupDialog::doReloadCache);
   this->DeleteCacheAction = FileMenu->addAction(tr("&Delete Cache"));
-  QObject::connect(this->DeleteCacheAction, SIGNAL(triggered(bool)), this,
-                   SLOT(doDeleteCache()));
+  QObject::connect(this->DeleteCacheAction, &QAction::triggered, this,
+                   &CMakeSetupDialog::doDeleteCache);
   this->ExitAction = FileMenu->addAction(tr("E&xit"));
-  this->ExitAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_Q));
-  QObject::connect(this->ExitAction, SIGNAL(triggered(bool)), this,
-                   SLOT(close()));
+  QObject::connect(this->ExitAction, &QAction::triggered, this,
+                   &CMakeSetupDialog::close);
+  this->ExitAction->setShortcut(QKeySequence::Quit);
 
   QMenu* ToolsMenu = this->menuBar()->addMenu(tr("&Tools"));
   this->ConfigureAction = ToolsMenu->addAction(tr("&Configure"));
-  // prevent merging with Preferences menu item on Mac OS X
+  QObject::connect(this->ConfigureAction, &QAction::triggered, this,
+                   &CMakeSetupDialog::doConfigure);
+  // prevent merging with Preferences menu item on macOS
   this->ConfigureAction->setMenuRole(QAction::NoRole);
-  QObject::connect(this->ConfigureAction, SIGNAL(triggered(bool)), this,
-                   SLOT(doConfigure()));
   this->GenerateAction = ToolsMenu->addAction(tr("&Generate"));
-  QObject::connect(this->GenerateAction, SIGNAL(triggered(bool)), this,
-                   SLOT(doGenerate()));
-  QAction* showChangesAction = ToolsMenu->addAction(tr("&Show My Changes"));
-  QObject::connect(showChangesAction, SIGNAL(triggered(bool)), this,
-                   SLOT(showUserChanges()));
+  QObject::connect(this->GenerateAction, &QAction::triggered, this,
+                   &CMakeSetupDialog::doGenerate);
+  auto* a = ToolsMenu->addAction(tr("&Show My Changes"));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::showUserChanges);
 #if defined(Q_WS_MAC) || defined(Q_OS_MAC)
   this->InstallForCommandLineAction =
     ToolsMenu->addAction(tr("&How to Install For Command Line Use"));
-  QObject::connect(this->InstallForCommandLineAction, SIGNAL(triggered(bool)),
-                   this, SLOT(doInstallForCommandLine()));
+  QObject::connect(this->InstallForCommandLineAction, &QAction::triggered,
+                   this, &CMakeSetupDialog::doInstallForCommandLine);
 #endif
   ToolsMenu->addSeparator();
-  ToolsMenu->addAction(tr("Regular Expression Explorer..."), this,
-                       SLOT(doRegexExplorerDialog()));
+  a = ToolsMenu->addAction(tr("Regular Expression Explorer..."));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doRegexExplorerDialog);
   ToolsMenu->addSeparator();
-  ToolsMenu->addAction(tr("&Find in Output..."), this,
-                       SLOT(doOutputFindDialog()), QKeySequence::Find);
-  ToolsMenu->addAction(tr("Find Next"), this, SLOT(doOutputFindNext()),
-                       QKeySequence::FindNext);
-  ToolsMenu->addAction(tr("Find Previous"), this, SLOT(doOutputFindPrev()),
-                       QKeySequence::FindPrevious);
-  ToolsMenu->addAction(tr("Goto Next Error"), this, SLOT(doOutputErrorNext()),
-                       QKeySequence(Qt::Key_F8)); // in Visual Studio
-  new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_Period), this,
-                SLOT(doOutputErrorNext())); // in Eclipse
+  a = ToolsMenu->addAction(tr("&Find in Output..."));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputFindDialog);
+  a->setShortcut(QKeySequence::Find);
+  a = ToolsMenu->addAction(tr("Find Next"));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputFindNext);
+  a->setShortcut(QKeySequence::FindNext);
+  a = ToolsMenu->addAction(tr("Find Previous"));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputFindPrev);
+  a->setShortcut(QKeySequence::FindPrevious);
+  a = ToolsMenu->addAction(tr("Goto Next Error")); // in Visual Studio
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputErrorNext);
+  a->setShortcut(QKeySequence(Qt::Key_F8));
+  auto* s = new QShortcut(this);
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+  s->setKey(QKeySequence(Qt::CTRL + Qt::Key_Period));
+#else
+  s->setKey(QKeySequence(Qt::CTRL | Qt::Key_Period));
+#endif
+  QObject::connect(s, &QShortcut::activated, this,
+                   &CMakeSetupDialog::doOutputErrorNext); // in Eclipse
 
   QMenu* OptionsMenu = this->menuBar()->addMenu(tr("&Options"));
-  OptionsMenu->addAction(tr("Warning Messages..."), this,
-                         SLOT(doWarningMessagesDialog()));
-  this->WarnUninitializedAction =
-    OptionsMenu->addAction(tr("&Warn Uninitialized (--warn-uninitialized)"));
-  this->WarnUninitializedAction->setCheckable(true);
-  this->WarnUnusedAction =
-    OptionsMenu->addAction(tr("&Warn Unused (--warn-unused-vars)"));
-  this->WarnUnusedAction->setCheckable(true);
+  a = OptionsMenu->addAction(tr("Warning Messages..."));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doWarningMessagesDialog);
 
   QAction* debugAction = OptionsMenu->addAction(tr("&Debug Output"));
   debugAction->setCheckable(true);
-  QObject::connect(debugAction, SIGNAL(toggled(bool)), this,
-                   SLOT(setDebugOutput(bool)));
+  QObject::connect(debugAction, &QAction::toggled, this,
+                   &CMakeSetupDialog::setDebugOutput);
 
   OptionsMenu->addSeparator();
-  QAction* expandAction =
-    OptionsMenu->addAction(tr("&Expand Grouped Entries"));
-  QObject::connect(expandAction, SIGNAL(triggered(bool)), this->CacheValues,
-                   SLOT(expandAll()));
-  QAction* collapseAction =
-    OptionsMenu->addAction(tr("&Collapse Grouped Entries"));
-  QObject::connect(collapseAction, SIGNAL(triggered(bool)), this->CacheValues,
-                   SLOT(collapseAll()));
+  a = OptionsMenu->addAction(tr("&Expand Grouped Entries"));
+  QObject::connect(a, &QAction::triggered, this->CacheValues,
+                   &QCMakeCacheView::expandAll);
+  a = OptionsMenu->addAction(tr("&Collapse Grouped Entries"));
+  QObject::connect(a, &QAction::triggered, this->CacheValues,
+                   &QCMakeCacheView::collapseAll);
 
   QMenu* HelpMenu = this->menuBar()->addMenu(tr("&Help"));
-  QAction* a = HelpMenu->addAction(tr("About"));
-  QObject::connect(a, SIGNAL(triggered(bool)), this, SLOT(doAbout()));
   a = HelpMenu->addAction(tr("Help"));
-  QObject::connect(a, SIGNAL(triggered(bool)), this, SLOT(doHelp()));
+  QObject::connect(a, &QAction::triggered, this, &CMakeSetupDialog::doHelp);
+  a->setShortcut(QKeySequence::HelpContents);
+  a = HelpMenu->addAction(tr("CMake Reference Manual"));
+  QObject::connect(a, &QAction::triggered, this,
+                   [] { OpenReferenceManual("index.html"); });
+  a = HelpMenu->addAction(tr("About"));
+  QObject::connect(a, &QAction::triggered, this, &CMakeSetupDialog::doAbout);
 
   this->setAcceptDrops(true);
 
@@ -180,18 +224,22 @@ CMakeSetupDialog::CMakeSetupDialog()
   this->SourceDirectory->setCompleter(new QCMakeFileCompleter(this, true));
 
   // fixed pitch font in output window
-  QFont outputFont("Courier");
+  QFont outputFont("Courier New");
+  outputFont.setStyleHint(QFont::Monospace);
   this->Output->setFont(outputFont);
   this->ErrorFormat.setForeground(QBrush(Qt::red));
 
   this->Output->setContextMenuPolicy(Qt::CustomContextMenu);
-  connect(this->Output, SIGNAL(customContextMenuRequested(const QPoint&)),
-          this, SLOT(doOutputContextMenu(const QPoint&)));
+  connect(this->Output, &QTextEdit::customContextMenuRequested, this,
+          &CMakeSetupDialog::doOutputContextMenu);
+
+  // disable open project button
+  this->OpenProjectButton->setDisabled(true);
 
   // start the cmake worker thread
   this->CMakeThread = new QCMakeThread(this);
-  QObject::connect(this->CMakeThread, SIGNAL(cmakeInitialized()), this,
-                   SLOT(initialize()), Qt::QueuedConnection);
+  QObject::connect(this->CMakeThread, &QCMakeThread::cmakeInitialized, this,
+                   &CMakeSetupDialog::initialize, Qt::QueuedConnection);
   this->CMakeThread->start();
 
   this->enterState(ReadyConfigure);
@@ -204,89 +252,125 @@ void CMakeSetupDialog::initialize()
 {
   // now the cmake worker thread is running, lets make our connections to it
   QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(propertiesChanged(const QCMakePropertyList&)),
-                   this->CacheValues->cacheModel(),
-                   SLOT(setProperties(const QCMakePropertyList&)));
+                   &QCMake::propertiesChanged, this->CacheValues->cacheModel(),
+                   &QCMakeCacheModel::setProperties);
 
-  QObject::connect(this->ConfigureButton, SIGNAL(clicked(bool)), this,
-                   SLOT(doConfigure()));
+  QObject::connect(this->ConfigureButton, &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::doConfigure);
 
-  QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(configureDone(int)), this, SLOT(exitLoop(int)));
-  QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(generateDone(int)), this, SLOT(exitLoop(int)));
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::configureDone,
+                   this, &CMakeSetupDialog::exitLoop);
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::generateDone,
+                   this, &CMakeSetupDialog::exitLoop);
 
-  QObject::connect(this->GenerateButton, SIGNAL(clicked(bool)), this,
-                   SLOT(doGenerate()));
-  QObject::connect(this->OpenProjectButton, SIGNAL(clicked(bool)), this,
-                   SLOT(doOpenProject()));
+  QObject::connect(this->GenerateButton, &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::doGenerate);
+  QObject::connect(this->OpenProjectButton, &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::doOpenProject);
 
-  QObject::connect(this->BrowseSourceDirectoryButton, SIGNAL(clicked(bool)),
-                   this, SLOT(doSourceBrowse()));
-  QObject::connect(this->BrowseBinaryDirectoryButton, SIGNAL(clicked(bool)),
-                   this, SLOT(doBinaryBrowse()));
+  QObject::connect(this->BrowseSourceDirectoryButton,
+                   &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::doSourceBrowse);
+  QObject::connect(this->ReloadPresetsButton, &QAbstractButton::clicked,
+                   this->CMakeThread->cmakeInstance(), &QCMake::loadPresets);
+  QObject::connect(this->BrowseBinaryDirectoryButton,
+                   &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::doBinaryBrowse);
 
-  QObject::connect(this->BinaryDirectory, SIGNAL(editTextChanged(QString)),
-                   this, SLOT(onBinaryDirectoryChanged(QString)));
-  QObject::connect(this->SourceDirectory, SIGNAL(textChanged(QString)), this,
-                   SLOT(onSourceDirectoryChanged(QString)));
-
-  QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(sourceDirChanged(QString)), this,
-                   SLOT(updateSourceDirectory(QString)));
-  QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(binaryDirChanged(QString)), this,
-                   SLOT(updateBinaryDirectory(QString)));
+  QObject::connect(this->BinaryDirectory, &QComboBox::editTextChanged, this,
+                   &CMakeSetupDialog::onBinaryDirectoryChanged);
+  QObject::connect(this->SourceDirectory, &QLineEdit::textChanged, this,
+                   &CMakeSetupDialog::onSourceDirectoryChanged);
+  QObject::connect(this->Preset, &QCMakePresetComboBox::presetChanged, this,
+                   &CMakeSetupDialog::onBuildPresetChanged);
 
   QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(progressChanged(QString, float)), this,
-                   SLOT(showProgress(QString, float)));
+                   &QCMake::sourceDirChanged, this,
+                   &CMakeSetupDialog::updateSourceDirectory);
+  QObject::connect(this->CMakeThread->cmakeInstance(),
+                   &QCMake::binaryDirChanged, this,
+                   &CMakeSetupDialog::updateBinaryDirectory);
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::presetsChanged,
+                   this, &CMakeSetupDialog::updatePresets);
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::presetChanged,
+                   this, &CMakeSetupDialog::updatePreset);
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::presetApplied,
+                   this, &CMakeSetupDialog::onPresetApplied);
+  QObject::connect(this->CMakeThread->cmakeInstance(),
+                   &QCMake::presetLoadError, this,
+                   &CMakeSetupDialog::showPresetLoadError);
 
   QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(errorMessage(QString)), this, SLOT(error(QString)));
+                   &QCMake::progressChanged, this,
+                   &CMakeSetupDialog::showProgress);
+
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::errorMessage,
+                   this, &CMakeSetupDialog::error);
+
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::outputMessage,
+                   this, &CMakeSetupDialog::message);
+
+  QObject::connect(this->CMakeThread->cmakeInstance(), &QCMake::openPossible,
+                   this->OpenProjectButton, &CMakeSetupDialog::setEnabled);
+
+  QObject::connect(this->groupedCheck, &QCheckBox::toggled, this,
+                   &CMakeSetupDialog::setGroupedView);
+  QObject::connect(this->advancedCheck, &QCheckBox::toggled, this,
+                   &CMakeSetupDialog::setAdvancedView);
+  QObject::connect(this->Search, &QLineEdit::textChanged, this,
+                   &CMakeSetupDialog::setSearchFilter);
 
   QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(outputMessage(QString)), this,
-                   SLOT(message(QString)));
-
-  QObject::connect(this->groupedCheck, SIGNAL(toggled(bool)), this,
-                   SLOT(setGroupedView(bool)));
-  QObject::connect(this->advancedCheck, SIGNAL(toggled(bool)), this,
-                   SLOT(setAdvancedView(bool)));
-  QObject::connect(this->Search, SIGNAL(textChanged(QString)), this,
-                   SLOT(setSearchFilter(QString)));
-
-  QObject::connect(this->CMakeThread->cmakeInstance(),
-                   SIGNAL(generatorChanged(QString)), this,
-                   SLOT(updateGeneratorLabel(QString)));
+                   &QCMake::generatorChanged, this,
+                   &CMakeSetupDialog::updateGeneratorLabel);
   this->updateGeneratorLabel(QString());
 
   QObject::connect(this->CacheValues->cacheModel(),
-                   SIGNAL(dataChanged(QModelIndex, QModelIndex)), this,
-                   SLOT(setCacheModified()));
+                   &QCMakeCacheModel::dataChanged, this,
+                   &CMakeSetupDialog::setCacheModified);
 
   QObject::connect(this->CacheValues->selectionModel(),
-                   SIGNAL(selectionChanged(QItemSelection, QItemSelection)),
-                   this, SLOT(selectionChanged()));
-  QObject::connect(this->RemoveEntry, SIGNAL(clicked(bool)), this,
-                   SLOT(removeSelectedCacheEntries()));
-  QObject::connect(this->AddEntry, SIGNAL(clicked(bool)), this,
-                   SLOT(addCacheEntry()));
+                   &QItemSelectionModel::selectionChanged, this,
+                   &CMakeSetupDialog::selectionChanged);
+  QObject::connect(this->RemoveEntry, &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::removeSelectedCacheEntries);
+  QObject::connect(this->AddEntry, &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::addCacheEntry);
 
-  QObject::connect(this->WarnUninitializedAction, SIGNAL(triggered(bool)),
-                   this->CMakeThread->cmakeInstance(),
-                   SLOT(setWarnUninitializedMode(bool)));
-  QObject::connect(this->WarnUnusedAction, SIGNAL(triggered(bool)),
-                   this->CMakeThread->cmakeInstance(),
-                   SLOT(setWarnUnusedMode(bool)));
+  QObject::connect(this->Environment, &QAbstractButton::clicked, this,
+                   &CMakeSetupDialog::editEnvironment);
 
-  if (!this->SourceDirectory->text().isEmpty() ||
-      !this->BinaryDirectory->lineEdit()->text().isEmpty()) {
+  if (!this->SourceDirectory->text().isEmpty() &&
+      !this->DeferredPreset.isNull()) {
+    this->onSourceDirectoryChanged(this->SourceDirectory->text());
+    if (!this->BinaryDirectory->lineEdit()->text().isEmpty()) {
+      this->onBinaryDirectoryChanged(
+        this->BinaryDirectory->lineEdit()->text());
+    }
+  } else if (!this->SourceDirectory->text().isEmpty() ||
+             !this->BinaryDirectory->lineEdit()->text().isEmpty()) {
+    if (this->SourceDirectory->text().isEmpty() &&
+        !cmSystemTools::FileIsFullPath(
+          this->BinaryDirectory->lineEdit()->text().toStdString())) {
+      // If the binary directory is relative, load the previous source path
+      // from the config
+      QSettings settings;
+      settings.beginGroup("Settings/StartPath");
+      QString srcDir = settings.value(QString("WhereSource")).toString();
+      this->SourceDirectory->blockSignals(true);
+      this->SourceDirectory->setText(srcDir);
+      this->SourceDirectory->blockSignals(false);
+    }
     this->onSourceDirectoryChanged(this->SourceDirectory->text());
     this->onBinaryDirectoryChanged(this->BinaryDirectory->lineEdit()->text());
   } else {
     this->onBinaryDirectoryChanged(this->BinaryDirectory->lineEdit()->text());
   }
+
+#ifdef QT_WINEXTRAS
+  this->TaskbarButton = new QWinTaskbarButton(this);
+  this->TaskbarButton->setWindow(this->windowHandle());
+#endif
 }
 
 CMakeSetupDialog::~CMakeSetupDialog()
@@ -336,8 +420,13 @@ bool CMakeSetupDialog::prepareConfigure()
     }
   }
 
-  // remember path
-  this->addBinaryPath(dir.absolutePath());
+  // remember paths
+  this->addBinaryPath(
+    this->CMakeThread->cmakeInstance()->relativeBinaryDirectory());
+  QSettings settings;
+  settings.beginGroup("Settings/StartPath");
+  settings.setValue("WhereSource",
+                    this->CMakeThread->cmakeInstance()->sourceDirectory());
 
   return true;
 }
@@ -352,6 +441,11 @@ void CMakeSetupDialog::doConfigure()
   if (this->CurrentState == Configuring) {
     // stop configure
     doInterrupt();
+    return;
+  }
+
+  // Preset still applying: its cache values aren't in the model yet.
+  if (this->PresetApplicationPending) {
     return;
   }
 
@@ -374,6 +468,10 @@ void CMakeSetupDialog::doConfigure()
     this->CacheValues->scrollToTop();
   }
   this->ProgressBar->reset();
+
+#ifdef QT_WINEXTRAS
+  this->TaskbarButton->progress()->reset();
+#endif
 }
 
 bool CMakeSetupDialog::doConfigureInternal()
@@ -428,7 +526,8 @@ void CMakeSetupDialog::doInstallForCommandLine()
   lab->setTextInteractionFlags(Qt::TextSelectableByMouse);
   QDialogButtonBox* btns =
     new QDialogButtonBox(QDialogButtonBox::Ok, Qt::Horizontal, &dialog);
-  QObject::connect(btns, SIGNAL(accepted()), &dialog, SLOT(accept()));
+  QObject::connect(btns, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
   l->addWidget(btns);
   dialog.exec();
 }
@@ -455,6 +554,12 @@ void CMakeSetupDialog::doGenerate()
   if (this->CurrentState == Generating) {
     // stop generate
     doInterrupt();
+    return;
+  }
+
+  // Preset still applying: prepareConfigure() would read worker state that
+  // applyPreset() is still mutating.
+  if (this->PresetApplicationPending) {
     return;
   }
 
@@ -488,28 +593,17 @@ void CMakeSetupDialog::doGenerate()
 
   this->enterState(ReadyConfigure);
   this->ProgressBar->reset();
+#ifdef QT_WINEXTRAS
+  this->TaskbarButton->progress()->reset();
+#endif
 
   this->ConfigureNeeded = true;
 }
 
-QString CMakeSetupDialog::getProjectFilename()
-{
-  QStringList nameFilter;
-  nameFilter << "*.sln"
-             << "*.xcodeproj";
-  QDir directory(this->BinaryDirectory->currentText());
-  QStringList nlnFile = directory.entryList(nameFilter);
-
-  if (nlnFile.count() == 1) {
-    return this->BinaryDirectory->currentText() + "/" + nlnFile.at(0);
-  }
-
-  return QString();
-}
-
 void CMakeSetupDialog::doOpenProject()
 {
-  QDesktopServices::openUrl(QUrl::fromLocalFile(this->getProjectFilename()));
+  QMetaObject::invokeMethod(this->CMakeThread->cmakeInstance(), "open",
+                            Qt::QueuedConnection);
 }
 
 void CMakeSetupDialog::closeEvent(QCloseEvent* e)
@@ -583,7 +677,11 @@ void CMakeSetupDialog::doHelp()
 
   QDialog dialog;
   QFontMetrics met(this->font());
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
+  int msgWidth = met.horizontalAdvance(msg);
+#else
   int msgWidth = met.width(msg);
+#endif
   dialog.setMinimumSize(msgWidth / 15, 20);
   dialog.setWindowTitle(tr("Help"));
   QVBoxLayout* l = new QVBoxLayout(&dialog);
@@ -592,7 +690,8 @@ void CMakeSetupDialog::doHelp()
   lab->setWordWrap(true);
   QDialogButtonBox* btns =
     new QDialogButtonBox(QDialogButtonBox::Ok, Qt::Horizontal, &dialog);
-  QObject::connect(btns, SIGNAL(accepted()), &dialog, SLOT(accept()));
+  QObject::connect(btns, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
   l->addWidget(lab);
   l->addWidget(btns);
   dialog.exec();
@@ -614,7 +713,7 @@ void CMakeSetupDialog::doSourceBrowse()
   }
 }
 
-void CMakeSetupDialog::updateSourceDirectory(const QString& dir)
+void CMakeSetupDialog::updateSourceDirectory(QString const& dir)
 {
   if (this->SourceDirectory->text() != dir) {
     this->SourceDirectory->blockSignals(true);
@@ -623,36 +722,103 @@ void CMakeSetupDialog::updateSourceDirectory(const QString& dir)
   }
 }
 
-void CMakeSetupDialog::updateBinaryDirectory(const QString& dir)
+void CMakeSetupDialog::updateBinaryDirectory(QString const& dir)
 {
   if (this->BinaryDirectory->currentText() != dir) {
     this->BinaryDirectory->blockSignals(true);
     this->BinaryDirectory->setEditText(dir);
     this->BinaryDirectory->blockSignals(false);
   }
-  if (!this->getProjectFilename().isEmpty()) {
-    this->OpenProjectButton->setEnabled(true);
-  } else {
-    this->OpenProjectButton->setEnabled(false);
+}
+
+void CMakeSetupDialog::updatePresets(QVector<QCMakePreset> const& presets)
+{
+  if (this->Preset->presets() != presets) {
+    this->Preset->blockSignals(true);
+    this->Preset->setPresets(presets);
+    this->Preset->blockSignals(false);
   }
+
+  this->Preset->setDisabled(presets.isEmpty());
+  this->Preset->setToolTip(presets.isEmpty() ? PRESETS_DISABLED_TOOLTIP : "");
+
+  if (!this->DeferredPreset.isNull()) {
+    QString const deferred = this->DeferredPreset;
+    this->DeferredPreset = QString{};
+    // An available preset selection submits a real request and keeps the gate
+    // engaged; an unavailable one applies nothing, so release the gate here.
+    this->Preset->setPresetName(deferred);
+    if (this->Preset->presetName() != deferred) {
+      this->PresetApplicationPending = false;
+      this->updateCommandState();
+    }
+  }
+}
+
+void CMakeSetupDialog::onPresetApplied(quint64 requestId, QString const& name,
+                                       QCMakePropertyList const& properties)
+{
+  // Latest request wins; ignore a superseded completion.
+  if (requestId != this->LatestPresetRequestId) {
+    return;
+  }
+
+  this->CacheValues->cacheModel()->setProperties(properties);
+  // Reconcile in case the combo drifted from what actually applied.
+  if (this->Preset->presetName() != name) {
+    this->Preset->blockSignals(true);
+    this->Preset->setPresetName(name);
+    this->Preset->blockSignals(false);
+  }
+  this->PresetApplicationPending = false;
+  this->updateCommandState();
+}
+
+void CMakeSetupDialog::updatePreset(QString const& name)
+{
+  if (this->Preset->presetName() != name) {
+    this->Preset->blockSignals(true);
+    this->Preset->setPresetName(name);
+    this->Preset->blockSignals(false);
+  }
+}
+
+void CMakeSetupDialog::showPresetLoadError(QString const& dir,
+                                           QString const& message)
+{
+  QMessageBox::warning(
+    this, "Error Reading CMake Presets",
+    QString("Could not read presets from %1: %2").arg(dir, message));
 }
 
 void CMakeSetupDialog::doBinaryBrowse()
 {
+  QString abs_path = this->BinaryDirectory->currentText();
+  if (!cmSystemTools::FileIsFullPath(abs_path.toStdString())) {
+    if (!this->SourceDirectory->text().endsWith("/")) {
+      abs_path = "/" + abs_path;
+    }
+    abs_path = this->SourceDirectory->text() + abs_path;
+  }
   QString dir = QFileDialog::getExistingDirectory(
-    this, tr("Enter Path to Build"), this->BinaryDirectory->currentText(),
+    this, tr("Enter Path to Build"), abs_path,
     QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
   if (!dir.isEmpty() && dir != this->BinaryDirectory->currentText()) {
     this->setBinaryDirectory(dir);
   }
 }
 
-void CMakeSetupDialog::setBinaryDirectory(const QString& dir)
+void CMakeSetupDialog::setBinaryDirectory(QString const& dir)
 {
   this->BinaryDirectory->setEditText(dir);
 }
 
-void CMakeSetupDialog::onSourceDirectoryChanged(const QString& dir)
+void CMakeSetupDialog::setStartupBinaryDirectory(bool startup)
+{
+  this->StartupBinaryDirectory = startup;
+}
+
+void CMakeSetupDialog::onSourceDirectoryChanged(QString const& dir)
 {
   this->Output->clear();
   QMetaObject::invokeMethod(this->CMakeThread->cmakeInstance(),
@@ -660,7 +826,7 @@ void CMakeSetupDialog::onSourceDirectoryChanged(const QString& dir)
                             Q_ARG(QString, dir));
 }
 
-void CMakeSetupDialog::onBinaryDirectoryChanged(const QString& dir)
+void CMakeSetupDialog::onBinaryDirectoryChanged(QString const& dir)
 {
   QString title = QString(tr("CMake %1 - %2"));
   title = title.arg(cmVersion::GetCMakeVersion());
@@ -677,18 +843,52 @@ void CMakeSetupDialog::onBinaryDirectoryChanged(const QString& dir)
                             Q_ARG(QString, dir));
 }
 
-void CMakeSetupDialog::setSourceDirectory(const QString& dir)
+void CMakeSetupDialog::onBuildPresetChanged(QString const& name)
+{
+  // Applying is async: gate the dependent actions now, until the completion
+  // lands.
+  quint64 const requestId = ++this->LatestPresetRequestId;
+  this->PresetApplicationPending = true;
+  // First Generate after an apply must reconfigure with the new inputs.
+  this->ConfigureNeeded = true;
+  this->updateCommandState();
+
+  QMetaObject::invokeMethod(this->CMakeThread->cmakeInstance(), "applyPreset",
+                            Qt::QueuedConnection, Q_ARG(QString, name),
+                            Q_ARG(bool, !this->StartupBinaryDirectory),
+                            Q_ARG(quint64, requestId));
+  this->StartupBinaryDirectory = false;
+}
+
+void CMakeSetupDialog::setSourceDirectory(QString const& dir)
 {
   this->SourceDirectory->setText(dir);
 }
 
-void CMakeSetupDialog::showProgress(const QString& /*msg*/, float percent)
+void CMakeSetupDialog::setDeferredPreset(QString const& preset)
+{
+  this->DeferredPreset = preset;
+  // A --preset isn't applied until presets load; gate now so nothing runs
+  // with default inputs during that startup window.
+  if (!preset.isNull()) {
+    this->PresetApplicationPending = true;
+    this->updateCommandState();
+  }
+}
+
+void CMakeSetupDialog::showProgress(QString const& /*msg*/, float percent)
 {
   percent = (percent * ProgressFactor) + ProgressOffset;
   this->ProgressBar->setValue(qRound(percent * 100));
+
+#ifdef QT_WINEXTRAS
+  QWinTaskbarProgress* progress = this->TaskbarButton->progress();
+  progress->setVisible(true);
+  progress->setValue(qRound(percent * 100));
+#endif
 }
 
-void CMakeSetupDialog::error(const QString& msg)
+void CMakeSetupDialog::error(QString const& msg)
 {
   this->Output->setCurrentCharFormat(this->ErrorFormat);
   // QTextEdit will terminate the msg with a ParagraphSeparator, but it also
@@ -701,7 +901,7 @@ void CMakeSetupDialog::error(const QString& msg)
   this->Output->append(paragraph);
 }
 
-void CMakeSetupDialog::message(const QString& msg)
+void CMakeSetupDialog::message(QString const& msg)
 {
   this->Output->setCurrentCharFormat(this->MessageFormat);
   this->Output->append(msg);
@@ -713,6 +913,7 @@ void CMakeSetupDialog::setEnabledState(bool enabled)
   this->CacheValues->cacheModel()->setEditEnabled(enabled);
   this->SourceDirectory->setEnabled(enabled);
   this->BrowseSourceDirectoryButton->setEnabled(enabled);
+  this->Preset->setEnabled(enabled && !this->Preset->presets().isEmpty());
   this->BinaryDirectory->setEnabled(enabled);
   this->BrowseBinaryDirectoryButton->setEnabled(enabled);
   this->ReloadCacheAction->setEnabled(enabled);
@@ -721,6 +922,7 @@ void CMakeSetupDialog::setEnabledState(bool enabled)
   this->ConfigureAction->setEnabled(enabled);
   this->AddEntry->setEnabled(enabled);
   this->RemoveEntry->setEnabled(false); // let selection re-enable it
+  this->Environment->setEnabled(enabled);
 }
 
 bool CMakeSetupDialog::setupFirstConfigure()
@@ -736,9 +938,23 @@ bool CMakeSetupDialog::setupFirstConfigure()
   // restore from settings
   dialog.loadFromSettings();
 
+  auto presetData = this->Preset->currentData();
+  if (presetData.isValid()) {
+    auto preset = presetData.value<QCMakePreset>();
+    dialog.setCurrentGenerator(preset.generator);
+    if (preset.setArchitecture) {
+      dialog.setPlatform(preset.architecture);
+    }
+    if (preset.setToolset) {
+      dialog.setToolset(preset.toolset);
+    }
+    dialog.setCompilerOption(CompilerOption::DefaultPreset);
+  }
+
   if (dialog.exec() == QDialog::Accepted) {
     dialog.saveToSettings();
     this->CMakeThread->cmakeInstance()->setGenerator(dialog.getGenerator());
+    this->CMakeThread->cmakeInstance()->setPlatform(dialog.getPlatform());
     this->CMakeThread->cmakeInstance()->setToolset(dialog.getToolset());
 
     QCMakeCacheModel* m = this->CacheValues->cacheModel();
@@ -790,12 +1006,19 @@ bool CMakeSetupDialog::setupFirstConfigure()
       QString systemVersion = dialog.getSystemVersion();
       m->insertProperty(QCMakeProperty::STRING, "CMAKE_SYSTEM_VERSION",
                         tr("CMake System Version"), systemVersion, false);
+      QString systemProcessor = dialog.getSystemProcessor();
+      m->insertProperty(QCMakeProperty::STRING, "CMAKE_SYSTEM_PROCESSOR",
+                        tr("CMake System Processor"), systemProcessor, false);
       QString cxxCompiler = dialog.getCXXCompiler();
-      m->insertProperty(QCMakeProperty::FILEPATH, "CMAKE_CXX_COMPILER",
-                        tr("CXX compiler."), cxxCompiler, false);
+      if (!cxxCompiler.isEmpty()) {
+        m->insertProperty(QCMakeProperty::FILEPATH, "CMAKE_CXX_COMPILER",
+                          tr("CXX compiler."), cxxCompiler, false);
+      }
       QString cCompiler = dialog.getCCompiler();
-      m->insertProperty(QCMakeProperty::FILEPATH, "CMAKE_C_COMPILER",
-                        tr("C compiler."), cCompiler, false);
+      if (!cCompiler.isEmpty()) {
+        m->insertProperty(QCMakeProperty::FILEPATH, "CMAKE_C_COMPILER",
+                          tr("C compiler."), cCompiler, false);
+      }
     } else if (dialog.crossCompilerToolChainFile()) {
       QString toolchainFile = dialog.getCrossCompilerToolChainFile();
       m->insertProperty(QCMakeProperty::FILEPATH, "CMAKE_TOOLCHAIN_FILE",
@@ -808,7 +1031,7 @@ bool CMakeSetupDialog::setupFirstConfigure()
   return false;
 }
 
-void CMakeSetupDialog::updateGeneratorLabel(const QString& gen)
+void CMakeSetupDialog::updateGeneratorLabel(QString const& gen)
 {
   QString str = tr("Current Generator: ");
   if (gen.isEmpty()) {
@@ -846,15 +1069,14 @@ void CMakeSetupDialog::doAbout()
     "CMake suite maintained and supported by Kitware (kitware.com/cmake).\n"
     "Distributed under terms of the BSD 3-Clause License.\n"
     "\n"
-    "CMake GUI maintained by csimsoft,\n"
-    "built using Qt %2 (qt-project.org).\n"
+    "CMake GUI built using Qt %2 (qt-project.org).\n"
 #ifdef USE_LGPL
     "\n"
-    "The Qt Toolkit is Copyright (C) Digia Plc and/or its subsidiary(-ies).\n"
+    "The Qt Toolkit is Copyright (C) The Qt Company Ltd.\n"
     "Qt is licensed under terms of the GNU LGPLv" USE_LGPL ", available at:\n"
     " \"%3\""
 #endif
-    );
+  );
   msg = msg.arg(cmVersion::GetCMakeVersion());
   msg = msg.arg(qVersion());
 #ifdef USE_LGPL
@@ -872,7 +1094,8 @@ void CMakeSetupDialog::doAbout()
   lab->setWordWrap(true);
   QDialogButtonBox* btns =
     new QDialogButtonBox(QDialogButtonBox::Ok, Qt::Horizontal, &dialog);
-  QObject::connect(btns, SIGNAL(accepted()), &dialog, SLOT(accept()));
+  QObject::connect(btns, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
   l->addWidget(btns);
   dialog.exec();
 }
@@ -882,7 +1105,7 @@ void CMakeSetupDialog::setExitAfterGenerate(bool b)
   this->ExitAfterGenerate = b;
 }
 
-void CMakeSetupDialog::addBinaryPath(const QString& path)
+void CMakeSetupDialog::addBinaryPath(QString const& path)
 {
   QString cleanpath = QDir::cleanPath(path);
 
@@ -911,7 +1134,7 @@ void CMakeSetupDialog::dragEnterEvent(QDragEnterEvent* e)
     return;
   }
 
-  const QMimeData* dat = e->mimeData();
+  QMimeData const* dat = e->mimeData();
   QList<QUrl> urls = dat->urls();
   QString file = urls.count() ? urls[0].toLocalFile() : QString();
   if (!file.isEmpty() &&
@@ -930,7 +1153,7 @@ void CMakeSetupDialog::dropEvent(QDropEvent* e)
     return;
   }
 
-  const QMimeData* dat = e->mimeData();
+  QMimeData const* dat = e->mimeData();
   QList<QUrl> urls = dat->urls();
   QString file = urls.count() ? urls[0].toLocalFile() : QString();
   if (file.endsWith("CMakeCache.txt", Qt::CaseInsensitive)) {
@@ -964,17 +1187,17 @@ QStringList CMakeSetupDialog::loadBuildPaths()
   return buildPaths;
 }
 
-void CMakeSetupDialog::saveBuildPaths(const QStringList& paths)
+void CMakeSetupDialog::saveBuildPaths(QStringList const& paths)
 {
   QSettings settings;
   settings.beginGroup("Settings/StartPath");
 
-  int num = paths.count();
+  cm_qsizetype num = paths.count();
   if (num > 10) {
     num = 10;
   }
 
-  for (int i = 0; i < num; i++) {
+  for (cm_qsizetype i = 0; i < num; i++) {
     settings.setValue(QString("WhereBuild%1").arg(i), paths[i]);
   }
 }
@@ -1001,8 +1224,9 @@ void CMakeSetupDialog::removeSelectedCacheEntries()
 void CMakeSetupDialog::selectionChanged()
 {
   QModelIndexList idxs = this->CacheValues->selectionModel()->selectedRows();
-  if (idxs.count() && (this->CurrentState == ReadyConfigure ||
-                       this->CurrentState == ReadyGenerate)) {
+  if (idxs.count() &&
+      (this->CurrentState == ReadyConfigure ||
+       this->CurrentState == ReadyGenerate)) {
     this->RemoveEntry->setEnabled(true);
   } else {
     this->RemoveEntry->setEnabled(false);
@@ -1034,26 +1258,79 @@ void CMakeSetupDialog::enterState(CMakeSetupDialog::State s)
     this->GenerateAction->setEnabled(false);
     this->OpenProjectButton->setEnabled(false);
     this->GenerateButton->setText(tr("&Stop"));
-  } else if (s == ReadyConfigure) {
+  } else if (s == ReadyConfigure || s == ReadyGenerate) {
     this->setEnabledState(true);
-    this->GenerateButton->setEnabled(true);
-    this->GenerateAction->setEnabled(true);
-    this->ConfigureButton->setEnabled(true);
-    if (!this->getProjectFilename().isEmpty()) {
-      this->OpenProjectButton->setEnabled(true);
-    }
     this->ConfigureButton->setText(tr("&Configure"));
     this->GenerateButton->setText(tr("&Generate"));
-  } else if (s == ReadyGenerate) {
-    this->setEnabledState(true);
-    this->GenerateButton->setEnabled(true);
-    this->GenerateAction->setEnabled(true);
-    this->ConfigureButton->setEnabled(true);
-    if (!this->getProjectFilename().isEmpty()) {
-      this->OpenProjectButton->setEnabled(true);
+    this->updateCommandState();
+  }
+}
+
+void CMakeSetupDialog::updateCommandState()
+{
+  bool const pending = this->PresetApplicationPending;
+
+  switch (this->CurrentState) {
+    case Interrupting:
+      this->ConfigureButton->setEnabled(false);
+      this->GenerateButton->setEnabled(false);
+      this->ConfigureAction->setEnabled(false);
+      this->GenerateAction->setEnabled(false);
+      this->OpenProjectButton->setEnabled(false);
+      break;
+    case Configuring:
+      this->ConfigureButton->setEnabled(true); // acts as Stop
+      this->GenerateButton->setEnabled(false);
+      this->ConfigureAction->setEnabled(false);
+      this->GenerateAction->setEnabled(false);
+      this->OpenProjectButton->setEnabled(false);
+      break;
+    case Generating:
+      this->GenerateButton->setEnabled(true); // acts as Stop
+      this->ConfigureButton->setEnabled(false);
+      this->ConfigureAction->setEnabled(false);
+      this->GenerateAction->setEnabled(false);
+      this->OpenProjectButton->setEnabled(false);
+      break;
+    case ReadyConfigure:
+    case ReadyGenerate: {
+      bool const enabled = !pending;
+      this->ConfigureButton->setEnabled(enabled);
+      this->GenerateButton->setEnabled(enabled);
+      this->ConfigureAction->setEnabled(enabled);
+      this->GenerateAction->setEnabled(enabled);
+
+      // Gate everything that reads or mutates the still-stale model, but keep
+      // the combo live so the user can pick a different preset.
+      this->CacheValues->cacheModel()->setEditEnabled(enabled);
+      this->SourceDirectory->setEnabled(enabled);
+      this->BrowseSourceDirectoryButton->setEnabled(enabled);
+      this->BinaryDirectory->setEnabled(enabled);
+      this->BrowseBinaryDirectoryButton->setEnabled(enabled);
+      this->ReloadCacheAction->setEnabled(enabled);
+      this->DeleteCacheAction->setEnabled(enabled);
+      this->ReloadPresetsButton->setEnabled(enabled);
+      this->AddEntry->setEnabled(enabled);
+      this->Environment->setEnabled(enabled);
+      this->Preset->setEnabled(!this->Preset->presets().isEmpty());
+      if (enabled) {
+        this->selectionChanged(); // let selection re-enable Remove
+      } else {
+        this->RemoveEntry->setEnabled(false);
+      }
+      break;
     }
-    this->ConfigureButton->setText(tr("&Configure"));
-    this->GenerateButton->setText(tr("&Generate"));
+  }
+}
+
+void CMakeSetupDialog::editEnvironment()
+{
+  EnvironmentDialog dialog(this->CMakeThread->cmakeInstance()->environment(),
+                           this);
+  if (dialog.exec() == QDialog::Accepted) {
+    QMetaObject::invokeMethod(
+      this->CMakeThread->cmakeInstance(), "setEnvironment",
+      Q_ARG(QProcessEnvironment, dialog.environment()));
   }
 }
 
@@ -1067,8 +1344,10 @@ void CMakeSetupDialog::addCacheEntry()
     new AddCacheEntry(&dialog, this->AddVariableNames, this->AddVariableTypes);
   QDialogButtonBox* btns = new QDialogButtonBox(
     QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, &dialog);
-  QObject::connect(btns, SIGNAL(accepted()), &dialog, SLOT(accept()));
-  QObject::connect(btns, SIGNAL(rejected()), &dialog, SLOT(reject()));
+  QObject::connect(btns, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
+  QObject::connect(btns, &QDialogButtonBox::rejected, &dialog,
+                   &QDialog::reject);
   l->addWidget(w);
   l->addStretch();
   l->addWidget(btns);
@@ -1146,7 +1425,8 @@ void CMakeSetupDialog::showUserChanges()
   l->addWidget(textedit);
   QDialogButtonBox* btns =
     new QDialogButtonBox(QDialogButtonBox::Close, Qt::Horizontal, &dialog);
-  QObject::connect(btns, SIGNAL(rejected()), &dialog, SLOT(accept()));
+  QObject::connect(btns, &QDialogButtonBox::rejected, &dialog,
+                   &QDialog::accept);
   l->addWidget(btns);
 
   QString command;
@@ -1189,29 +1469,37 @@ void CMakeSetupDialog::showUserChanges()
   dialog.exec();
 }
 
-void CMakeSetupDialog::setSearchFilter(const QString& str)
+void CMakeSetupDialog::setSearchFilter(QString const& str)
 {
   this->CacheValues->selectionModel()->clear();
-  this->CacheValues->setSearchFilter(str);
+  bool const valid = this->CacheValues->setSearchFilter(str);
+  QtCMake::setSearchFilterColor(this->Search, valid);
 }
 
-void CMakeSetupDialog::doOutputContextMenu(const QPoint& pt)
+void CMakeSetupDialog::doOutputContextMenu(QPoint pt)
 {
-  QMenu* menu = this->Output->createStandardContextMenu();
+  std::unique_ptr<QMenu> menu(this->Output->createStandardContextMenu());
 
   menu->addSeparator();
-  menu->addAction(tr("Find..."), this, SLOT(doOutputFindDialog()),
-                  QKeySequence::Find);
-  menu->addAction(tr("Find Next"), this, SLOT(doOutputFindNext()),
-                  QKeySequence::FindNext);
-  menu->addAction(tr("Find Previous"), this, SLOT(doOutputFindPrev()),
-                  QKeySequence::FindPrevious);
+  auto* a = menu->addAction(tr("Find..."));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputFindDialog);
+  a->setShortcut(QKeySequence::Find);
+  a = menu->addAction(tr("Find Next"));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputFindNext);
+  a->setShortcut(QKeySequence::FindNext);
+  a = menu->addAction(tr("Find Previous"));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputFindPrev);
+  a->setShortcut(QKeySequence::FindPrevious);
   menu->addSeparator();
-  menu->addAction(tr("Goto Next Error"), this, SLOT(doOutputErrorNext()),
-                  QKeySequence(Qt::Key_F8));
+  a = menu->addAction(tr("Goto Next Error"));
+  QObject::connect(a, &QAction::triggered, this,
+                   &CMakeSetupDialog::doOutputErrorNext);
+  a->setShortcut(QKeySequence(Qt::Key_F8));
 
   menu->exec(this->Output->mapToGlobal(pt));
-  delete menu;
 }
 
 void CMakeSetupDialog::doOutputFindDialog()

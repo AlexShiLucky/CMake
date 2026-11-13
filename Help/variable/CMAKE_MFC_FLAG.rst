@@ -1,16 +1,32 @@
 CMAKE_MFC_FLAG
 --------------
 
-Tell cmake to use MFC for an executable or dll.
+Use the MFC library for an executable or dll.
 
-This can be set in a ``CMakeLists.txt`` file and will enable MFC in the
-application.  It should be set to ``1`` for the static MFC library, and ``2``
-for the shared MFC library.  This is used in Visual Studio
-project files.  The CMakeSetup dialog used MFC and the ``CMakeLists.txt``
-looks like this:
+Enables the use of the Microsoft Foundation Classes (MFC).
+It should be set to ``1`` for the static MFC library, and
+``2`` for the shared MFC library.  This is used in Visual Studio
+project files.
 
-::
+Contents of ``CMAKE_MFC_FLAG`` may use
+:manual:`generator expressions <cmake-generator-expressions(7)>`.
 
-  add_definitions(-D_AFXDLL)
+Examples
+^^^^^^^^
+
+Usage example:
+
+.. code-block:: cmake
+
   set(CMAKE_MFC_FLAG 2)
+
   add_executable(CMakeSetup WIN32 ${SRCS})
+
+  # Visual Studio generators add this flag automatically based on the
+  # CMAKE_MFC_FLAG value, but generators matching "Make" require it:
+  target_compile_definitions(CMakeSetup PRIVATE _AFXDLL)
+
+See Also
+^^^^^^^^
+
+* The :module:`FindMFC` module to check whether MFC is installed and available.

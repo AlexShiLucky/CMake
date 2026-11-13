@@ -4,7 +4,7 @@
 # See accompanying file Copyright.txt for details.
 #
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
-  cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+  cmake_minimum_required(VERSION 3.13..4.0 FATAL_ERROR)
   set(kwiml_standalone 1)
   project(KWIML)
   include(CTest)
@@ -17,7 +17,6 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
   endif()
   set(KWIML_INCLUDE_PREFIX kwiml)
 else()
-  cmake_minimum_required(VERSION 2.8.2 FATAL_ERROR)
   set(kwiml_standalone 0)
   if(KWIML_INSTALL_INCLUDE_DIR AND NOT DEFINED KWIML_INCLUDE_PREFIX)
     message(FATAL_ERROR "Host project must set KWIML_INCLUDE_PREFIX")

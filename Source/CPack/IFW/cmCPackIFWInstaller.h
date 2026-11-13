@@ -1,15 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackIFWInstaller_h
-#define cmCPackIFWInstaller_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include "cmCPackIFWCommon.h"
 
 #include <map>
 #include <string>
 #include <vector>
+
+#include "cmCPackIFWCommon.h"
 
 class cmCPackIFWPackage;
 class cmCPackIFWRepository;
@@ -22,8 +21,8 @@ class cmCPackIFWInstaller : public cmCPackIFWCommon
 public:
   // Types
 
-  typedef std::map<std::string, cmCPackIFWPackage*> PackagesMap;
-  typedef std::vector<cmCPackIFWRepository*> RepositoriesVector;
+  using PackagesMap = std::map<std::string, cmCPackIFWPackage*>;
+  using RepositoriesVector = std::vector<cmCPackIFWRepository*>;
 
 public:
   // Constructor
@@ -72,11 +71,18 @@ public:
   /// Wizard style name
   std::string WizardStyle;
 
+  /// Filename for a style sheet
+  std::string StyleSheet;
+
   /// Wizard width
   std::string WizardDefaultWidth;
 
   /// Wizard height
   std::string WizardDefaultHeight;
+
+  /// Set to false if the widget listing installer pages on the left side
+  /// of the wizard should not be shown
+  std::string WizardShowPageList;
 
   /// Title color
   std::string TitleColor;
@@ -99,6 +105,13 @@ public:
   /// Set to true if the installation path can contain non-ASCII characters
   std::string AllowNonAsciiCharacters;
 
+  /// Set to false if the target directory should not be deleted when
+  /// uninstalling
+  std::string RemoveTargetDir;
+
+  /// Set to true if command line interface features should be disabled
+  std::string DisableCommandLineInterface;
+
   /// Set to false if the installation path cannot contain space characters
   std::string AllowSpaceInPath;
 
@@ -107,6 +120,29 @@ public:
 
   /// List of resources to include in the installer binary
   std::vector<std::string> Resources;
+
+  /// A list of images to be shown on PerformInstallationPage.
+  std::vector<std::string> ProductImages;
+
+  /// A list of associated URLs linked to images to be shown on
+  /// PerformInstallationPage.
+  std::vector<std::string> ProductImageUrls;
+
+  /// Command executed after the installer is done if the user accepts the
+  /// action
+  std::string RunProgram;
+
+  /// Arguments passed to the program specified in <RunProgram>
+  std::vector<std::string> RunProgramArguments;
+
+  /// Text shown next to the check box for running the program after the
+  /// installation
+  std::string RunProgramDescription;
+
+#ifdef __APPLE__
+  /// Code signing identity for signing the generated app bundle
+  std::string SigningIdentity;
+#endif
 
 public:
   // Internal implementation
@@ -122,8 +158,6 @@ public:
   std::string Directory;
 
 protected:
-  void printSkippedOptionWarning(const std::string& optionName,
-                                 const std::string& optionValue);
+  void printSkippedOptionWarning(std::string const& optionName,
+                                 std::string const& optionValue);
 };
-
-#endif // cmCPackIFWInstaller_h

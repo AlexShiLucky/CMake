@@ -1,43 +1,62 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmGetSourceFilePropertyCommand.h"
 
+#include <cm/string_view>
+#include <cmext/string_view>
+
+#include "cmExecutionStatus.h"
 #include "cmMakefile.h"
-#include "cmSourceFile.h"
+#include "cmSourceFilePropertyHelper.h"
+#include "cmValue.h"
 
-class cmExecutionStatus;
-
-// cmSetSourceFilePropertyCommand
-bool cmGetSourceFilePropertyCommand::InitialPass(
-  std::vector<std::string> const& args, cmExecutionStatus&)
+bool cmGetSourceFilePropertyCommand(std::vector<std::string> const& args,
+                                    cmExecutionStatus& status)
 {
-  if (args.size() != 3) {
-    this->SetError("called with incorrect number of arguments");
+  std::vector<std::string>::size_type args_size = args.size();
+  if (args_size != 3 && args_size != 5) {
+    status.SetError("called with incorrect number of arguments");
     return false;
   }
+
+  std::vector<std::string> source_file_directories;
+  std::vector<std::string> source_file_target_directories;
+  bool source_file_directory_option_enabled = false;
+  bool source_file_target_option_enabled = false;
+
+  int property_arg_index = 2;
+  if (args[2] == "DIRECTORY"_s && args_size == 5) {
+    property_arg_index = 4;
+    source_file_directory_option_enabled = true;
+    source_file_directories.push_back(args[3]);
+  } else if (args[2] == "TARGET_DIRECTORY"_s && args_size == 5) {
+    property_arg_index = 4;
+    source_file_target_option_enabled = true;
+    source_file_target_directories.push_back(args[3]);
+  }
+
   std::string const& var = args[0];
-  std::string const& file = args[1];
-  cmSourceFile* sf = this->Makefile->GetSource(file);
+  std::string const& sourceName = args[1];
+  std::string const& propName = args[property_arg_index];
 
-  // for the location we must create a source file first
-  if (!sf && args[2] == "LOCATION") {
-    sf = this->Makefile->CreateSource(file);
-  }
-  if (sf) {
-    if (args[2] == "LANGUAGE") {
-      this->Makefile->AddDefinition(var, sf->GetLanguage().c_str());
-      return true;
-    }
-    const char* prop = CM_NULLPTR;
-    if (!args[2].empty()) {
-      prop = sf->GetPropertyForUser(args[2]);
-    }
+  cmValue prop;
+  auto result = cmGetSourceFileProperty(
+    sourceName, propName, status, source_file_directory_option_enabled,
+    source_file_target_option_enabled, source_file_directories,
+    source_file_target_directories, prop);
+
+  if (result == cmGetSourceFilePropertyResult::Success) {
     if (prop) {
-      this->Makefile->AddDefinition(var, prop);
+      status.GetMakefile().AddDefinition(var, *prop);
       return true;
     }
+    status.GetMakefile().AddDefinition(var, "NOTFOUND");
+    return true;
   }
-
-  this->Makefile->AddDefinition(var, "NOTFOUND");
-  return true;
+  if (result == cmGetSourceFilePropertyResult::SourceNotFound ||
+      result == cmGetSourceFilePropertyResult::Error) {
+    status.GetMakefile().AddDefinition(var, "NOTFOUND");
+    return true;
+  }
+  return false;
 }

@@ -1,164 +1,305 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 #[=======================================================================[.rst:
 FindDoxygen
 -----------
 
-Doxygen is a documentation generation tool (see http://www.doxygen.org).
-This module looks for Doxygen and some optional tools it supports. These
-tools are enabled as components in the :command:`find_package` command:
-
-``dot``
-  `Graphviz <http://graphviz.org>`_ ``dot`` utility used to render various
-  graphs.
-``mscgen``
-  `Message Chart Generator <http://www.mcternan.me.uk/mscgen/>`_ utility used
-  by Doxygen's ``\msc`` and ``\mscfile`` commands.
-``dia``
-  `Dia <https://wiki.gnome.org/Apps/Dia>`_ the diagram editor used by Doxygen's
-  ``\diafile`` command.
-
-Examples:
+Finds `Doxygen <https://www.doxygen.nl>`_, a source code documentation
+generator, along with some optional supporting tools, and provides a command
+for integrating Doxygen-based documentation into CMake projects:
 
 .. code-block:: cmake
 
-  # Require dot, treat the other components as optional
-  find_package(Doxygen
-               REQUIRED dot
-               OPTIONAL_COMPONENTS mscgen dia)
+  find_package(Doxygen [<version>] [COMPONENTS <components>...] [...])
 
-The following variables are defined by this module:
+Components
+^^^^^^^^^^
 
-.. variable:: DOXYGEN_FOUND
+Additional Doxygen supporting tools, can be specified as components with the
+:command:`find_package()` command:
 
-  True if the ``doxygen`` executable was found.
+.. code-block:: cmake
 
-.. variable:: DOXYGEN_VERSION
+  find_package(Doxygen [COMPONENTS <components>...])
 
-  The version reported by ``doxygen --version``.
+Supported components include:
 
-The module defines ``IMPORTED`` targets for Doxygen and each component found.
-These can be used as part of custom commands, etc. and should be preferred over
-old-style (and now deprecated) variables like ``DOXYGEN_EXECUTABLE``. The
-following import targets are defined if their corresponding executable could be
-found (the component import targets will only be defined if that component was
-requested):
+``doxygen``
+  .. versionadded:: 3.9
 
-::
+  Finds the ``doxygen`` executable.  This component is always automatically
+  implied, even if not requested.
 
-  Doxygen::doxygen
-  Doxygen::dot
-  Doxygen::mscgen
-  Doxygen::dia
+``dot``
+  .. versionadded:: 3.9
 
+  Finds the `Graphviz <https://graphviz.org>`_ ``dot`` utility, used for
+  rendering graphs and diagrams as part of the documentation.
 
-Functions
-^^^^^^^^^
+``mscgen``
+  .. versionadded:: 3.9
+
+  Finds the `Message Chart Generator <https://www.mcternan.me.uk/mscgen/>`_
+  utility used by Doxygen's ``\msc`` and ``\mscfile`` commands.
+
+``dia``
+  .. versionadded:: 3.9
+
+  Finds the `Dia <https://wiki.gnome.org/Apps/Dia>`_ diagram editor used by
+  Doxygen's ``\diafile`` command.
+
+Imported Targets
+^^^^^^^^^^^^^^^^
+
+This module provides the following :ref:`Imported Targets`, each of which is
+defined if the corresponding component was requested and its associated
+executable was found:
+
+``Doxygen::doxygen``
+  .. versionadded:: 3.9
+
+  Imported executable target encapsulating the ``doxygen`` executable usage
+  requirements, available if Doxygen is found.
+
+``Doxygen::dot``
+  .. versionadded:: 3.9
+
+  Imported executable target encapsulating the ``dot`` executable usage
+  requirements, available if the above ``dot`` component is found.
+
+``Doxygen::mscgen``
+  .. versionadded:: 3.9
+
+  Imported executable target encapsulating the ``mscgen`` executable usage
+  requirements, available if the above ``mscgen`` component is found.
+
+``Doxygen::dia``
+  .. versionadded:: 3.9
+
+  Imported executable target encapsulating the ``dia`` executable usage
+  requirements, available if the above ``dia`` component is found.
+
+These targets can be used in commands such as :command:`add_custom_command`
+and are preferred over the older, now-deprecated variables like
+``DOXYGEN_EXECUTABLE``.
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``Doxygen_FOUND``
+  .. versionadded:: 3.3
+
+  Boolean indicating whether the (requested version of) ``doxygen`` executable
+  and all requested required components were found.
+
+``Doxygen_VERSION``
+  .. versionadded:: 4.2
+
+  The version of Doxygen found (as reported by ``doxygen --version``).
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
 
 .. command:: doxygen_add_docs
 
-  This function is intended as a convenience for adding a target for generating
-  documentation with Doxygen. It aims to provide sensible defaults so that
-  projects can generally just provide the input files and directories and that
-  will be sufficient to give sensible results. The function supports the
-  ability to customize the Doxygen configuration used to build the
-  documentation.
+  .. versionadded:: 3.9
 
-  ::
+  Adds a custom target for generating documentation with Doxygen during the
+  build phase:
 
-    doxygen_add_docs(targetName
-        [filesOrDirs...]
-        [WORKING_DIRECTORY dir]
-        [COMMENT comment])
+  .. code-block:: cmake
 
-  The function constructs a ``Doxyfile`` and defines a custom target that runs
-  Doxygen on that generated file. The listed files and directories are used as
-  the ``INPUT`` of the generated ``Doxyfile`` and they can contain wildcards.
-  Any files that are listed explicitly will also be added as ``SOURCES`` of the
-  custom target so they will show up in an IDE project's source list.
+    doxygen_add_docs(
+      <target-name>
+      [<files-or-dirs>...]
+      [ALL]
+      [USE_STAMP_FILE]
+      [WORKING_DIRECTORY <dir>]
+      [COMMENT <comment>]
+      [CONFIG_FILE <file>]
+      [USES_TERMINAL]
+    )
 
-  So that relative input paths work as expected, by default the working
-  directory of the Doxygen command will be the current source directory (i.e.
-  :variable:`CMAKE_CURRENT_SOURCE_DIR`). This can be overridden with the
-  ``WORKING_DIRECTORY`` option to change the directory used as the relative
-  base point. Note also that Doxygen's default behavior is to strip the working
-  directory from relative paths in the generated documentation (see the
-  ``STRIP_FROM_PATH`` `Doxygen config option
-  <http://www.doxygen.org/manual/config.html>`_ for details).
+  By default, this convenience command also generates a configuration file
+  named ``Doxyfile.<target-name>`` in the current binary directory at
+  CMake configuration phase.  It provides sensible defaults, so most projects
+  only need to specify input files or directories.  Additional behavior and
+  configuration can be customized using variables described in the following
+  sections.
 
-  If provided, the optional ``comment`` will be passed as the ``COMMENT`` for
-  the :command:`add_custom_target` command used to create the custom target
-  internally.
+  .. rubric:: The arguments are:
 
-  The contents of the generated ``Doxyfile`` can be customized by setting CMake
-  variables before calling ``doxygen_add_docs()``. Any variable with a name of
-  the form ``DOXYGEN_<tag>`` will have its value substituted for the
-  corresponding ``<tag>`` configuration option in the ``Doxyfile``. See the
-  `Doxygen documentation <http://www.doxygen.org/manual/config.html>`_ for the
-  full list of supported configuration options.
+  ``<target-name>``
+    The name of the target to be created for generating documentation with
+    Doxygen.
 
-  Some of Doxygen's defaults are overridden to provide more appropriate
-  behavior for a CMake project. Each of the following will be explicitly set
-  unless the variable already has a value before ``doxygen_add_docs()`` is
-  called (with some exceptions noted):
+  ``<files-or-dirs>...``
+    One or more paths (files or directories) that serve as input sources for
+    documentation.
 
-  .. variable:: DOXYGEN_HAVE_DOT
+    These are passed to the ``INPUT`` Doxygen configuration tag in the
+    generated ``Doxyfile.<target-name>``.  Files listed here are also added
+    as ``SOURCES`` argument of the underlying :command:`add_custom_target`
+    command so they appear in IDE project's source list.
 
-    Set to ``YES`` if the ``dot`` component was requested and it was found,
-    ``NO`` otherwise. Any existing value of ``DOXYGEN_HAVE_DOT`` is ignored.
+    When using the ``USE_STAMP_FILE`` option, only files (not directories,
+    symlinks, or wildcards) are allowed, and each must exist when this
+    command is called.
 
-  .. variable:: DOXYGEN_DOT_MULTI_TARGETS
+  ``ALL``
+    .. versionadded:: 3.12
 
+    Adds the created documentation target to the default build target so
+    that it runs automatically as part of the build phase.
+
+  ``USE_STAMP_FILE``
+    .. versionadded:: 3.16
+
+    Enables use of a stamp file to avoid regenerating documentation unless
+    source files have changed.
+
+    Stamp file named ``<target-name>.stamp`` is created in the current binary
+    directory by an underlying custom command.
+
+    With this option present, all entries in ``<files-or-dirs>`` must be
+    existing files (i.e. no directories, symlinks or wildcards) when this
+    command is called.  An error is raised if any listed path is invalid.
+
+    Without this option, CMake will re-run Doxygen every time the
+    ``<target-name>`` target is built, regardless of whether any input source
+    file listed in ``<files-or-dirs>`` has changed.
+
+  ``WORKING_DIRECTORY <dir>``
+    By default, the Doxygen working directory is the current source directory
+    (:variable:`CMAKE_CURRENT_SOURCE_DIR`).  This aligns with using relative
+    input paths.
+
+    Use this option, to change and override the directory where Doxygen is
+    being run.  The absolute path ``<dir>`` will then be used as the base
+    point for relative paths.
+
+    Note also that Doxygen's default behavior is to strip the working
+    directory from relative paths in the generated documentation.  See the
+    ``STRIP_FROM_PATH`` config tag in the `Doxygen manual
+    <https://www.doxygen.nl/manual/config.html>`_ for more details.
+
+  ``COMMENT <comment>``
+    If provided, the ``<comment>`` string will be passed as the ``COMMENT``
+    argument to the underlying :command:`add_custom_target` command used to
+    create the custom target internally.  This appears in the build system
+    output, when the target is built.
+
+  ``CONFIG_FILE <file>``
+    .. versionadded:: 3.27
+
+    If specified, the given file provided with full-path will be used as
+    Doxygen configuration file instead of the default
+    ``Doxyfile.<target-name>``.
+
+  ``USES_TERMINAL``
+    .. versionadded:: 4.5
+
+    If provided, the Doxygen command will be given access to the terminal
+    if possible.  With the :generator:`Ninja` generator, this places
+    the command in the ``console`` :prop_gbl:`pool <JOB_POOLS>`.
+
+  .. rubric:: Variables for customizing Doxygen configuration
+
+  The ``doxygen_add_docs()`` command generates a Doxygen configuration file
+  containing configuration tags.  For example:
+
+  .. code-block:: text
+    :caption: ``Doxygen.<target-name>``
+
+    DOXYFILE_ENCODING      = UTF-8
+    PROJECT_NAME           = DoxygenExample
+    PROJECT_NUMBER         = 1.2.3
+    PROJECT_BRIEF          = "Example project using Doxygen"
+    PROJECT_LOGO           =
+    OUTPUT_DIRECTORY       = /home/user/doxygen-example/build
+    GENERATE_HTML          = YES
+    GENERATE_MAN           = NO
+    # ...
+
+  In CMake, these tags can be modified by setting input variables in form
+  of ``DOXYGEN_<tag>``, where ``<tag>`` is one of the configuration tags
+  listed in the `Doxygen manual
+  <https://www.doxygen.nl/manual/config.html>`_.
+
+  For example, to modify the ``GENERATE_HTML`` and ``GENERATE_MAN``
+  configuration tags, the following variables can be set before calling
+  ``doxygen_add_docs()``:
+
+  .. code-block:: cmake
+    :caption: ``CMakeLists.txt``
+
+    find_package(Doxygen)
+
+    if(Doxygen_FOUND)
+      set(DOXYGEN_GENERATE_HTML NO)
+      set(DOXYGEN_GENERATE_MAN YES)
+
+      doxygen_add_docs(project_docs ${PROJECT_SOURCE_DIR})
+    endif()
+
+  .. rubric:: Default configuration
+
+  By default, ``doxygen_add_docs()`` overrides several of Doxygen's settings
+  to better suit typical CMake projects.  Each of the following variables is
+  explicitly set unless already defined prior to calling
+  ``doxygen_add_docs()``, with a few exceptions noted below:
+
+  ``DOXYGEN_HAVE_DOT``
+    Set to ``YES`` if the ``dot`` component was requested and found, ``NO``
+    otherwise.  Any existing value of ``DOXYGEN_HAVE_DOT`` is ignored.
+
+  ``DOXYGEN_DOT_MULTI_TARGETS``
     Set to ``YES`` by this module (note that this requires a ``dot`` version
-    newer than 1.8.10). This option is only meaningful if ``DOXYGEN_HAVE_DOT``
+    newer than 1.8.10).  This option is only meaningful if ``DOXYGEN_HAVE_DOT``
     is also set to ``YES``.
 
-  .. variable:: DOXYGEN_GENERATE_LATEX
-
+  ``DOXYGEN_GENERATE_LATEX``
     Set to ``NO`` by this module.
 
-  .. variable:: DOXYGEN_WARN_FORMAT
-
+  ``DOXYGEN_WARN_FORMAT``
     For Visual Studio based generators, this is set to the form recognized by
     the Visual Studio IDE: ``$file($line) : $text``. For all other generators,
     Doxygen's default value is not overridden.
 
-  .. variable:: DOXYGEN_PROJECT_NAME
-
+  ``DOXYGEN_PROJECT_NAME``
     Populated with the name of the current project (i.e.
     :variable:`PROJECT_NAME`).
 
-  .. variable:: DOXYGEN_PROJECT_NUMBER
-
+  ``DOXYGEN_PROJECT_NUMBER``
     Populated with the version of the current project (i.e.
     :variable:`PROJECT_VERSION`).
 
-  .. variable:: DOXYGEN_PROJECT_BRIEF
-
+  ``DOXYGEN_PROJECT_BRIEF``
     Populated with the description of the current project (i.e.
     :variable:`PROJECT_DESCRIPTION`).
 
-  .. variable:: DOXYGEN_INPUT
+  ``DOXYGEN_INPUT``
+    This variable is automatically populated with the list of files and
+    directories passed to ``doxygen_add_docs()``.  For consistent behavior
+    with other built-in commands like :command:`add_executable`,
+    :command:`add_library`, and :command:`add_custom_target`, projects should
+    not set this variable manually.  If a variable named ``DOXYGEN_INPUT``
+    is set by the project, it will be ignored and a warning will be issued.
 
-    Projects should not set this variable. It will be populated with the set of
-    files and directories passed to ``doxygen_add_docs()``, thereby providing
-    consistent behavior with the other built-in commands like
-    :command:`add_executable`, :command:`add_library` and
-    :command:`add_custom_target`. If a variable named ``DOXYGEN_INPUT`` is set
-    by the project, it will be ignored and a warning will be issued.
-
-  .. variable:: DOXYGEN_RECURSIVE
-
+  ``DOXYGEN_RECURSIVE``
     Set to ``YES`` by this module.
 
-  .. variable:: DOXYGEN_EXCLUDE_PATTERNS
-
-    If the set of inputs includes directories, this variable will specify
-    patterns used to exclude files from them. The following patterns are added
-    by ``doxygen_add_docs()`` to ensure CMake-specific files and directories
-    are not included in the input. If the project sets
-    ``DOXYGEN_EXCLUDE_PATTERNS``, those contents are merged with these
+  ``DOXYGEN_EXCLUDE_PATTERNS``
+    If the ``<files-or-dirs>`` argument of ``doxygen_add_docs()`` contains
+    directories, this variable will specify patterns used to exclude files
+    from them.  The following patterns are added by default to ensure
+    CMake-specific files and directories are not included in the input.  If
+    the project sets this variable, those contents are merged with these
     additional patterns rather than replacing them:
 
     ::
@@ -172,169 +313,398 @@ Functions
       CMakeLists.txt
       CMakeCache.txt
 
-  .. variable:: DOXYGEN_OUTPUT_DIRECTORY
+  ``DOXYGEN_OUTPUT_DIRECTORY``
+    Set to :variable:`CMAKE_CURRENT_BINARY_DIR` by this module.  If the
+    project provides its own value for this and it is a relative path, it
+    will be interpreted relative to the current binary directory
+    (:variable:`CMAKE_CURRENT_BINARY_DIR`).  This is necessary because
+    Doxygen will normally be run from a directory within the source tree so
+    that relative source paths work as expected.  If this directory does not
+    exist, it will be recursively created prior to executing Doxygen.
 
-    Set to :variable:`CMAKE_CURRENT_BINARY_DIR` by this module. Note that if
-    the project provides its own value for this and it is a relative path, it
-    will be converted to an absolute path relative to the current binary
-    directory. This is necessary because doxygen will normally be run from a
-    directory within the source tree so that relative source paths work as
-    expected. If this directory does not exist, it will be recursively created
-    prior to executing the doxygen commands.
+  .. rubric:: Lists
 
-To change any of these defaults or override any other Doxygen config option,
-set relevant variables before calling ``doxygen_add_docs()``. For example:
+  A number of Doxygen config tags accept lists of values, and Doxygen
+  requires them to be separated by whitespace, while in CMake a list is a
+  string with items separated by :ref:`semicolons <CMake Language Lists>`.
+
+  The ``doxygen_add_docs()`` specifically checks for the following Doxygen
+  config tags and converts their associated CMake ``DOXYGEN_<tag>`` variable
+  values into the Doxygen-formatted lists if set:
+
+  .. hlist::
+
+    - ``ABBREVIATE_BRIEF``
+    - ``ALIASES``
+    - ``CITE_BIB_FILES``
+    - ``DIAFILE_DIRS``
+    - ``DOTFILE_DIRS``
+    - ``DOT_FONTPATH``
+    - ``ENABLED_SECTIONS``
+    - ``EXAMPLE_PATH``
+    - ``EXAMPLE_PATTERNS``
+    - ``EXCLUDE``
+    - ``EXCLUDE_PATTERNS``
+    - ``EXCLUDE_SYMBOLS``
+    - ``EXPAND_AS_DEFINED``
+    - ``EXTENSION_MAPPING``
+    - ``EXTRA_PACKAGES``
+    - ``EXTRA_SEARCH_MAPPINGS``
+    - ``FILE_PATTERNS``
+    - ``FILTER_PATTERNS``
+    - ``FILTER_SOURCE_PATTERNS``
+    - ``HTML_EXTRA_FILES``
+    - ``HTML_EXTRA_STYLESHEET``
+    - ``IGNORE_PREFIX``
+    - ``IMAGE_PATH``
+    - ``INCLUDE_FILE_PATTERNS``
+    - ``INCLUDE_PATH``
+    - ``INPUT``
+    - ``LATEX_EXTRA_FILES``
+    - ``LATEX_EXTRA_STYLESHEET``
+    - ``MATHJAX_EXTENSIONS``
+    - ``MSCFILE_DIRS``
+    - ``PLANTUML_INCLUDE_PATH``
+    - ``PREDEFINED``
+    - ``QHP_CUST_FILTER_ATTRS``
+    - ``QHP_SECT_FILTER_ATTRS``
+    - ``STRIP_FROM_INC_PATH``
+    - ``STRIP_FROM_PATH``
+    - ``TAGFILES``
+    - ``TCL_SUBST``
+
+  For example, to customize the Doxygen file patterns, a usual
+  :ref:`semicolon-separated list <CMake Language Lists>` can be set in CMake:
 
   .. code-block:: cmake
+    :caption: ``CMakeLists.txt``
 
-    set(DOXYGEN_GENERATE_HTML NO)
-    set(DOXYGEN_GENERATE_MAN YES)
+    find_package(Doxygen)
 
-    doxygen_add_docs(
-        doxygen
-        ${PROJECT_SOURCE_DIR}
-        COMMENT "Generate man pages"
-    )
+    if(Doxygen_FOUND)
+      set(DOXYGEN_FILE_PATTERNS *.c *.cxx *.h *.hxx)
+      doxygen_add_docs(example_docs ${CMAKE_CURRENT_SOURCE_DIR} ALL)
+    endif()
 
-A number of Doxygen config options accept lists of values, but Doxygen requires
-them to be separated by whitespace. CMake variables hold lists as a string with
-items separated by semi-colons, so a conversion needs to be performed. The
-``doxygen_add_docs()`` command specifically checks the following Doxygen config
-options and will convert their associated CMake variable's contents into the
-required form if set.
+  Which will produce a Doxygen list of patterns separated by spaces in the
+  generated configuration file:
 
-::
+  .. code-block:: text
+    :caption: ``Doxyfile.<target-name>``
 
-  ABBREVIATE_BRIEF
-  ALIASES
-  CITE_BIB_FILES
-  DIAFILE_DIRS
-  DOTFILE_DIRS
-  DOT_FONTPATH
-  ENABLED_SECTIONS
-  EXAMPLE_PATH
-  EXAMPLE_PATTERNS
-  EXCLUDE
-  EXCLUDE_PATTERNS
-  EXCLUDE_SYMBOLS
-  EXPAND_AS_DEFINED
-  EXTENSION_MAPPING
-  EXTRA_PACKAGES
-  EXTRA_SEARCH_MAPPINGS
-  FILE_PATTERNS
-  FILTER_PATTERNS
-  FILTER_SOURCE_PATTERNS
-  HTML_EXTRA_FILES
-  HTML_EXTRA_STYLESHEET
-  IGNORE_PREFIX
-  IMAGE_PATH
-  INCLUDE_FILE_PATTERNS
-  INCLUDE_PATH
-  INPUT
-  LATEX_EXTRA_FILES
-  LATEX_EXTRA_STYLESHEET
-  MATHJAX_EXTENSIONS
-  MSCFILE_DIRS
-  PLANTUML_INCLUDE_PATH
-  PREDEFINED
-  QHP_CUST_FILTER_ATTRS
-  QHP_SECT_FILTER_ATTRS
-  STRIP_FROM_INC_PATH
-  STRIP_FROM_PATH
-  TAGFILES
-  TCL_SUBST
+    # ...
+    FILE_PATTERNS          = *.c *.cxx *.h *.hxx
 
-The following single value Doxygen options would be quoted automatically
-if they contain at least one space:
+  .. rubric:: Automatic quoting
 
-::
+  If a Doxygen single-value tag contains spaces, their values must be
+  surrounded by double quotes (``"..."``).  ``doxygen_add_docs()``
+  automatically quotes values of the following Doxygen tags when generating
+  the ``Doxyfile``, if they contain at least one space:
 
-  CHM_FILE
-  DIA_PATH
-  DOCBOOK_OUTPUT
-  DOCSET_FEEDNAME
-  DOCSET_PUBLISHER_NAME
-  DOT_FONTNAME
-  DOT_PATH
-  EXTERNAL_SEARCH_ID
-  FILE_VERSION_FILTER
-  GENERATE_TAGFILE
-  HHC_LOCATION
-  HTML_FOOTER
-  HTML_HEADER
-  HTML_OUTPUT
-  HTML_STYLESHEET
-  INPUT_FILTER
-  LATEX_FOOTER
-  LATEX_HEADER
-  LATEX_OUTPUT
-  LAYOUT_FILE
-  MAN_OUTPUT
-  MAN_SUBDIR
-  MATHJAX_CODEFILE
-  MSCGEN_PATH
-  OUTPUT_DIRECTORY
-  PERL_PATH
-  PLANTUML_JAR_PATH
-  PROJECT_BRIEF
-  PROJECT_LOGO
-  PROJECT_NAME
-  QCH_FILE
-  QHG_LOCATION
-  QHP_CUST_FILTER_NAME
-  QHP_VIRTUAL_FOLDER
-  RTF_EXTENSIONS_FILE
-  RTF_OUTPUT
-  RTF_STYLESHEET_FILE
-  SEARCHDATA_FILE
-  USE_MDFILE_AS_MAINPAGE
-  WARN_FORMAT
-  WARN_LOGFILE
-  XML_OUTPUT
+  .. hlist::
 
-Deprecated Result Variables
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    - ``CHM_FILE``
+    - ``DIA_PATH``
+    - ``DOCBOOK_OUTPUT``
+    - ``DOCSET_FEEDNAME``
+    - ``DOCSET_PUBLISHER_NAME``
+    - ``DOT_FONTNAME``
+    - ``DOT_PATH``
+    - ``EXTERNAL_SEARCH_ID``
+    - ``FILE_VERSION_FILTER``
+    - ``GENERATE_TAGFILE``
+    - ``HHC_LOCATION``
+    - ``HTML_FOOTER``
+    - ``HTML_HEADER``
+    - ``HTML_OUTPUT``
+    - ``HTML_STYLESHEET``
+    - ``INPUT_FILTER``
+    - ``LATEX_FOOTER``
+    - ``LATEX_HEADER``
+    - ``LATEX_OUTPUT``
+    - ``LAYOUT_FILE``
+    - ``MAN_OUTPUT``
+    - ``MAN_SUBDIR``
+    - ``MATHJAX_CODEFILE``
+    - ``MSCGEN_PATH``
+    - ``OUTPUT_DIRECTORY``
+    - ``PERL_PATH``
+    - ``PLANTUML_JAR_PATH``
+    - ``PROJECT_BRIEF``
+    - ``PROJECT_LOGO``
+    - ``PROJECT_NAME``
+    - ``QCH_FILE``
+    - ``QHG_LOCATION``
+    - ``QHP_CUST_FILTER_NAME``
+    - ``QHP_VIRTUAL_FOLDER``
+    - ``RTF_EXTENSIONS_FILE``
+    - ``RTF_OUTPUT``
+    - ``RTF_STYLESHEET_FILE``
+    - ``SEARCHDATA_FILE``
+    - ``USE_MDFILE_AS_MAINPAGE``
+    - ``WARN_FORMAT``
+    - ``WARN_LOGFILE``
+    - ``XML_OUTPUT``
+
+  ``DOXYGEN_VERBATIM_VARS``
+    .. versionadded:: 3.11
+
+    A CMake input variable used by ``doxygen_add_docs()`` to specify a list
+    of Doxygen input variables (including their leading ``DOXYGEN_`` prefix)
+    whose values should be passed to the generated ``Doxyfile`` configuration
+    without automatic quoting.
+
+    When using this variable, the project is then responsible for ensuring
+    that those variables' values make sense when placed directly in the
+    generated ``Doxyfile`` configuration.  For list variables, items are
+    still separated by spaces in the output, but no quoting is applied to the
+    individual items.
+
+    For certain Doxygen tags, such as ``ALIASES``, automatic quoting done by
+    ``doxygen_add_docs()`` may interfere with correct syntax (e.g., embedded
+    quotes).
+
+    For example, the following will quote ``DOXYGEN_PROJECT_BRIEF``, but skip
+    each item in the ``DOXYGEN_ALIASES`` list (:ref:`bracket syntax
+    <Bracket Argument>` is used to make working with embedded quotes easier):
+
+    .. code-block:: cmake
+      :caption: ``CMakeLists.txt``
+
+      find_package(Doxygen)
+
+      if(Doxygen_FOUND)
+        set(DOXYGEN_PROJECT_BRIEF "String with spaces")
+        set(
+          DOXYGEN_ALIASES
+          [[somealias="@some_command param"]]
+          "anotherAlias=@foobar"
+        )
+        set(DOXYGEN_VERBATIM_VARS DOXYGEN_ALIASES)
+
+        add_doxygen_docs(project_docs ${PROJECT_SOURCE_DIR})
+      endif()
+
+    The resultant ``Doxyfile`` configuration will contain the following lines:
+
+    .. code-block:: text
+      :caption: ``Doxyfile.project_docs``
+
+      PROJECT_BRIEF = "String with spaces"
+      ALIASES       = somealias="@some_command param" anotherAlias=@foobar
+
+Deprecated Variables
+^^^^^^^^^^^^^^^^^^^^
 
 For compatibility with previous versions of CMake, the following variables
 are also defined but they are deprecated and should no longer be used:
 
-.. variable:: DOXYGEN_EXECUTABLE
+``DOXYGEN_FOUND``
+  .. deprecated:: 4.2
+    Use ``Doxygen_FOUND``.
 
-  The path to the ``doxygen`` command. If projects need to refer to the
-  ``doxygen`` executable directly, they should use the ``Doxygen::doxygen``
-  import target instead.
+  Boolean indicating whether the (requested version of) ``doxygen`` executable
+  and all requested required components were found.  It has a boolean value
+  of ``YES`` or ``NO``.
 
-.. variable:: DOXYGEN_DOT_FOUND
+``DOXYGEN_EXECUTABLE``
+  .. deprecated:: 3.9
+    Use ``Doxygen::doxygen`` imported target instead of referring to the
+    ``doxygen`` executable directly.
 
-  True if the ``dot`` executable was found.
+  Cache variable containing the path to the ``doxygen`` command.
 
-.. variable:: DOXYGEN_DOT_EXECUTABLE
+``DOXYGEN_DOT_FOUND``
+  .. deprecated:: 3.9
+    Use ``Doxygen_dot_FOUND``.
 
-  The path to the ``dot`` command. If projects need to refer to the ``dot``
-  executable directly, they should use the ``Doxygen::dot`` import target
-  instead.
+  Boolean result variable indicating whether ``dot`` executable was found.
 
-.. variable:: DOXYGEN_DOT_PATH
+``DOXYGEN_DOT_EXECUTABLE``
+  .. deprecated:: 3.9
+    Use ``Doxygen::dot`` imported target instead of referring to the ``dot``
+    executable directly.
 
-  The path to the directory containing the ``dot`` executable as reported in
-  ``DOXYGEN_DOT_EXECUTABLE``. The path may have forward slashes even on Windows
-  and is not suitable for direct substitution into a ``Doxyfile.in`` template.
-  If you need this value, get the :prop_tgt:`IMPORTED_LOCATION` property of the
-  ``Doxygen::dot`` target and use :command:`get_filename_component` to extract
-  the directory part of that path. You may also want to consider using
-  :command:`file(TO_NATIVE_PATH)` to prepare the path for a Doxygen
-  configuration file.
+  Cache variable containing the path to the ``dot`` command-line executable.
 
+``DOXYGEN_DOT_PATH``
+  .. deprecated:: 3.9
 
-Deprecated Hint Variables
-^^^^^^^^^^^^^^^^^^^^^^^^^
+  Result variable containing the path to the directory where the ``dot``
+  executable is located as reported in ``DOXYGEN_DOT_EXECUTABLE``.  The path
+  may have forward slashes even on Windows and is not suitable for direct
+  substitution into a ``Doxyfile.in`` template.  If this value is needed, get
+  the :prop_tgt:`IMPORTED_LOCATION` property of the ``Doxygen::dot`` target
+  and use :command:`get_filename_component` to extract the directory part of
+  that path.  Consider also using :command:`file(TO_NATIVE_PATH)` to prepare
+  the path for a Doxygen configuration file.
 
-.. variable:: DOXYGEN_SKIP_DOT
+``DOXYGEN_SKIP_DOT``
+  .. deprecated:: 3.9
 
-  This variable has no any effect for component form of ``find_package``.
-  In backward compatibility mode (i.e. without components list) it prevents
-  the finder module from searching for Graphviz's ``dot`` utility.
+  This hint variable has no effect when specifying components in
+  ``find_package(Doxygen COMPONENTS ...)``.  In backward-compatibility mode
+  (i.e. without specifying components) it prevents this find module from
+  searching for Graphviz's ``dot`` utility.
 
+``DOXYGEN_VERSION``
+  .. deprecated:: 4.2
+    Superseded by the ``Doxygen_VERSION``.
+
+  The version of Doxygen found.
+
+Examples
+^^^^^^^^
+
+Examples: Finding Doxygen
+"""""""""""""""""""""""""
+
+Finding Doxygen:
+
+.. code-block:: cmake
+
+  find_package(Doxygen)
+
+Or, finding Doxygen and specifying a minimum required version:
+
+.. code-block:: cmake
+
+  find_package(Doxygen 1.9)
+
+Or, finding Doxygen and making it required (if not found, processing stops
+with an error message):
+
+.. code-block:: cmake
+
+  find_package(Doxygen REQUIRED)
+
+Or, finding Doxygen as required and specifying ``dot`` tool as required
+component and ``mscgen`` and ``dia`` tools as optional components:
+
+.. code-block:: cmake
+
+  find_package(Doxygen REQUIRED COMPONENTS dot OPTIONAL_COMPONENTS mscgen dia)
+
+Example: Using Doxygen in CMake
+"""""""""""""""""""""""""""""""
+
+The following example demonstrates how to find Doxygen and create documentation
+from source files at build phase.  Once project is built, generated
+documentation files will be located in the ``html`` directory inside the
+project binary directory:
+
+.. code-block:: cmake
+  :caption: ``CMakeLists.txt``
+
+  cmake_minimum_required(VERSION 3.24)
+  project(
+    DoxygenExample
+    DESCRIPTION "Example project using Doxygen"
+    VERSION 1.2.3
+  )
+
+  add_executable(example example.c)
+
+  find_package(Doxygen)
+
+  if(Doxygen_FOUND)
+    doxygen_add_docs(project_docs example.c ALL USE_STAMP_FILE)
+  endif()
+
+.. code-block:: c
+  :caption: ``example.c``
+
+  /**
+   * @file example.c
+   * @brief A simple example to demonstrate Doxygen.
+   */
+
+  #include <stdio.h>
+
+  /**
+   * @brief Calculates the sum of two integers.
+   *
+   * @param a First integer.
+   * @param b Second integer.
+   * @return Sum of a and b.
+   *
+   * @par Example
+   * @code
+   * int result = sum(3, 4);
+   * printf("%d\n", result); // Outputs: 7
+   * @endcode
+   */
+  int sum(int a, int b) { return a + b; }
+
+  /**
+   * @brief Main function.
+   *
+   * @return 0 on success.
+   */
+  int main(void)
+  {
+    int result = sum(5, 7);
+    printf("Result: %d\n", result);
+    return 0;
+  }
+
+Example: Configuring Doxygen With Variables
+"""""""""""""""""""""""""""""""""""""""""""
+
+In the following example, Doxygen configuration is customized using CMake
+variables.  The configuration sets file patterns when using a directory as
+the source input (:variable:`CMAKE_CURRENT_SOURCE_DIR`), enables a theme
+toggle for switching between light and dark modes, suppresses Doxygen's
+standard output during the build phase, specifies a Markdown file as the
+main page, and disables warnings about undocumented code:
+
+.. code-block:: cmake
+
+  find_package(Doxygen)
+
+  if(Doxygen_FOUND)
+    set(DOXYGEN_FILE_PATTERNS *.c *.cxx *.md)
+    set(DOXYGEN_HTML_COLORSTYLE "TOGGLE")
+    set(DOXYGEN_QUIET YES)
+    set(DOXYGEN_USE_MDFILE_AS_MAINPAGE "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+    set(DOXYGEN_WARN_IF_UNDOCUMENTED NO)
+
+    doxygen_add_docs(example_docs ${CMAKE_CURRENT_SOURCE_DIR} ALL)
+  endif()
+
+Example: Custom Configuration File
+""""""""""""""""""""""""""""""""""
+
+In the following example, a custom ``Doxyfile`` configuration file is created
+in the current binary directory (:variable:`CMAKE_CURRENT_BINARY_DIR`) prior
+to calling the ``doxygen_add_docs()``.  This allows project-specific
+configuration tags to be customized as needed:
+
+.. code-block:: cmake
+  :caption: ``CMakeLists.txt``
+
+  find_package(Doxygen)
+
+  if(Doxygen_FOUND)
+    configure_file(Doxyfile.in Doxyfile)
+
+    doxygen_add_docs(
+      example_docs
+      foo.c bar.c
+      ALL
+      USE_STAMP_FILE
+      COMMENT "Generating project documentation with custom Doxyfile"
+      CONFIG_FILE ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+    )
+  endif()
+
+.. code-block:: text
+  :caption: ``Doxyfile.in``
+
+  PROJECT_NAME           = "Customized project name"
+  OUTPUT_DIRECTORY       = "@CMAKE_CURRENT_BINARY_DIR@"
+  # ...
 #]=======================================================================]
 
 # For backwards compatibility support
@@ -370,9 +740,41 @@ endif()
 # or use something like homebrew.
 # ============== End OSX stuff ================
 
+include(FindPackageHandleStandardArgs)
+
 #
 # Find Doxygen...
 #
+function(_Doxygen_get_version doxy_version result_var doxy_path)
+        execute_process(
+            COMMAND "${doxy_path}" --version
+            OUTPUT_VARIABLE full_doxygen_version
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE version_result
+            ERROR_QUIET
+        )
+
+        # Ignore any commit hashes, etc.
+        string(REGEX MATCH [[^[0-9]+\.[0-9]+\.[0-9]+]] sem_doxygen_version "${full_doxygen_version}")
+
+        set(${result_var} ${version_result} PARENT_SCOPE)
+        set(${doxy_version} ${sem_doxygen_version} PARENT_SCOPE)
+endfunction()
+
+function(_Doxygen_version_validator version_match doxy_path)
+    if(NOT DEFINED Doxygen_FIND_VERSION)
+        set(${is_valid_version} TRUE PARENT_SCOPE)
+    else()
+        _Doxygen_get_version(candidate_version version_result "${doxy_path}")
+
+        find_package_check_version("${candidate_version}" valid_doxy_version
+            HANDLE_VERSION_RANGE
+        )
+
+        set(${version_match} "${valid_doxy_version}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 macro(_Doxygen_find_doxygen)
     find_program(
         DOXYGEN_EXECUTABLE
@@ -381,27 +783,30 @@ macro(_Doxygen_find_doxygen)
             "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\doxygen_is1;Inno Setup: App Path]/bin"
             /Applications/Doxygen.app/Contents/Resources
             /Applications/Doxygen.app/Contents/MacOS
-        DOC "Doxygen documentation generation tool (http://www.doxygen.org)"
+            /Applications/Utilities/Doxygen.app/Contents/Resources
+            /Applications/Utilities/Doxygen.app/Contents/MacOS
+        DOC "Doxygen documentation generation tool (https://www.doxygen.nl)"
+        VALIDATOR _Doxygen_version_validator
     )
     mark_as_advanced(DOXYGEN_EXECUTABLE)
 
     if(DOXYGEN_EXECUTABLE)
-        execute_process(
-            COMMAND "${DOXYGEN_EXECUTABLE}" --version
-            OUTPUT_VARIABLE DOXYGEN_VERSION
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE _Doxygen_version_result
-        )
-        if(_Doxygen_version_result)
-            message(WARNING "Unable to determine doxygen version: ${_Doxygen_version_result}")
-        endif()
+        _Doxygen_get_version(Doxygen_VERSION _Doxygen_version_result "${DOXYGEN_EXECUTABLE}")
+        set(DOXYGEN_VERSION "${Doxygen_VERSION}")
 
-        # Create an imported target for Doxygen
-        if(NOT TARGET Doxygen::doxygen)
-            add_executable(Doxygen::doxygen IMPORTED GLOBAL)
-            set_target_properties(Doxygen::doxygen PROPERTIES
-                IMPORTED_LOCATION "${DOXYGEN_EXECUTABLE}"
-            )
+        if(_Doxygen_version_result)
+            if(NOT Doxygen_FIND_QUIETLY)
+                message(WARNING "Doxygen executable failed unexpected while determining version (exit status: ${_Doxygen_version_result}). Disabling Doxygen.")
+            endif()
+            set(DOXYGEN_EXECUTABLE "${DOXYGEN_EXECUTABLE}-FAILED_EXECUTION-NOTFOUND")
+        else()
+            # Create an imported target for Doxygen
+            if(NOT TARGET Doxygen::doxygen)
+                add_executable(Doxygen::doxygen IMPORTED GLOBAL)
+                set_target_properties(Doxygen::doxygen PROPERTIES
+                    IMPORTED_LOCATION "${DOXYGEN_EXECUTABLE}"
+                )
+            endif()
         endif()
     endif()
 endmacro()
@@ -447,12 +852,18 @@ endmacro()
 # Find Graphviz Dot...
 #
 macro(_Doxygen_find_dot)
-    set(_x86 "(x86)")
-    file(
-        GLOB _Doxygen_GRAPHVIZ_BIN_DIRS
-        "$ENV{ProgramFiles}/Graphviz*/bin"
-        "$ENV{ProgramFiles${_x86}}/Graphviz*/bin"
-    )
+    if(WIN32)
+        set(_x86 "(x86)")
+        file(
+            GLOB _Doxygen_GRAPHVIZ_BIN_DIRS
+            "$ENV{ProgramFiles}/Graphviz*/bin"
+            "$ENV{ProgramFiles${_x86}}/Graphviz*/bin"
+        )
+        unset(_x86)
+    else()
+        set(_Doxygen_GRAPHVIZ_BIN_DIRS "")
+    endif()
+
     find_program(
         DOXYGEN_DOT_EXECUTABLE
         NAMES dot
@@ -462,8 +873,11 @@ macro(_Doxygen_find_dot)
             "C:/Program Files/ATT/Graphviz/bin"
             [HKEY_LOCAL_MACHINE\\SOFTWARE\\ATT\\Graphviz;InstallPath]/bin
             /Applications/Graphviz.app/Contents/MacOS
+            /Applications/Utilities/Graphviz.app/Contents/MacOS
             /Applications/Doxygen.app/Contents/Resources
             /Applications/Doxygen.app/Contents/MacOS
+            /Applications/Utilities/Doxygen.app/Contents/Resources
+            /Applications/Utilities/Doxygen.app/Contents/MacOS
         DOC "Dot tool for use with Doxygen"
     )
     mark_as_advanced(DOXYGEN_DOT_EXECUTABLE)
@@ -488,7 +902,6 @@ macro(_Doxygen_find_dot)
     endif()
 
     unset(_Doxygen_GRAPHVIZ_BIN_DIRS)
-    unset(_x86)
 endmacro()
 
 #
@@ -570,11 +983,11 @@ endforeach()
 unset(_comp)
 
 # Verify find results
-include(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
 find_package_handle_standard_args(
     Doxygen
     REQUIRED_VARS DOXYGEN_EXECUTABLE
-    VERSION_VAR DOXYGEN_VERSION
+    VERSION_VAR Doxygen_VERSION
+    HANDLE_VERSION_RANGE
     HANDLE_COMPONENTS
 )
 
@@ -589,7 +1002,7 @@ endif()
 # Maintain the _FOUND variables as "YES" or "NO" for backwards
 # compatibility. This allows people to substitute them directly into
 # Doxyfile with configure_file().
-if(DOXYGEN_FOUND)
+if(Doxygen_FOUND)
     set(DOXYGEN_FOUND "YES")
 else()
     set(DOXYGEN_FOUND "NO")
@@ -625,6 +1038,7 @@ if(TARGET Doxygen::doxygen)
         COMMAND "${DOXYGEN_EXECUTABLE}" -s -g "${_Doxygen_tpl}"
         OUTPUT_QUIET
         RESULT_VARIABLE _Doxygen_tpl_result
+        ERROR_QUIET
     )
     if(_Doxygen_tpl_result)
         message(FATAL_ERROR
@@ -635,7 +1049,7 @@ if(TARGET Doxygen::doxygen)
     endif()
 
     # Write a do-not-edit header to files we are going to generate...
-    set(_Doxygen_dne_header
+    set(_Doxygen_do_not_edit_header
 [[
 #
 # DO NOT EDIT! THIS FILE WAS GENERATED BY CMAKE!
@@ -650,8 +1064,8 @@ if(TARGET Doxygen::doxygen)
     set(_doxyfile_in       "${CMAKE_BINARY_DIR}/CMakeDoxyfile.in")
     set(_doxyfile_defaults "${CMAKE_BINARY_DIR}/CMakeDoxygenDefaults.cmake")
 
-    file(WRITE "${_doxyfile_in}"       ${_Doxygen_dne_header})
-    file(WRITE "${_doxyfile_defaults}" ${_Doxygen_dne_header})
+    set(_doxyfile_in_contents "")
+    set(_doxyfile_defaults_contents "")
 
     # Get strings containing a configuration key from the template Doxyfile
     # we obtained from this version of Doxygen. Because some options are split
@@ -667,7 +1081,9 @@ if(TARGET Doxygen::doxygen)
         if(_line MATCHES "([A-Z][A-Z0-9_]+)( *=)(.*)")
             set(_key "${CMAKE_MATCH_1}")
             set(_eql "${CMAKE_MATCH_2}")
-            string(REPLACE ";" "\\\n" _value "${CMAKE_MATCH_3}")
+            set(_value "${CMAKE_MATCH_3}")
+            string(REPLACE "\\" "\\\\" _value "${_value}")
+            string(REPLACE ";" "\\\n" _value "${_value}")
             list(APPEND _Doxygen_tpl_params "${_key}${_eql}${_value}")
         endif()
     endforeach()
@@ -681,19 +1097,19 @@ if(TARGET Doxygen::doxygen)
         if(_Doxygen_param MATCHES "([A-Z][A-Z0-9_]+)( *)=( (.*))?")
             # Ok, this is a config key with a value
             if(CMAKE_MATCH_COUNT EQUAL 4)
-                file(APPEND "${_doxyfile_in}"
-                    "${CMAKE_MATCH_1}${CMAKE_MATCH_2}= @DOXYGEN_${CMAKE_MATCH_1}@\n")
+                string(APPEND _doxyfile_in_contents
+                       "${CMAKE_MATCH_1}${CMAKE_MATCH_2}= @DOXYGEN_${CMAKE_MATCH_1}@\n")
                 # Remove the backslashes we had to preserve to handle newlines
                 string(REPLACE "\\\n" "\n" _value "${CMAKE_MATCH_4}")
-                file(APPEND "${_doxyfile_defaults}"
+                string(APPEND _doxyfile_defaults_contents
 "if(NOT DEFINED DOXYGEN_${CMAKE_MATCH_1})
     set(DOXYGEN_${CMAKE_MATCH_1} ${_value})
 endif()
 ")
             # Ok, this is a config key with empty default value
             elseif(CMAKE_MATCH_COUNT EQUAL 2)
-                file(APPEND "${_doxyfile_in}"
-                    "${CMAKE_MATCH_1}${CMAKE_MATCH_2}= @DOXYGEN_${CMAKE_MATCH_1}@\n")
+                string(APPEND _doxyfile_in_contents
+                       "${CMAKE_MATCH_1}${CMAKE_MATCH_2}= @DOXYGEN_${CMAKE_MATCH_1}@\n")
             else()
                 message(AUTHOR_WARNING
 "Unexpected line format! Code review required!\nFault line: ${_Doxygen_param}")
@@ -703,25 +1119,32 @@ endif()
 "Unexpected line format! Code review required!\nFault line: ${_Doxygen_param}")
         endif()
     endforeach()
+    file(WRITE "${_doxyfile_defaults}" "${_Doxygen_do_not_edit_header}"
+                                       "${_doxyfile_defaults_contents}")
+    file(WRITE "${_doxyfile_in}"       "${_Doxygen_do_not_edit_header}"
+                                       "${_doxyfile_in_contents}")
 
     # Ok, dumped defaults are not needed anymore...
     file(REMOVE "${_Doxygen_tpl}")
 
     unset(_Doxygen_param)
     unset(_Doxygen_tpl_params)
-    unset(_Doxygen_dne_header)
+    unset(_Doxygen_do_not_edit_header)
     unset(_Doxygen_tpl)
 
 endif()
 
 function(doxygen_quote_value VARIABLE)
     # Quote a value of the given variable if:
-    # - variable parameter was really given
-    # - a variable it points is defined
-    # - a value doesn't quoted already
-    # - and it has spaces
+    # - VARIABLE parameter was really given
+    # - the variable it names is defined and is not present in the list
+    #   specified by DOXYGEN_VERBATIM_VARS (if set)
+    # - the value of the named variable isn't already quoted
+    # - the value has spaces
     if(VARIABLE AND DEFINED ${VARIABLE} AND
-       NOT ${VARIABLE} MATCHES "^\".* .*\"$" AND ${VARIABLE} MATCHES " ")
+       NOT ${VARIABLE} MATCHES "^\".* .*\"$" AND ${VARIABLE} MATCHES " " AND
+       NOT (DEFINED DOXYGEN_VERBATIM_VARS AND
+            "${VARIABLE}" IN_LIST DOXYGEN_VERBATIM_VARS))
         set(${VARIABLE} "\"${${VARIABLE}}\"" PARENT_SCOPE)
     endif()
 endfunction()
@@ -730,8 +1153,18 @@ function(doxygen_list_to_quoted_strings LIST_VARIABLE)
     if(LIST_VARIABLE AND DEFINED ${LIST_VARIABLE})
         unset(_inputs)
         unset(_sep)
+        unset(_verbatim)
+        # Have to test if list items should be treated as verbatim here
+        # because we lose the variable name when we pass just one list item
+        # to doxygen_quote_value() below
+        if(DEFINED DOXYGEN_VERBATIM_VARS AND
+           "${LIST_VARIABLE}" IN_LIST DOXYGEN_VERBATIM_VARS)
+            set(_verbatim True)
+        endif()
         foreach(_in IN LISTS ${LIST_VARIABLE})
-            doxygen_quote_value(_in)
+            if(NOT _verbatim)
+                doxygen_quote_value(_in)
+            endif()
             string(APPEND _inputs "${_sep}${_in}")
             set(_sep " ")
         endforeach()
@@ -739,9 +1172,54 @@ function(doxygen_list_to_quoted_strings LIST_VARIABLE)
     endif()
 endfunction()
 
+function(_doxygen_collect_output_dirs outputDirs)
+    # Collect user-provided output directories for known output formats
+    set(_doxygen_output_formats DOCBOOK HTML LATEX MAN RTF SQLITE3 XML)
+    set(_doxygen_output_dirs "")
+    foreach(_format IN LISTS _doxygen_output_formats)
+        set(_doxygen_generate_format "DOXYGEN_GENERATE_${_format}")
+        if(${_doxygen_generate_format})
+            set(_doxygen_format_output "DOXYGEN_${_format}_OUTPUT")
+            if(DEFINED ${_doxygen_format_output})
+                list(APPEND _doxygen_output_dirs "${${_doxygen_format_output}}" )
+            endif()
+            unset(_doxygen_format_output)
+        endif()
+        unset(_doxygen_generate_format)
+    endforeach()
+    set(${outputDirs} ${_doxygen_output_dirs} PARENT_SCOPE)
+endfunction()
+
+function(_doxygen_resolve_output_dirs parentDir childDirs outputDirs)
+    # Resolve relative and absolute paths for output directories
+    # parentDir:  parent directory (e.g., DOXYGEN_OUTPUT_DIRECTORY -> docs)
+    # childDirs:  child directories list (e.g., "html;foo/xml")
+    # outputDirs: output list of resolved directories
+    #             (e.g., "docs/html;docs/foo/xml")
+    if(NOT DEFINED parentDir)
+        message(FATAL_ERROR "Undefined parent output directory given")
+    endif()
+    if(NOT parentDir)
+        message(FATAL_ERROR "Empty parent output directory given")
+    endif()
+
+    set(_doxygen_output_dirs "")
+    foreach(_dir IN LISTS childDirs)
+        cmake_path(IS_RELATIVE _dir _is_rel)
+        if(_is_rel)
+            cmake_path(ABSOLUTE_PATH _dir
+                       BASE_DIRECTORY "${parentDir}"
+                       NORMALIZE
+                       OUTPUT_VARIABLE _doxygen_resolved_dir)
+            list(APPEND _doxygen_output_dirs "${_doxygen_resolved_dir}")
+        endif()
+    endforeach()
+    set(${outputDirs} "${_doxygen_output_dirs}" PARENT_SCOPE)
+endfunction()
+
 function(doxygen_add_docs targetName)
-    set(_options)
-    set(_one_value_args WORKING_DIRECTORY COMMENT)
+    set(_options ALL USE_STAMP_FILE USES_TERMINAL)
+    set(_one_value_args WORKING_DIRECTORY COMMENT CONFIG_FILE)
     set(_multi_value_args)
     cmake_parse_arguments(_args
                           "${_options}"
@@ -750,7 +1228,7 @@ function(doxygen_add_docs targetName)
                           ${ARGN})
 
     if(NOT _args_COMMENT)
-        set(_args_COMMENT "Generate API documentation for ${targetName}")
+        set(_args_COMMENT "Generating API documentation for ${targetName}")
     endif()
 
     if(NOT _args_WORKING_DIRECTORY)
@@ -828,11 +1306,15 @@ doxygen_add_docs() for target ${targetName}")
     if(NOT DEFINED DOXYGEN_HAVE_DOT)
         # If you set the HAVE_DOT tag to YES then doxygen will assume the dot
         # tool is available from the path. This tool is part of Graphviz (see:
-        # http://www.graphviz.org/), a graph visualization toolkit from AT&T
+        # https://www.graphviz.org/), a graph visualization toolkit from AT&T
         # and Lucent Bell Labs. The other options in this section have no
         # effect if this option is set to NO.
         # Doxygen's default value is: NO.
-        set(DOXYGEN_HAVE_DOT ${DOXYGEN_DOT_FOUND})
+        if(Doxygen_dot_FOUND)
+          set(DOXYGEN_HAVE_DOT "YES")
+        else()
+          set(DOXYGEN_HAVE_DOT "NO")
+        endif()
     endif()
 
     if(NOT DEFINED DOXYGEN_DOT_MULTI_TARGETS)
@@ -895,40 +1377,32 @@ doxygen_add_docs() for target ${targetName}")
         "CMakeCache.txt"
     )
 
-    # Now bring in Doxgen's defaults for those things the project has not
+    # Now bring in Doxygen's defaults for those things the project has not
     # already set and we have not provided above
     include("${CMAKE_BINARY_DIR}/CMakeDoxygenDefaults.cmake" OPTIONAL)
 
-    # Cleanup built HTMLs on "make clean"
-    # TODO Any other dirs?
-    if(DOXYGEN_GENERATE_HTML)
-        if(IS_ABSOLUTE "${DOXYGEN_HTML_OUTPUT}")
-            set(_args_clean_html_dir "${DOXYGEN_HTML_OUTPUT}")
-        else()
-            set(_args_clean_html_dir
-                "${DOXYGEN_OUTPUT_DIRECTORY}/${DOXYGEN_HTML_OUTPUT}")
-        endif()
-        set_property(DIRECTORY APPEND PROPERTY
-            ADDITIONAL_MAKE_CLEAN_FILES "${_args_clean_html_dir}")
-    endif()
-
     # Build up a list of files we can identify from the inputs so we can list
-    # them as SOURCES in the custom target (makes them display in IDEs). We
-    # must do this before we transform the various DOXYGEN_... variables below
-    # because we need to process DOXYGEN_INPUT as a list first.
+    # them as DEPENDS and SOURCES in the custom command/target (the latter
+    # makes them display in IDEs). This must be done before we transform the
+    # various DOXYGEN_... variables below because we need to process
+    # DOXYGEN_INPUT as a list first.
     unset(_sources)
     foreach(_item IN LISTS DOXYGEN_INPUT)
         get_filename_component(_abs_item "${_item}" ABSOLUTE
                                BASE_DIR "${_args_WORKING_DIRECTORY}")
-        if(EXISTS "${_abs_item}" AND
-           NOT IS_DIRECTORY "${_abs_item}" AND
-           NOT IS_SYMLINK "${_abs_item}")
+        get_source_file_property(_isGenerated "${_abs_item}" GENERATED)
+        if(_isGenerated OR
+           (EXISTS "${_abs_item}" AND
+            NOT IS_DIRECTORY "${_abs_item}" AND
+            NOT IS_SYMLINK "${_abs_item}"))
             list(APPEND _sources "${_abs_item}")
+        elseif(_args_USE_STAMP_FILE)
+            message(FATAL_ERROR "Source does not exist or is not a file:\n"
+                "    ${_abs_item}\n"
+                "Only existing files may be specified when the "
+                "USE_STAMP_FILE option is given.")
         endif()
     endforeach()
-    if(_sources)
-        list(INSERT _sources 0 SOURCES)
-    endif()
 
     # Transform known list type options into space separated strings.
     set(_doxygen_list_options
@@ -1028,23 +1502,83 @@ doxygen_add_docs() for target ${targetName}")
     # later in the custom target's commands.
     set( _original_doxygen_output_dir ${DOXYGEN_OUTPUT_DIRECTORY} )
 
+    # Collect the output directories for each DOXYGEN_${format}_OUTPUT
+    # if the corresponding DOXYGEN_GENERATE_${format} is YES
+    _doxygen_collect_output_dirs(_doxygen_output_dirs)
+
+    # Resolve the output directories as absolute paths
+    # that can be given to make_directory() and appended to
+    # the ADDITIONAL_CLEAN_FILES target property
+    _doxygen_resolve_output_dirs("${_original_doxygen_output_dir}"
+                                 "${_doxygen_output_dirs}"
+                                 _doxygen_resolved_output_dirs)
+
+    unset(_doxygen_output_dirs)
+
     foreach(_item IN LISTS _doxygen_quoted_options)
         doxygen_quote_value(DOXYGEN_${_item})
     endforeach()
 
     # Prepare doxygen configuration file
     set(_doxyfile_template "${CMAKE_BINARY_DIR}/CMakeDoxyfile.in")
-    set(_target_doxyfile "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile.${targetName}")
-    configure_file("${_doxyfile_template}" "${_target_doxyfile}")
+    if(_args_CONFIG_FILE)
+        if(NOT EXISTS "${_args_CONFIG_FILE}")
+            message(FATAL_ERROR "Option CONFIG_FILE specifies file:\n ${_args_CONFIG_FILE}\nbut it does not exist.")
+        endif()
+        set(_target_doxyfile "${_args_CONFIG_FILE}")
+    else()
+        set(_target_doxyfile "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile.${targetName}")
+        configure_file("${_doxyfile_template}" "${_target_doxyfile}")
+    endif()
 
-    # Add the target
-    add_custom_target( ${targetName} VERBATIM
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${_original_doxygen_output_dir}
-        COMMAND "${DOXYGEN_EXECUTABLE}" "${_target_doxyfile}"
-        WORKING_DIRECTORY "${_args_WORKING_DIRECTORY}"
-        DEPENDS "${_target_doxyfile}"
-        COMMENT "${_args_COMMENT}"
-        ${_sources}
-    )
+    unset(_all)
+    if(${_args_ALL})
+        set(_all ALL)
+    endif()
+
+    unset(_uses_terminal)
+    if(${_args_USES_TERMINAL})
+        set(_uses_terminal USES_TERMINAL)
+    endif()
+
+    # Only create the stamp file if asked to. If we don't create it,
+    # the target will always be considered out-of-date.
+    if(_args_USE_STAMP_FILE)
+        set(__stamp_file "${CMAKE_CURRENT_BINARY_DIR}/${targetName}.stamp")
+        add_custom_command(
+            VERBATIM
+            OUTPUT ${__stamp_file}
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${_doxygen_resolved_output_dirs}
+            COMMAND "${DOXYGEN_EXECUTABLE}" "${_target_doxyfile}"
+            COMMAND ${CMAKE_COMMAND} -E touch ${__stamp_file}
+            WORKING_DIRECTORY "${_args_WORKING_DIRECTORY}"
+            DEPENDS "${_target_doxyfile}" ${_sources}
+            COMMENT "${_args_COMMENT}"
+            ${_uses_terminal}
+        )
+        add_custom_target(${targetName}
+            ${_all}
+            DEPENDS ${__stamp_file}
+            SOURCES ${_sources}
+        )
+        unset(__stamp_file)
+    else()
+        add_custom_target(${targetName}
+            ${_all}
+            VERBATIM
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${_doxygen_resolved_output_dirs}
+            COMMAND "${DOXYGEN_EXECUTABLE}" "${_target_doxyfile}"
+            WORKING_DIRECTORY "${_args_WORKING_DIRECTORY}"
+            DEPENDS "${_target_doxyfile}" ${_sources}
+            COMMENT "${_args_COMMENT}"
+            ${_uses_terminal}
+            SOURCES ${_sources}
+        )
+    endif()
+
+    # Add the DOXYGEN_${format}_OUTPUT directories as additional clean files
+    # to the Doxygen target (rather than as a directory property)
+    set_property(TARGET ${targetName} APPEND PROPERTY
+                 ADDITIONAL_CLEAN_FILES "${_doxygen_resolved_output_dirs}")
 
 endfunction()

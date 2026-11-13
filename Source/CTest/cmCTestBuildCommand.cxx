@@ -1,178 +1,253 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCTestBuildCommand.h"
 
+#include <utility>
+
+#include <cm/memory>
+#include <cm/optional>
+#include <cmext/string_view>
+
+#include "cmArgumentParser.h"
+#include "cmCMakePresetsGraph.h"
 #include "cmCTest.h"
 #include "cmCTestBuildHandler.h"
 #include "cmCTestGenericHandler.h"
+#include "cmExecutionStatus.h"
 #include "cmGlobalGenerator.h"
+#include "cmJSONState.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
+#include "cmValue.h"
 #include "cmake.h"
 
-#include <sstream>
-#include <string.h>
+using BuildPreset = cmCMakePresetsGraph::BuildPreset;
 
-class cmExecutionStatus;
-
-cmCTestBuildCommand::cmCTestBuildCommand()
+bool cmCTestBuildCommand::InitialPass(std::vector<std::string> const& args,
+                                      cmExecutionStatus& status) const
 {
-  this->GlobalGenerator = CM_NULLPTR;
-  this->Arguments[ctb_NUMBER_ERRORS] = "NUMBER_ERRORS";
-  this->Arguments[ctb_NUMBER_WARNINGS] = "NUMBER_WARNINGS";
-  this->Arguments[ctb_TARGET] = "TARGET";
-  this->Arguments[ctb_CONFIGURATION] = "CONFIGURATION";
-  this->Arguments[ctb_FLAGS] = "FLAGS";
-  this->Arguments[ctb_PROJECT_NAME] = "PROJECT_NAME";
-  this->Arguments[ctb_LAST] = CM_NULLPTR;
-  this->Last = ctb_LAST;
+  static auto const parser =
+    cmArgumentParser<BuildArguments>{ MakeHandlerParser<BuildArguments>() }
+      .Bind("NUMBER_ERRORS"_s, &BuildArguments::NumberErrors)
+      .Bind("NUMBER_WARNINGS"_s, &BuildArguments::NumberWarnings)
+      .Bind("TARGET"_s, &BuildArguments::Target)
+      .Bind("CONFIGURATION"_s, &BuildArguments::Configuration)
+      .Bind("FLAGS"_s, &BuildArguments::Flags)
+      .Bind("PROJECT_NAME"_s, &BuildArguments::ProjectName)
+      .Bind("PARALLEL_LEVEL"_s, &BuildArguments::ParallelLevel)
+      .Bind("PRESET"_s, &BuildArguments::Preset)
+      .Bind("PRESETS_FILE"_s, &BuildArguments::PresetsFile);
+
+  return this->Invoke(parser, args, status, [&](BuildArguments& a) {
+    return this->ExecuteHandlerCommand(a, status);
+  });
 }
 
-cmCTestBuildCommand::~cmCTestBuildCommand()
+std::unique_ptr<cmCTestGenericHandler> cmCTestBuildCommand::InitializeHandler(
+  HandlerArguments& arguments, cmExecutionStatus& status) const
 {
-  if (this->GlobalGenerator) {
-    delete this->GlobalGenerator;
-    this->GlobalGenerator = CM_NULLPTR;
-  }
-}
+  cmMakefile& mf = status.GetMakefile();
+  auto const& args = static_cast<BuildArguments&>(arguments);
+  auto handler = cm::make_unique<cmCTestBuildHandler>(this->CTest);
 
-cmCTestGenericHandler* cmCTestBuildCommand::InitializeHandler()
-{
-  cmCTestGenericHandler* handler = this->CTest->GetInitializedHandler("build");
-  if (!handler) {
-    this->SetError("internal CTest error. Cannot instantiate build handler");
-    return CM_NULLPTR;
-  }
-  this->Handler = (cmCTestBuildHandler*)handler;
+  // Build configuration is set according to the following priority order:
+  // 1) The CONFIGURATION option to ctest_build()
+  // 2) CTEST_BUILD_CONFIGURATION script variable
+  // 3) CTEST_CONFIGURATION_TYPE script variable
+  // 4) The ctest -C command line argument
+  // 5) The configuration entry from the build preset
+  cmValue ctestBuildConfiguration =
+    mf.GetDefinition("CTEST_BUILD_CONFIGURATION");
+  std::string cmakeBuildConfiguration = cmNonempty(args.Configuration)
+    ? args.Configuration
+    : cmNonempty(ctestBuildConfiguration) ? *ctestBuildConfiguration
+                                          : this->CTest->GetConfigType();
 
-  const char* ctestBuildCommand =
-    this->Makefile->GetDefinition("CTEST_BUILD_COMMAND");
-  if (ctestBuildCommand && *ctestBuildCommand) {
-    this->CTest->SetCTestConfiguration("MakeCommand", ctestBuildCommand,
-                                       this->Quiet);
-  } else {
-    const char* cmakeGeneratorName =
-      this->Makefile->GetDefinition("CTEST_CMAKE_GENERATOR");
-    const char* cmakeProjectName =
-      (this->Values[ctb_PROJECT_NAME] && *this->Values[ctb_PROJECT_NAME])
-      ? this->Values[ctb_PROJECT_NAME]
-      : this->Makefile->GetDefinition("CTEST_PROJECT_NAME");
+  std::string const& cmakeBuildAdditionalFlags = cmNonempty(args.Flags)
+    ? args.Flags
+    : mf.GetSafeDefinition("CTEST_BUILD_FLAGS");
+  std::string const& cmakeBuildTarget = cmNonempty(args.Target)
+    ? args.Target
+    : mf.GetSafeDefinition("CTEST_BUILD_TARGET");
 
-    // Build configuration is determined by: CONFIGURATION argument,
-    // or CTEST_BUILD_CONFIGURATION script variable, or
-    // CTEST_CONFIGURATION_TYPE script variable, or ctest -C command
-    // line argument... in that order.
-    //
-    const char* ctestBuildConfiguration =
-      this->Makefile->GetDefinition("CTEST_BUILD_CONFIGURATION");
-    const char* cmakeBuildConfiguration =
-      (this->Values[ctb_CONFIGURATION] && *this->Values[ctb_CONFIGURATION])
-      ? this->Values[ctb_CONFIGURATION]
-      : ((ctestBuildConfiguration && *ctestBuildConfiguration)
-           ? ctestBuildConfiguration
-           : this->CTest->GetConfigType().c_str());
+  // Preset name is set according to the following priority order:
+  // 1) The PRESET option to ctest_build()
+  // 2) CTEST_BUILD_PRESET script variable
+  // 3) CTEST_PRESET script variable (a warning is emitted if no build preset
+  //    exists with this name)
+  std::string const sourceDirectory =
+    mf.GetSafeDefinition("CTEST_SOURCE_DIRECTORY");
 
-    const char* cmakeBuildAdditionalFlags =
-      (this->Values[ctb_FLAGS] && *this->Values[ctb_FLAGS])
-      ? this->Values[ctb_FLAGS]
-      : this->Makefile->GetDefinition("CTEST_BUILD_FLAGS");
-    const char* cmakeBuildTarget =
-      (this->Values[ctb_TARGET] && *this->Values[ctb_TARGET])
-      ? this->Values[ctb_TARGET]
-      : this->Makefile->GetDefinition("CTEST_BUILD_TARGET");
+  // Presets file is set according to the following priority order:
+  // 1) The PRESETS_FILE option to ctest_build()
+  // 2) CTEST_PRESETS_FILE script variable
+  std::string const rawPresetsFile = !args.PresetsFile.empty()
+    ? args.PresetsFile
+    : mf.GetSafeDefinition("CTEST_PRESETS_FILE");
 
-    if (cmakeGeneratorName && *cmakeGeneratorName && cmakeProjectName &&
-        *cmakeProjectName) {
-      if (!cmakeBuildConfiguration) {
-        cmakeBuildConfiguration = "Release";
+  std::string const presetsFile = rawPresetsFile.empty()
+    ? ""
+    : cmSystemTools::CollapseFullPath(rawPresetsFile, sourceDirectory);
+
+  std::string effectivePreset = !args.Preset.empty() ? args.Preset
+    : cmNonempty(mf.GetDefinition("CTEST_BUILD_PRESET"))
+    ? *mf.GetDefinition("CTEST_BUILD_PRESET")
+    : "";
+  if (effectivePreset.empty()) {
+    cmValue v = mf.GetDefinition("CTEST_PRESET");
+    if (cmNonempty(v)) {
+      std::string presetError;
+      auto presetCheck =
+        BuildPresetExists(*v, sourceDirectory, presetsFile, presetError);
+      if (presetCheck == PresetCheckResult::ReadError) {
+        status.SetError(cmStrCat('\n', presetError));
+        return nullptr;
       }
-      if (this->GlobalGenerator) {
-        if (this->GlobalGenerator->GetName() != cmakeGeneratorName) {
-          delete this->GlobalGenerator;
-          this->GlobalGenerator = CM_NULLPTR;
-        }
+      if (presetCheck == PresetCheckResult::Found) {
+        effectivePreset = *v;
+      } else {
+        cmCTestLog(this->CTest, WARNING, "No build preset named \"", *v,
+                   "\" found, ignoring CTEST_PRESET.\n");
       }
-      if (!this->GlobalGenerator) {
-        this->GlobalGenerator =
-          this->Makefile->GetCMakeInstance()->CreateGlobalGenerator(
-            cmakeGeneratorName);
-        if (!this->GlobalGenerator) {
-          std::string e = "could not create generator named \"";
-          e += cmakeGeneratorName;
-          e += "\"";
-          this->Makefile->IssueMessage(cmake::FATAL_ERROR, e);
-          cmSystemTools::SetFatalErrorOccured();
-          return CM_NULLPTR;
-        }
-      }
-      if (strlen(cmakeBuildConfiguration) == 0) {
-        const char* config = CM_NULLPTR;
-#ifdef CMAKE_INTDIR
-        config = CMAKE_INTDIR;
-#endif
-        if (!config) {
-          config = "Debug";
-        }
-        cmakeBuildConfiguration = config;
-      }
-
-      std::string dir = this->CTest->GetCTestConfiguration("BuildDirectory");
-      std::string buildCommand =
-        this->GlobalGenerator->GenerateCMakeBuildCommand(
-          cmakeBuildTarget ? cmakeBuildTarget : "", cmakeBuildConfiguration,
-          cmakeBuildAdditionalFlags ? cmakeBuildAdditionalFlags : "",
-          this->Makefile->IgnoreErrorsCMP0061());
-      cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                         "SetMakeCommand:" << buildCommand << "\n",
-                         this->Quiet);
-      this->CTest->SetCTestConfiguration("MakeCommand", buildCommand.c_str(),
-                                         this->Quiet);
-    } else {
-      std::ostringstream ostr;
-      /* clang-format off */
-      ostr << "has no project to build. If this is a "
-        "\"built with CMake\" project, verify that CTEST_CMAKE_GENERATOR "
-        "and CTEST_PROJECT_NAME are set."
-        "\n"
-        "CTEST_PROJECT_NAME is usually set in CTestConfig.cmake. Verify "
-        "that CTestConfig.cmake exists, or CTEST_PROJECT_NAME "
-        "is set in the script, or PROJECT_NAME is passed as an argument "
-        "to ctest_build."
-        "\n"
-        "Alternatively, set CTEST_BUILD_COMMAND to build the project "
-        "with a custom command line.";
-      /* clang-format on */
-      this->SetError(ostr.str());
-      return CM_NULLPTR;
     }
   }
 
-  if (const char* useLaunchers =
-        this->Makefile->GetDefinition("CTEST_USE_LAUNCHERS")) {
-    this->CTest->SetCTestConfiguration("UseLaunchers", useLaunchers,
-                                       this->Quiet);
+  // Skip checking CTEST_BUILD_COMMAND when a preset is specified.
+  // We do this to avoid using a stale MakeCommand from DartConfiguration.tcl
+  // that would cause us to silently ignore the requested preset.
+  cmValue ctestBuildCommand = mf.GetDefinition("CTEST_BUILD_COMMAND");
+  if (cmNonempty(ctestBuildCommand) && effectivePreset.empty()) {
+    this->CTest->SetCTestConfiguration("MakeCommand", *ctestBuildCommand,
+                                       args.Quiet);
+  } else if (!effectivePreset.empty()) {
+    if (cmNonempty(ctestBuildCommand)) {
+      cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT, args.Quiet,
+                         "Ignoring CTEST_BUILD_COMMAND because preset \"",
+                         effectivePreset, "\" is in use.\n");
+    }
+    cmCMakePresetsGraph presetsGraph;
+    if (!presetsGraph.ReadProjectPresets(sourceDirectory, presetsFile)) {
+      status.SetError(cmStrCat("\n Could not read presets from \"",
+                               sourceDirectory, "\":\n ",
+                               presetsGraph.parseState.GetErrorMessage()));
+      return nullptr;
+    }
+
+    auto resolveResult =
+      presetsGraph.ResolvePreset(effectivePreset, presetsGraph.BuildPresets);
+    auto resolveError = cmCMakePresetsGraph::FormatPresetError<BuildPreset>(
+      resolveResult.StatusCode, resolveResult.ErrorPresetName,
+      sourceDirectory);
+    if (resolveError) {
+      status.SetError(*resolveError);
+      return nullptr;
+    }
+
+    std::string buildCommand =
+      cmStrCat('"', cmSystemTools::GetCMakeCommand(),
+               "\" --build . --preset \"", effectivePreset, '"');
+
+    if (!presetsFile.empty()) {
+      buildCommand = cmStrCat(std::move(buildCommand), " --presets-file \"",
+                              presetsFile, '"');
+    }
+
+    if (!cmakeBuildConfiguration.empty()) {
+      buildCommand = cmStrCat(std::move(buildCommand), " --config \"",
+                              cmakeBuildConfiguration, '"');
+    }
+
+    if (!cmakeBuildTarget.empty()) {
+      buildCommand = cmStrCat(std::move(buildCommand), " --target \"",
+                              cmakeBuildTarget, '"');
+    }
+
+    if (!args.ParallelLevel.empty()) {
+      buildCommand =
+        cmStrCat(std::move(buildCommand), " --parallel ", args.ParallelLevel);
+    }
+
+    if (!cmakeBuildAdditionalFlags.empty()) {
+      buildCommand =
+        cmStrCat(std::move(buildCommand), " -- ", cmakeBuildAdditionalFlags);
+    }
+
+    cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT, args.Quiet,
+                       "SetMakeCommand:", buildCommand, '\n');
+    this->CTest->SetCTestConfiguration("MakeCommand", buildCommand,
+                                       args.Quiet);
+  } else {
+    cmValue cmakeGeneratorName = mf.GetDefinition("CTEST_CMAKE_GENERATOR");
+
+    if (cmNonempty(cmakeGeneratorName)) {
+      if (cmakeBuildConfiguration.empty()) {
+        cmakeBuildConfiguration = "Release";
+      }
+
+      auto globalGenerator =
+        mf.GetCMakeInstance()->CreateGlobalGenerator(*cmakeGeneratorName);
+      if (!globalGenerator) {
+        mf.IssueMessage(MessageType::FATAL_ERROR,
+                        cmStrCat("could not create generator named \"",
+                                 *cmakeGeneratorName, '"'));
+        cmSystemTools::SetFatalErrorOccurred();
+        return nullptr;
+      }
+      if (cmakeBuildConfiguration.empty()) {
+        cmakeBuildConfiguration = "Debug";
+      }
+
+      std::string dir = this->CTest->GetCTestConfiguration("BuildDirectory");
+      std::string buildCommand = globalGenerator->GenerateCMakeBuildCommand(
+        cmakeBuildTarget, cmakeBuildConfiguration, args.ParallelLevel,
+        cmakeBuildAdditionalFlags, false);
+      cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT, args.Quiet,
+                         "SetMakeCommand:", buildCommand, '\n');
+      this->CTest->SetCTestConfiguration("MakeCommand", buildCommand,
+                                         args.Quiet);
+    } else {
+      std::string error;
+      /* clang-format off */
+      error = "has no project to build. If this is a "
+        "\"built with CMake\" project, verify that CTEST_CMAKE_GENERATOR "
+        "is set. Otherwise, set CTEST_BUILD_COMMAND to build the project "
+        "with a custom command line.";
+      /* clang-format on */
+      status.SetError(error);
+      return nullptr;
+    }
   }
 
-  handler->SetQuiet(this->Quiet);
-  return handler;
+  if (cmValue useLaunchers = mf.GetDefinition("CTEST_USE_LAUNCHERS")) {
+    this->CTest->SetCTestConfiguration("UseLaunchers", *useLaunchers,
+                                       args.Quiet);
+  }
+
+  if (cmValue labelsForSubprojects =
+        mf.GetDefinition("CTEST_LABELS_FOR_SUBPROJECTS")) {
+    this->CTest->SetCTestConfiguration("LabelsForSubprojects",
+                                       *labelsForSubprojects, args.Quiet);
+  }
+
+  handler->SetQuiet(args.Quiet);
+  return std::unique_ptr<cmCTestGenericHandler>(std::move(handler));
 }
 
-bool cmCTestBuildCommand::InitialPass(std::vector<std::string> const& args,
-                                      cmExecutionStatus& status)
+void cmCTestBuildCommand::ProcessAdditionalValues(
+  cmCTestGenericHandler* generic, HandlerArguments const& arguments,
+  cmExecutionStatus& status) const
 {
-  bool ret = cmCTestHandlerCommand::InitialPass(args, status);
-  if (this->Values[ctb_NUMBER_ERRORS] && *this->Values[ctb_NUMBER_ERRORS]) {
-    std::ostringstream str;
-    str << this->Handler->GetTotalErrors();
-    this->Makefile->AddDefinition(this->Values[ctb_NUMBER_ERRORS],
-                                  str.str().c_str());
+  cmMakefile& mf = status.GetMakefile();
+  auto const& args = static_cast<BuildArguments const&>(arguments);
+  auto const* handler = static_cast<cmCTestBuildHandler*>(generic);
+  if (!args.NumberErrors.empty()) {
+    mf.AddDefinition(args.NumberErrors,
+                     std::to_string(handler->GetTotalErrors()));
   }
-  if (this->Values[ctb_NUMBER_WARNINGS] &&
-      *this->Values[ctb_NUMBER_WARNINGS]) {
-    std::ostringstream str;
-    str << this->Handler->GetTotalWarnings();
-    this->Makefile->AddDefinition(this->Values[ctb_NUMBER_WARNINGS],
-                                  str.str().c_str());
+  if (!args.NumberWarnings.empty()) {
+    mf.AddDefinition(args.NumberWarnings,
+                     std::to_string(handler->GetTotalWarnings()));
   }
-  return ret;
 }

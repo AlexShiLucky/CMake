@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmParsePHPCoverage_h
-#define cmParsePHPCoverage_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -22,11 +21,11 @@ class cmParsePHPCoverage
 {
 public:
   cmParsePHPCoverage(cmCTestCoverageHandlerContainer& cont, cmCTest* ctest);
-  bool ReadPHPCoverageDirectory(const char* dir);
+  bool ReadPHPCoverageDirectory(char const* dir);
   void PrintCoverage();
 
 private:
-  bool ReadPHPData(const char* file);
+  bool ReadPHPData(char const* file);
   bool ReadArraySize(std::istream& in, int& size);
   bool ReadFileInformation(std::istream& in);
   bool ReadInt(std::istream& in, int& v);
@@ -35,5 +34,3 @@ private:
   cmCTestCoverageHandlerContainer& Coverage;
   cmCTest* CTest;
 };
-
-#endif

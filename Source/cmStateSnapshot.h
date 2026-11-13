@@ -1,53 +1,94 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
-#ifndef cmStateSnapshot_h
-#define cmStateSnapshot_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
-#include "cmLinkedTree.h"
+#include <cm/string_view>
+
+#include "cmDiagnostics.h"
 #include "cmPolicies.h"
 #include "cmStateTypes.h"
+#include "cmValue.h"
 
+class cmPackageState;
 class cmState;
 class cmStateDirectory;
 
 class cmStateSnapshot
 {
 public:
-  cmStateSnapshot(cmState* state = CM_NULLPTR);
+  cmStateSnapshot(cmState* state = nullptr);
   cmStateSnapshot(cmState* state, cmStateDetail::PositionType position);
 
-  const char* GetDefinition(std::string const& name) const;
+  cmValue GetDefinition(std::string const& name) const;
   bool IsInitialized(std::string const& name) const;
-  void SetDefinition(std::string const& name, std::string const& value);
+  void SetDefinition(std::string const& name, cm::string_view value);
   void RemoveDefinition(std::string const& name);
-  std::vector<std::string> UnusedKeys() const;
   std::vector<std::string> ClosureKeys() const;
-  bool RaiseScope(std::string const& var, const char* varDef);
+  std::vector<std::string> LocalKeys() const;
+  bool RaiseScope(std::string const& var, char const* varDef);
+
+  enum class CheckCMP0220
+  {
+    No,
+    Yes,
+  };
+  enum class WarnCMP0220
+  {
+    No,
+    Yes,
+  };
+  WarnCMP0220 RaiseToRoot(std::string const& var, char const* varDef,
+                          CheckCMP0220 checkCMP0220);
 
   void SetListFile(std::string const& listfile);
 
-  std::string GetExecutionListFile() const;
+  std::string const& GetExecutionListFile() const;
 
   std::vector<cmStateSnapshot> GetChildren();
 
   bool IsValid() const;
+  cmStateSnapshot GetBuildsystemDirectory() const;
   cmStateSnapshot GetBuildsystemDirectoryParent() const;
   cmStateSnapshot GetCallStackParent() const;
   cmStateSnapshot GetCallStackBottom() const;
   cmStateEnums::SnapshotType GetType() const;
 
+  cmStateEnums::SnapshotUnwindType GetUnwindType() const;
+  void SetUnwindType(cmStateEnums::SnapshotUnwindType type);
+
+  cmStateEnums::SnapshotUnwindState GetUnwindState() const;
+  void SetUnwindState(cmStateEnums::SnapshotUnwindState state);
+
   void SetPolicy(cmPolicies::PolicyID id, cmPolicies::PolicyStatus status);
-  cmPolicies::PolicyStatus GetPolicy(cmPolicies::PolicyID id) const;
-  bool HasDefinedPolicyCMP0011();
+  cmPolicies::PolicyStatus GetPolicy(cmPolicies::PolicyID id,
+                                     bool parent_scope = false) const;
+  cmPolicies::PolicyStatus GetScopePolicy(cmPolicies::PolicyID id) const;
   void PushPolicy(cmPolicies::PolicyMap const& entry, bool weak);
   bool PopPolicy();
-  bool CanPopPolicyScope();
+  bool CanPopPolicyScope() const;
+
+  void SetDiagnostic(cmDiagnosticCategory category, cmDiagnosticAction action,
+                     bool recursive);
+  void PromoteDiagnostic(cmDiagnosticCategory category,
+                         cmDiagnosticAction action, bool recursive);
+  void DemoteDiagnostic(cmDiagnosticCategory category,
+                        cmDiagnosticAction action, bool recursive);
+  cmDiagnosticAction GetDiagnostic(cmDiagnosticCategory category,
+                                   cmDiagnosticAction defaultAction) const;
+  cmDiagnosticAction GetDiagnostic(cmDiagnosticCategory category) const
+  {
+    return this->GetDiagnostic(
+      category, cmDiagnostics::CategoryInfo[category].DefaultAction);
+  }
+  void PushDiagnostic(cmDiagnostics::DiagnosticMap entry, bool weak);
+  bool PopDiagnostic();
+  bool CanPopDiagnosticScope() const;
 
   cmState* GetState() const;
 
@@ -55,34 +96,41 @@ public:
 
   void SetProjectName(std::string const& name);
   std::string GetProjectName() const;
+  bool CheckProjectName(std::string const& name) const;
+
+  cmPackageState& GetPackageState(std::string const& packagePath);
 
   void InitializeFromParent_ForSubdirsCommand();
 
   struct StrictWeakOrder
   {
-    bool operator()(const cmStateSnapshot& lhs,
-                    const cmStateSnapshot& rhs) const;
+    bool operator()(cmStateSnapshot const& lhs,
+                    cmStateSnapshot const& rhs) const;
   };
 
   void SetDirectoryDefinitions();
   void SetDefaultDefinitions();
 
 private:
-  friend bool operator==(const cmStateSnapshot& lhs,
-                         const cmStateSnapshot& rhs);
-  friend bool operator!=(const cmStateSnapshot& lhs,
-                         const cmStateSnapshot& rhs);
+  friend bool operator==(cmStateSnapshot const& lhs,
+                         cmStateSnapshot const& rhs);
+  friend bool operator!=(cmStateSnapshot const& lhs,
+                         cmStateSnapshot const& rhs);
   friend class cmState;
   friend class cmStateDirectory;
   friend struct StrictWeakOrder;
 
   void InitializeFromParent();
 
+  using AlterDiagnosticFunction = bool (*)(cmDiagnosticAction current,
+                                           cmDiagnosticAction desired);
+  void AlterDiagnostic(cmDiagnosticCategory category,
+                       cmDiagnosticAction action,
+                       AlterDiagnosticFunction function, bool recursive);
+
   cmState* State;
   cmStateDetail::PositionType Position;
 };
 
-bool operator==(const cmStateSnapshot& lhs, const cmStateSnapshot& rhs);
-bool operator!=(const cmStateSnapshot& lhs, const cmStateSnapshot& rhs);
-
-#endif
+bool operator==(cmStateSnapshot const& lhs, cmStateSnapshot const& rhs);
+bool operator!=(cmStateSnapshot const& lhs, cmStateSnapshot const& rhs);

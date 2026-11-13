@@ -1,5 +1,8 @@
 include(RunCMake)
 
+set(RunCMake_GENERATOR "Ninja")
+set(RunCMake_GENERATOR_IS_MULTI_CONFIG 0)
+
 # Detect ninja version so we know what tests can be supported.
 execute_process(
   COMMAND "${RunCMake_MAKE_PROGRAM}" --version
@@ -15,11 +18,90 @@ else()
   message(FATAL_ERROR "'ninja --version' reported:\n${ninja_out}")
 endif()
 
+# Sanitize NINJA_STATUS since we expect default behavior.
+unset(ENV{NINJA_STATUS})
+
+if(CMAKE_HOST_WIN32)
+  run_cmake(SelectCompilerWindows)
+else()
+  run_cmake(SelectCompilerUNIX)
+endif()
+
 function(run_NinjaToolMissing)
   set(RunCMake_MAKE_PROGRAM ninja-tool-missing)
   run_cmake(NinjaToolMissing)
 endfunction()
 run_NinjaToolMissing()
+
+function(run_Intl)
+  run_cmake(Intl)
+  set(RunCMake_TEST_NO_CLEAN 1)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/Intl-build)
+  set(RunCMake_TEST_OUTPUT_MERGE 1)
+  run_cmake_command(Intl-build ${CMAKE_COMMAND} --build .)
+endfunction()
+run_Intl()
+
+if(WIN32)
+  if(RunCMake_MAKE_PROGRAM)
+    set(maybe_MAKE_PROGRAM "-DRunCMake_MAKE_PROGRAM=${RunCMake_MAKE_PROGRAM}")
+  endif()
+  run_cmake_script(ShowIncludes-437-ClangCl-17 -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-437-ClangCl-18 -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-437-English -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-437-French -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-437-German -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-437-Italian -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-437-WineMSVC -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-54936-Chinese -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-65001-Chinese -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-65001-French -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  run_cmake_script(ShowIncludes-65001-Japanese -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  if(NOT CMake_TEST_NO_CODEPAGE_9xx)
+    run_cmake_script(ShowIncludes-932-Japanese -DshowIncludes=${showIncludes} ${maybe_MAKE_PROGRAM})
+  endif()
+  unset(maybe_MAKE_PROGRAM)
+endif()
+
+function(run_NoWorkToDo)
+  run_cmake(NoWorkToDo)
+  set(RunCMake_TEST_NO_CLEAN 1)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/NoWorkToDo-build)
+  set(RunCMake_TEST_OUTPUT_MERGE 1)
+  run_cmake_command(NoWorkToDo-build ${CMAKE_COMMAND} --build .)
+  run_cmake_command(NoWorkToDo-nowork ${CMAKE_COMMAND} --build . -- -d explain)
+endfunction()
+run_NoWorkToDo()
+
+function(run_WithBuild name)
+  run_cmake("${name}")
+  set(RunCMake_TEST_NO_CLEAN 1)
+  set(RunCMake_TEST_BINARY_DIR "${RunCMake_BINARY_DIR}/${name}-build")
+  run_cmake_command("${name}-build" ${CMAKE_COMMAND} --build .)
+endfunction()
+run_WithBuild(CommentsWithDollars)
+run_WithBuild(CommentsWithNewlines)
+run_WithBuild(CommentsWithTrailingNewlines)
+
+function(run_VerboseBuild)
+  run_cmake(VerboseBuild)
+  set(RunCMake_TEST_NO_CLEAN 1)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/VerboseBuild-build)
+  set(RunCMake_TEST_OUTPUT_MERGE 1)
+  run_cmake_command(VerboseBuild-build ${CMAKE_COMMAND} --build . -v --clean-first)
+  run_cmake_command(VerboseBuild-nowork ${CMAKE_COMMAND} --build . --verbose)
+endfunction()
+run_VerboseBuild()
+
+function(run_VerboseBuildShort)
+  run_cmake(VerboseBuildShort)
+  set(RunCMake_TEST_NO_CLEAN 1)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/VerboseBuildShort-build)
+  set(RunCMake_TEST_OUTPUT_MERGE 1)
+  run_cmake_command(VerboseBuildShort-build ${CMAKE_COMMAND} --build . -v --clean-first)
+  run_cmake_command(VerboseBuildShort-nowork ${CMAKE_COMMAND} --build . --verbose)
+endfunction()
+run_VerboseBuildShort()
 
 function(run_CMP0058 case)
   # Use a single build tree for a few tests without cleaning.
@@ -31,14 +113,25 @@ function(run_CMP0058 case)
   run_cmake_command(CMP0058-${case}-build ${CMAKE_COMMAND} --build .)
 endfunction()
 
-run_CMP0058(OLD-no)
-run_CMP0058(OLD-by)
-run_CMP0058(WARN-no)
-run_CMP0058(WARN-by)
 run_CMP0058(NEW-no)
 run_CMP0058(NEW-by)
 
-run_cmake(CustomCommandDepfile)
+run_cmake_with_options(CustomCommandDepfile -DCMAKE_BUILD_TYPE=Debug)
+run_cmake_with_options(CustomCommandDepfileAsOutput -DCMAKE_BUILD_TYPE=Debug)
+run_cmake_with_options(CustomCommandDepfileAsByproduct -DCMAKE_BUILD_TYPE=Debug)
+run_cmake(CustomCommandJobPool)
+run_cmake(SourceFileJobPool)
+run_cmake(FileSetJobPool)
+run_cmake(JobPoolUsesTerminal)
+
+run_cmake(RspFileC)
+run_cmake(RspFileCXX)
+if(CMake_TEST_Fortran
+    # FIXME(lfortran): The compiler does not support response files.
+    AND NOT CMAKE_Fortran_COMPILER_ID STREQUAL "LFortran"
+    )
+  run_cmake(RspFileFortran)
+endif()
 
 function(run_CommandConcat)
   set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/CommandConcat-build)
@@ -103,7 +196,8 @@ ${ninja_stderr}
     message(FATAL_ERROR
       "top ninja build failed exited with status ${ninja_result}")
   endif()
-endfunction(run_ninja)
+  set(ninja_stdout "${ninja_stdout}" PARENT_SCOPE)
+endfunction()
 
 function (run_LooseObjectDepends)
   set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/LooseObjectDepends-build)
@@ -122,15 +216,78 @@ function (run_LooseObjectDepends)
 endfunction ()
 run_LooseObjectDepends()
 
+function (run_LooseObjectDependsShort)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/LooseObjectDependsShort-build)
+  run_cmake(LooseObjectDependsShort)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" ".o/e86fd702/b1363cd8${CMAKE_C_OUTPUT_EXTENSION}")
+  if (EXISTS "${RunCMake_TEST_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}dep${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    message(FATAL_ERROR
+      "The `dep` library was created when requesting an object file to be "
+      "built; this should no longer be necessary.")
+  endif ()
+  if (EXISTS "${RunCMake_TEST_BINARY_DIR}/.o/600bd702/d56215${CMAKE_C_OUTPUT_EXTENSION}")
+    message(FATAL_ERROR
+      "The `dep.c` object file was created when requesting an object file to "
+      "be built; this should no longer be necessary.")
+  endif ()
+endfunction ()
+run_LooseObjectDependsShort()
+
+function(run_FortranSplitToken)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/FortranSplitToken-build)
+  run_cmake(FortranSplitToken)
+  set(objs)
+  foreach(src IN ITEMS use_split use_long use_keyword use_dcolon)
+    list(APPEND objs "CMakeFiles/split_token.dir/FortranSplitToken/${src}.f90${CMAKE_C_OUTPUT_EXTENSION}")
+  endforeach()
+  # The modules get built only if scanning found the split names.
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" ${objs})
+endfunction()
+if(CMake_TEST_Fortran)
+  run_FortranSplitToken()
+endif()
+
+function (run_CustomCommandExplictDepends)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/CustomCommandExplicitDepends-build)
+  run_cmake(CustomCommandExplicitDepends)
+
+  set(DEP_LIB "${RunCMake_TEST_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}dep${CMAKE_SHARED_LIBRARY_SUFFIX}")
+
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" "command-option.h")
+  if (EXISTS "${DEP_LIB}")
+    message(FATAL_ERROR
+      "The `dep` library was created when requesting a custom command to be "
+      "generated; this should no longer be necessary when passing "
+      "DEPENDS_EXPLICIT_ONLY option.")
+  endif ()
+
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" "command-variable-on.h")
+  if (EXISTS "${DEP_LIB}")
+    message(FATAL_ERROR
+      "The `dep` library was created when requesting a custom command to be "
+      "generated; this should no longer be necessary when setting "
+      "CMAKE_ADD_CUSTOM_COMMAND_DEPENDS_EXPLICIT_ONLY variable to ON.")
+  endif ()
+
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" "command-variable-off.h")
+  if (NOT EXISTS "${DEP_LIB}")
+    message(FATAL_ERROR
+      "The `dep` library was not created when requesting a custom command to be "
+      "generated; this should be necessary when setting "
+      "CMAKE_ADD_CUSTOM_COMMAND_DEPENDS_EXPLICIT_ONLY variable to OFF.")
+  endif ()
+endfunction ()
+run_CustomCommandExplictDepends()
+
 function (run_AssumedSources)
   set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/AssumedSources-build)
   run_cmake(AssumedSources)
-  run_ninja("${RunCMake_TEST_BINARY_DIR}" "target.c")
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" "${RunCMake_TEST_BINARY_DIR}/target.c")
   if (NOT EXISTS "${RunCMake_TEST_BINARY_DIR}/target.c")
     message(FATAL_ERROR
       "Dependencies for an assumed source did not hook up properly for 'target.c'.")
   endif ()
-  run_ninja("${RunCMake_TEST_BINARY_DIR}" "target-no-depends.c")
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" "${RunCMake_TEST_BINARY_DIR}/target-no-depends.c")
   if (EXISTS "${RunCMake_TEST_BINARY_DIR}/target-no-depends.c")
     message(FATAL_ERROR
       "Dependencies for an assumed source were magically hooked up for 'target-no-depends.c'.")
@@ -148,25 +305,15 @@ function(sleep delay)
   endif()
 endfunction(sleep)
 
-function(touch path)
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} -E touch ${path}
-    RESULT_VARIABLE result
-    )
-  if(NOT result EQUAL 0)
-    message(FATAL_ERROR "failed to touch main ${path} file.")
-  endif()
-endfunction(touch)
-
 macro(ninja_escape_path path out)
   string(REPLACE "\$ " "\$\$" "${out}" "${path}")
   string(REPLACE " " "\$ " "${out}" "${${out}}")
   string(REPLACE ":" "\$:" "${out}" "${${out}}")
-endmacro(ninja_escape_path)
+endmacro()
 
 macro(shell_escape string out)
   string(REPLACE "\"" "\\\"" "${out}" "${string}")
-endmacro(shell_escape)
+endmacro()
 
 function(run_sub_cmake test ninja_output_path_prefix)
   set(top_build_dir "${RunCMake_BINARY_DIR}/${test}-build/")
@@ -190,15 +337,16 @@ function(run_sub_cmake test ninja_output_path_prefix)
     set(cmd_prefix "")
     set(cmd_suffix "")
   endif()
+  set(fs_delay 3) # We assume the system as 1 sec timestamp resolution.
   file(WRITE "${top_build_ninja}" "\
 subninja ${escaped_ninja_output_path_prefix}/build.ninja
 default ${escaped_ninja_output_path_prefix}/all
 
-# Sleep for 1 second before to regenerate to make sure the timestamp of
+# Sleep for long enough before regenerating to make sure the timestamp of
 # the top build.ninja will be strictly greater than the timestamp of the
-# sub/build.ninja file. We assume the system as 1 sec timestamp resolution.
+# sub/build.ninja file.
 rule RERUN
-  command = ${cmd_prefix}\"${escaped_CMAKE_COMMAND}\" -E sleep 1 && \"${escaped_CMAKE_COMMAND}\" -E touch \"${escaped_top_build_ninja}\"${cmd_suffix}
+  command = ${cmd_prefix}\"${escaped_CMAKE_COMMAND}\" -E sleep ${fs_delay} && \"${escaped_CMAKE_COMMAND}\" -E touch \"${escaped_top_build_ninja}\"${cmd_suffix}
   description = Testing regeneration
   generator = 1
 
@@ -224,9 +372,9 @@ build build.ninja: RERUN ${escaped_build_ninja_dep} || ${escaped_ninja_output_pa
 
   # Test regeneration rules run in order.
   set(main_cmakelists "${RunCMake_SOURCE_DIR}/CMakeLists.txt")
-  sleep(1) # Assume the system as 1 sec timestamp resolution.
-  touch("${main_cmakelists}")
-  touch("${build_ninja_dep}")
+  sleep(${fs_delay})
+  file(TOUCH "${main_cmakelists}")
+  file(TOUCH "${build_ninja_dep}")
   run_ninja("${top_build_dir}")
   file(TIMESTAMP "${main_cmakelists}" mtime_main_cmakelists UTC)
   file(TIMESTAMP "${sub_build_ninja}" mtime_sub_build_ninja UTC)
@@ -248,14 +396,21 @@ build build.ninja: RERUN ${escaped_build_ninja_dep} || ${escaped_ninja_output_pa
   build.ninja     = ${mtime_top_build_ninja}")
   endif()
 
-endfunction(run_sub_cmake)
+endfunction()
 
 if("${ninja_version}" VERSION_LESS 1.6)
   message(WARNING "Ninja is too old; skipping rest of test.")
   return()
 endif()
+if("${ninja_version}" VERSION_LESS 1.12)
+  set(maybe_w_dupbuild_err -w dupbuild=err)
+endif()
 
-foreach(ninja_output_path_prefix "sub space" "sub")
+set(ninja_output_path_prefixes "sub")
+if(NOT CMAKE_C_COMPILER_ID STREQUAL "OrangeC")
+  list(APPEND ninja_output_path_prefixes "sub space")
+endif()
+foreach(ninja_output_path_prefix IN LISTS ninja_output_path_prefixes)
   run_sub_cmake(Executable "${ninja_output_path_prefix}")
   run_sub_cmake(StaticLib  "${ninja_output_path_prefix}")
   run_sub_cmake(SharedLib "${ninja_output_path_prefix}")
@@ -263,3 +418,66 @@ foreach(ninja_output_path_prefix "sub space" "sub")
   run_sub_cmake(SubDirPrefix "${ninja_output_path_prefix}")
   run_sub_cmake(CustomCommandWorkingDirectory "${ninja_output_path_prefix}")
 endforeach(ninja_output_path_prefix)
+
+function (run_PreventTargetAliasesDupBuildRule)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/PreventTargetAliasesDupBuildRule-build)
+  run_cmake(PreventTargetAliasesDupBuildRule)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" ${maybe_w_dupbuild_err})
+endfunction ()
+run_PreventTargetAliasesDupBuildRule()
+
+function (run_PreventConfigureFileDupBuildRule)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/PreventConfigureFileDupBuildRule-build)
+  run_cmake(PreventConfigureFileDupBuildRule)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" ${maybe_w_dupbuild_err})
+endfunction()
+run_PreventConfigureFileDupBuildRule()
+
+function (run_ChangeBuildType)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/ChangeBuildType-build)
+  set(RunCMake_TEST_OPTIONS "-DCMAKE_BUILD_TYPE:STRING=Debug")
+  run_cmake(ChangeBuildType)
+  unset(RunCMake_TEST_OPTIONS)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" ${maybe_w_dupbuild_err})
+endfunction()
+run_ChangeBuildType()
+
+function (run_CustomCommandTargetComments)
+  set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/CustomCommandTargetComments-build)
+  run_cmake(CustomCommandTargetComments)
+  unset(RunCMake_TEST_OPTIONS)
+  run_ninja("${RunCMake_TEST_BINARY_DIR}" ${maybe_w_dupbuild_err})
+  if (NOT ninja_stdout MATCHES [[pre-build: genex; pre-link: genex; Linking C executable hello(\.exe)?; post-build: genex]])
+    string(REPLACE "\n" "\n  " ninja_stdout "${ninja_stdout}")
+    message(SEND_ERROR
+      "Custom command comments are not part of the description:\n"
+      "  ${ninja_stdout}"
+    )
+  endif ()
+endfunction()
+run_CustomCommandTargetComments()
+
+function(run_QtAutoMocSkipPch)
+  set(QtX Qt${CMake_TEST_Qt_version})
+  if(CMake_TEST_${QtX}Core_Version VERSION_GREATER_EQUAL 5.15.0)
+    set(RunCMake_TEST_BINARY_DIR ${RunCMake_BINARY_DIR}/QtAutoMocSkipPch-build)
+    run_cmake_with_options(QtAutoMocSkipPch
+      "-Dwith_qt_version=${CMake_TEST_Qt_version}"
+      "-D${QtX}_DIR=${${QtX}_DIR}"
+      "-D${QtX}Core_DIR=${${QtX}Core_DIR}"
+      "-DCMAKE_PREFIX_PATH:STRING=${CMAKE_PREFIX_PATH}"
+    )
+    # Build the project.
+    run_ninja("${RunCMake_TEST_BINARY_DIR}")
+  endif()
+endfunction()
+
+if(CMake_TEST_Qt_version)
+  run_QtAutoMocSkipPch()
+endif()
+
+run_cmake(LINK_OPTIONSWithNewlines)
+
+run_cmake(StaticLibShort)
+
+run_cmake(InstallNameDir)

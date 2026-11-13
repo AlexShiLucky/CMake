@@ -1,16 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
-#ifndef cmStateTypes_h
-#define cmStateTypes_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
+
+#include <cmext/enum_set>
 
 #include "cmLinkedTree.h"
 
 namespace cmStateDetail {
 struct SnapshotDataType;
-typedef cmLinkedTree<cmStateDetail::SnapshotDataType>::iterator PositionType;
+using PositionType = cmLinkedTree<cmStateDetail::SnapshotDataType>::iterator;
 }
 
 namespace cmStateEnums {
@@ -19,6 +20,7 @@ enum SnapshotType
 {
   BaseType,
   BuildsystemDirectoryType,
+  DeferCallType,
   FunctionCallType,
   MacroCallType,
   IncludeFileType,
@@ -27,20 +29,22 @@ enum SnapshotType
   VariableScopeType
 };
 
-// There are multiple overlapping ranges represented here. Be aware that adding
-// a value to this enumeration may cause failures in numerous places which
-// assume details about the ordering.
-enum TargetType
+enum SnapshotUnwindType
 {
-  EXECUTABLE,
-  STATIC_LIBRARY,
-  SHARED_LIBRARY,
-  MODULE_LIBRARY,
-  OBJECT_LIBRARY,
-  UTILITY,
-  GLOBAL_TARGET,
-  INTERFACE_LIBRARY,
-  UNKNOWN_LIBRARY
+  NO_UNWIND,
+  CAN_UNWIND
+};
+
+enum SnapshotUnwindState
+{
+  NOT_UNWINDING,
+  UNWINDING
+};
+
+enum class CommandType
+{
+  Macro,
+  Function
 };
 
 enum CacheEntryType
@@ -59,6 +63,21 @@ enum ArtifactType
   RuntimeBinaryArtifact,
   ImportLibraryArtifact
 };
+
+enum class IntermediateDirKind
+{
+  ObjectFiles,
+  QtAutogenMetadata,
+};
 }
 
-#endif
+namespace cmTraceEnums {
+
+/** \brief Define supported trace formats **/
+enum class TraceOutputFormat
+{
+  Undefined,
+  Human,
+  JSONv1
+};
+};

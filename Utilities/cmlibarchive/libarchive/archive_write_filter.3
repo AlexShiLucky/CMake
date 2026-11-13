@@ -22,8 +22,6 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\" $FreeBSD$
-.\"
 .Dd August 14, 2014
 .Dt ARCHIVE_WRITE_FILTER 3
 .Os
@@ -42,7 +40,8 @@
 .Nm archive_write_add_filter_none ,
 .Nm archive_write_add_filter_program ,
 .Nm archive_write_add_filter_uuencode ,
-.Nm archive_write_add_filter_xz
+.Nm archive_write_add_filter_xz ,
+.Nm archive_write_add_filter_zstd
 .Nd functions enabling output filters
 .Sh LIBRARY
 Streaming Archive Library (libarchive, -larchive)
@@ -50,6 +49,8 @@ Streaming Archive Library (libarchive, -larchive)
 .In archive.h
 .Ft int
 .Fn archive_write_add_filter_b64encode "struct archive *"
+.Ft int
+.Fn archive_write_add_filter_by_name "struct archive *" "const char *name"
 .Ft int
 .Fn archive_write_add_filter_bzip2 "struct archive *"
 .Ft int
@@ -76,6 +77,8 @@ Streaming Archive Library (libarchive, -larchive)
 .Fn archive_write_add_filter_uuencode "struct archive *"
 .Ft int
 .Fn archive_write_add_filter_xz "struct archive *"
+.Ft int
+.Fn archive_write_add_filter_zstd "struct archive *"
 .Sh DESCRIPTION
 .Bl -tag -width indent
 .It Xo
@@ -89,6 +92,7 @@ Streaming Archive Library (libarchive, -larchive)
 .Fn archive_write_add_filter_lzma ,
 .Fn archive_write_add_filter_lzop ,
 .Fn archive_write_add_filter_xz ,
+.Fn archive_write_add_filter_zstd ,
 .Xc
 The resulting archive will be compressed as specified.
 Note that the compressed output is always properly blocked.
@@ -98,6 +102,8 @@ Note that the compressed output is always properly blocked.
 .Xc
 The output will be encoded as specified.
 The encoded output is always properly blocked.
+.It Fn archive_write_add_filter_by_name
+Sets the corresponding filter based on the common name.
 .It Fn archive_write_add_filter_none
 This is never necessary.
 It is provided only for backwards compatibility.
@@ -109,6 +115,10 @@ write callbacks.
 .Sh RETURN VALUES
 These functions return
 .Cm ARCHIVE_OK
+.Po or
+.Cm ARCHIVE_WARN
+if an external program had to be executed to handle the filter
+.Pc
 on success, or
 .Cm ARCHIVE_FATAL .
 .\"
@@ -121,10 +131,10 @@ functions.
 .\"
 .Sh SEE ALSO
 .Xr tar 1 ,
-.Xr libarchive 3 ,
 .Xr archive_write 3 ,
 .Xr archive_write_format 3 ,
 .Xr archive_write_set_options 3 ,
+.Xr libarchive 3 ,
 .Xr cpio 5 ,
 .Xr mtree 5 ,
 .Xr tar 5

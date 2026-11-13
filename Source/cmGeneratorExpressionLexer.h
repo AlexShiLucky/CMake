@@ -1,17 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGeneratorExpressionLexer_h
-#define cmGeneratorExpressionLexer_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include <stddef.h>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 struct cmGeneratorExpressionToken
 {
-  cmGeneratorExpressionToken(unsigned type, const char* c, size_t l)
+  cmGeneratorExpressionToken(unsigned type, char const* c, size_t l)
     : TokenType(type)
     , Content(c)
     , Length(l)
@@ -26,7 +25,7 @@ struct cmGeneratorExpressionToken
     CommaSeparator
   };
   unsigned TokenType;
-  const char* Content;
+  char const* Content;
   size_t Length;
 };
 
@@ -38,7 +37,7 @@ class cmGeneratorExpressionLexer
 public:
   cmGeneratorExpressionLexer();
 
-  std::vector<cmGeneratorExpressionToken> Tokenize(const std::string& input);
+  std::vector<cmGeneratorExpressionToken> Tokenize(std::string const& input);
 
   bool GetSawGeneratorExpression() const
   {
@@ -46,8 +45,6 @@ public:
   }
 
 private:
-  bool SawBeginExpression;
-  bool SawGeneratorExpression;
+  bool SawBeginExpression = false;
+  bool SawGeneratorExpression = false;
 };
-
-#endif

@@ -1,64 +1,66 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmInstallCommandArguments_h
-#define cmInstallCommandArguments_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
 
-#include "cmCommandArgumentsHelper.h"
+#include "cmArgumentParser.h"
+#include "cmArgumentParserTypes.h"
 
-class cmInstallCommandArguments
+class cmMakefile;
+
+class cmInstallCommandArguments : public cmArgumentParser<void>
 {
 public:
-  cmInstallCommandArguments(const std::string& defaultComponent);
+  cmInstallCommandArguments(std::string defaultComponent,
+                            cmMakefile& makefile);
   void SetGenericArguments(cmInstallCommandArguments* args)
   {
     this->GenericArguments = args;
   }
-  void Parse(const std::vector<std::string>* args,
-             std::vector<std::string>* unconsumedArgs);
 
-  // Compute destination path.and check permissions
+  // Compute destination path and check permissions.
   bool Finalize();
 
-  const std::string& GetDestination() const;
-  const std::string& GetComponent() const;
+  std::string const& GetDestination() const;
+  std::string const& GetComponent() const;
+  std::string const& GetNamelinkComponent() const;
   bool GetExcludeFromAll() const;
-  const std::string& GetRename() const;
-  const std::string& GetPermissions() const;
-  const std::vector<std::string>& GetConfigurations() const;
+  std::string const& GetRename() const;
+  std::string const& GetPermissions() const;
+  std::vector<std::string> const& GetConfigurations() const;
   bool GetOptional() const;
   bool GetNamelinkOnly() const;
   bool GetNamelinkSkip() const;
+  bool HasNamelinkComponent() const;
+  std::string const& GetType() const;
 
-  // once HandleDirectoryMode() is also switched to using
-  // cmInstallCommandArguments then these two functions can become non-static
-  // private member functions without arguments
-  static bool CheckPermissions(const std::string& onePerm, std::string& perm);
-  cmCommandArgumentsHelper Parser;
-  cmCommandArgumentGroup ArgumentGroup;
+  std::string const& GetDefaultComponent() const;
+
+  static bool CheckPermissions(std::string const& onePerm, std::string& perm);
 
 private:
-  cmInstallCommandArguments(); // disabled
-  cmCAString Destination;
-  cmCAString Component;
-  cmCAEnabler ExcludeFromAll;
-  cmCAString Rename;
-  cmCAStringVector Permissions;
-  cmCAStringVector Configurations;
-  cmCAEnabler Optional;
-  cmCAEnabler NamelinkOnly;
-  cmCAEnabler NamelinkSkip;
+  std::string Destination;
+  std::string Component;
+  std::string NamelinkComponent;
+  bool ExcludeFromAll = false;
+  std::string Rename;
+  ArgumentParser::MaybeEmpty<std::vector<std::string>> Permissions;
+  ArgumentParser::MaybeEmpty<std::vector<std::string>> Configurations;
+  bool Optional = false;
+  bool NamelinkOnly = false;
+  bool NamelinkSkip = false;
+  std::string Type;
 
   std::string DestinationString;
   std::string PermissionsString;
 
-  cmInstallCommandArguments* GenericArguments;
-  static const char* PermissionsTable[];
-  static const std::string EmptyString;
+  cmInstallCommandArguments* GenericArguments = nullptr;
+  static char const* PermissionsTable[];
+  static std::string const EmptyString;
   std::string DefaultComponentName;
   bool CheckPermissions();
 };
@@ -67,13 +69,26 @@ class cmInstallCommandIncludesArgument
 {
 public:
   cmInstallCommandIncludesArgument();
-  void Parse(const std::vector<std::string>* args,
+  void Parse(std::vector<std::string> const* args,
              std::vector<std::string>* unconsumedArgs);
 
-  const std::vector<std::string>& GetIncludeDirs() const;
+  std::vector<std::string> const& GetIncludeDirs() const;
 
 private:
   std::vector<std::string> IncludeDirs;
 };
 
-#endif
+class cmInstallCommandFileSetArguments : public cmInstallCommandArguments
+{
+public:
+  cmInstallCommandFileSetArguments(std::string defaultComponent,
+                                   cmMakefile& makefile);
+
+  void Parse(std::vector<std::string> args,
+             std::vector<std::string>* unconsumedArgs);
+
+  std::string const& GetFileSet() const { return this->FileSet; }
+
+private:
+  std::string FileSet;
+};

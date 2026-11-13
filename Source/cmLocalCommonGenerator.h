@@ -1,11 +1,11 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmLocalCommonGenerator_h
-#define cmLocalCommonGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
+#include <vector>
 
 #include "cmLocalGenerator.h"
 
@@ -19,23 +19,30 @@ class cmMakefile;
 class cmLocalCommonGenerator : public cmLocalGenerator
 {
 public:
-  cmLocalCommonGenerator(cmGlobalGenerator* gg, cmMakefile* mf,
-                         std::string const& wd);
-  ~cmLocalCommonGenerator() CM_OVERRIDE;
+  cmLocalCommonGenerator(cmGlobalGenerator* gg, cmMakefile* mf);
+  ~cmLocalCommonGenerator() override;
 
-  std::string const& GetConfigName() { return this->ConfigName; }
+  std::vector<std::string> const& GetConfigNames() const
+  {
+    return this->ConfigNames;
+  }
 
-  std::string GetWorkingDirectory() const { return this->WorkingDirectory; }
+  virtual std::string const& GetWorkingDirectory() const;
 
   std::string GetTargetFortranFlags(cmGeneratorTarget const* target,
-                                    std::string const& config) CM_OVERRIDE;
+                                    std::string const& config) override;
+
+  std::string ComputeLongTargetDirectory(cmGeneratorTarget const* gt) const;
+  std::string GetTargetDirectory(
+    cmGeneratorTarget const* target,
+    cmStateEnums::IntermediateDirKind kind) const override;
+
+  void ComputeObjectFilenames(
+    std::map<cmSourceFile const*, cmObjectLocations>& mapping,
+    std::string const& config, cmGeneratorTarget const* gt = nullptr) override;
 
 protected:
-  std::string WorkingDirectory;
-
-  std::string ConfigName;
+  std::vector<std::string> ConfigNames;
 
   friend class cmCommonTargetGenerator;
 };
-
-#endif

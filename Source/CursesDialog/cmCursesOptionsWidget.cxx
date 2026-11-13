@@ -1,11 +1,12 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCursesOptionsWidget.h"
 
+#include "cmCursesColor.h"
 #include "cmCursesWidget.h"
 #include "cmStateTypes.h"
 
-#define ctrl(z) ((z)&037)
+#define ctrl(z) ((z) & 037)
 
 cmCursesOptionsWidget::cmCursesOptionsWidget(int width, int height, int left,
                                              int top)
@@ -15,14 +16,22 @@ cmCursesOptionsWidget::cmCursesOptionsWidget(int width, int height, int left,
   // there is no option type, and string type causes ccmake to cast
   // the widget into a string widget at some point.  BOOL is safe for
   // now.
-  set_field_fore(this->Field, A_NORMAL);
-  set_field_back(this->Field, A_STANDOUT);
+  if (cmCursesColor::HasColors()) {
+    set_field_fore(this->Field, COLOR_PAIR(cmCursesColor::Choice));
+    set_field_back(this->Field, COLOR_PAIR(cmCursesColor::Choice));
+  } else {
+    set_field_fore(this->Field, A_NORMAL);
+    set_field_back(this->Field, A_STANDOUT);
+  }
   field_opts_off(this->Field, O_STATIC);
 }
 
 bool cmCursesOptionsWidget::HandleInput(int& key, cmCursesMainForm* /*fm*/,
                                         WINDOW* w)
 {
+  if (this->Options.empty()) {
+    return false;
+  }
   switch (key) {
     case 10: // 10 == enter
     case KEY_ENTER:
@@ -70,14 +79,13 @@ void cmCursesOptionsWidget::PreviousOption()
   this->SetValue(this->Options[this->CurrentOption]);
 }
 
-void cmCursesOptionsWidget::SetOption(const std::string& value)
+void cmCursesOptionsWidget::SetOption(std::string const& value)
 {
   this->CurrentOption = 0; // default to 0 index
   this->SetValue(value);
   int index = 0;
-  for (std::vector<std::string>::iterator i = this->Options.begin();
-       i != this->Options.end(); ++i) {
-    if (*i == value) {
+  for (auto const& opt : this->Options) {
+    if (opt == value) {
       this->CurrentOption = index;
     }
     index++;

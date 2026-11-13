@@ -1,42 +1,84 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmState_h
-#define cmState_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
+#include <cm/optional>
+
 #include "cmDefinitions.h"
+#include "cmDependencyProvider.h"
 #include "cmLinkedTree.h"
 #include "cmPolicies.h"
 #include "cmProperty.h"
-#include "cmPropertyDefinitionMap.h"
+#include "cmPropertyDefinition.h"
 #include "cmPropertyMap.h"
 #include "cmStatePrivate.h"
 #include "cmStateTypes.h"
+#include "cmValue.h"
 
 class cmCacheManager;
-class cmCommand;
-class cmPropertyDefinition;
+class cmGlobVerificationManager;
+class cmMakefile;
 class cmStateSnapshot;
+class cmMessenger;
+class cmExecutionStatus;
+class cmListFileBacktrace;
+struct cmGlobCacheEntry;
+struct cmListFileArgument;
+
+template <typename T>
+class BT;
+
+namespace cm {
+enum class TargetType;
+} // namespace cm
 
 class cmState
 {
   friend class cmStateSnapshot;
 
 public:
-  cmState();
+  enum class Role
+  {
+    Internal,
+    Project,
+    Script,
+    FindPackage,
+    CTest,
+    CPack,
+    Help,
+  };
+
+  enum class TryCompile
+  {
+    No,
+    Yes,
+  };
+
+  cmState(Role role, TryCompile isTryCompile = TryCompile::No);
   ~cmState();
 
-  static const char* GetTargetTypeName(cmStateEnums::TargetType targetType);
+  cmState(cmState const&) = delete;
+  cmState& operator=(cmState const&) = delete;
+
+  static std::string const& GetTargetTypeName(cm::TargetType targetType);
 
   cmStateSnapshot CreateBaseSnapshot();
   cmStateSnapshot CreateBuildsystemDirectorySnapshot(
     cmStateSnapshot const& originSnapshot);
+  cmStateSnapshot CreateDeferCallSnapshot(
+    cmStateSnapshot const& originSnapshot, std::string const& fileName);
   cmStateSnapshot CreateFunctionCallSnapshot(
     cmStateSnapshot const& originSnapshot, std::string const& fileName);
   cmStateSnapshot CreateMacroCallSnapshot(
@@ -51,24 +93,30 @@ public:
     cmStateSnapshot const& originSnapshot);
   cmStateSnapshot Pop(cmStateSnapshot const& originSnapshot);
 
-  static cmStateEnums::CacheEntryType StringToCacheEntryType(const char*);
-  static const char* CacheEntryTypeToString(cmStateEnums::CacheEntryType);
+  static cmStateEnums::CacheEntryType StringToCacheEntryType(
+    std::string const&);
+  static bool StringToCacheEntryType(std::string const&,
+                                     cmStateEnums::CacheEntryType& type);
+  static std::string const& CacheEntryTypeToString(
+    cmStateEnums::CacheEntryType);
   static bool IsCacheEntryType(std::string const& key);
 
-  bool LoadCache(const std::string& path, bool internal,
+  bool LoadCache(std::string const& path, bool internal,
                  std::set<std::string>& excludes,
                  std::set<std::string>& includes);
 
-  bool SaveCache(const std::string& path);
+  bool SaveCache(std::string const& path, cmMessenger* messenger);
 
-  bool DeleteCache(const std::string& path);
+  bool DeleteCache(std::string const& path);
+
+  bool IsCacheLoaded() const;
 
   std::vector<std::string> GetCacheEntryKeys() const;
-  const char* GetCacheEntryValue(std::string const& key) const;
-  const char* GetInitializedCacheValue(std::string const& key) const;
+  cmValue GetCacheEntryValue(std::string const& key) const;
+  std::string GetSafeCacheEntryValue(std::string const& key) const;
+  cmValue GetInitializedCacheValue(std::string const& key) const;
   cmStateEnums::CacheEntryType GetCacheEntryType(std::string const& key) const;
   void SetCacheEntryValue(std::string const& key, std::string const& value);
-  void SetCacheValue(std::string const& key, std::string const& value);
 
   void RemoveCacheEntry(std::string const& key);
 
@@ -78,74 +126,102 @@ public:
   void SetCacheEntryBoolProperty(std::string const& key,
                                  std::string const& propertyName, bool value);
   std::vector<std::string> GetCacheEntryPropertyList(std::string const& key);
-  const char* GetCacheEntryProperty(std::string const& key,
-                                    std::string const& propertyName);
+  cmValue GetCacheEntryProperty(std::string const& key,
+                                std::string const& propertyName);
   bool GetCacheEntryPropertyAsBool(std::string const& key,
                                    std::string const& propertyName);
   void AppendCacheEntryProperty(std::string const& key,
-                                const std::string& property,
-                                const std::string& value,
+                                std::string const& property,
+                                std::string const& value,
                                 bool asString = false);
   void RemoveCacheEntryProperty(std::string const& key,
                                 std::string const& propertyName);
 
-  ///! Break up a line like VAR:type="value" into var, type and value
-  static bool ParseCacheEntry(const std::string& entry, std::string& var,
+  //! Break up a line like VAR:type="value" into var, type and value
+  static bool ParseCacheEntry(std::string const& entry, std::string& var,
                               std::string& value,
                               cmStateEnums::CacheEntryType& type);
 
-  cmStateSnapshot Reset();
   // Define a property
-  void DefineProperty(const std::string& name, cmProperty::ScopeType scope,
-                      const char* ShortDescription,
-                      const char* FullDescription, bool chain = false);
+  void DefineProperty(std::string const& name, cmProperty::ScopeType scope,
+                      std::string const& ShortDescription,
+                      std::string const& FullDescription, bool chain = false,
+                      std::string const& initializeFromVariable = "");
 
   // get property definition
   cmPropertyDefinition const* GetPropertyDefinition(
-    const std::string& name, cmProperty::ScopeType scope) const;
+    std::string const& name, cmProperty::ScopeType scope) const;
 
-  // Is a property defined?
-  bool IsPropertyDefined(const std::string& name,
-                         cmProperty::ScopeType scope) const;
-  bool IsPropertyChained(const std::string& name,
+  cmPropertyDefinitionMap const& GetPropertyDefinitions() const
+  {
+    return this->PropertyDefinitions;
+  }
+
+  bool IsPropertyChained(std::string const& name,
                          cmProperty::ScopeType scope) const;
 
   void SetLanguageEnabled(std::string const& l);
   bool GetLanguageEnabled(std::string const& l) const;
   std::vector<std::string> GetEnabledLanguages() const;
-  void SetEnabledLanguages(std::vector<std::string> const& langs);
   void ClearEnabledLanguages();
-
-  bool GetIsInTryCompile() const;
-  void SetIsInTryCompile(bool b);
 
   bool GetIsGeneratorMultiConfig() const;
   void SetIsGeneratorMultiConfig(bool b);
 
-  cmCommand* GetCommand(std::string const& name) const;
-  void AddBuiltinCommand(std::string const& name, cmCommand* command);
-  void AddDisallowedCommand(std::string const& name, cmCommand* command,
-                            cmPolicies::PolicyID policy, const char* message);
-  void AddUnexpectedCommand(std::string const& name, const char* error);
-  void AddScriptedCommand(std::string const& name, cmCommand* command);
+  using Command = std::function<bool(std::vector<cmListFileArgument> const&,
+                                     cmExecutionStatus&)>;
+  using BuiltinCommand = bool (*)(std::vector<std::string> const&,
+                                  cmExecutionStatus&);
+
+  // Returns a command from its name, case insensitive, or nullptr
+  Command GetCommand(std::string const& name) const;
+  // Returns a command type from its name, case insensitive, or cm::nullopt
+  cm::optional<cmStateEnums::CommandType> GetCommandType(
+    std::string const& name) const;
+  // Returns a command from its name, or nullptr
+  Command GetCommandByExactName(std::string const& name) const;
+  // Returns a command type from its name, or cm::nullopt
+  cm::optional<cmStateEnums::CommandType> GetCommandTypeByExactName(
+    std::string const& name) const;
+
+  void AddBuiltinCommand(std::string const& name, Command command);
+  void AddBuiltinCommand(std::string const& name, BuiltinCommand command);
+  void AddFlowControlCommand(std::string const& name, Command command);
+  void AddFlowControlCommand(std::string const& name, BuiltinCommand command);
+  void AddDisallowedCommand(std::string const& name, BuiltinCommand command,
+                            cmPolicies::PolicyID policy, char const* message,
+                            char const* additionalWarning = nullptr);
+  void AddRemovedCommand(std::string const& name, std::string const& message);
+  void AddUnexpectedCommand(std::string const& name, char const* error);
+  void AddUnexpectedFlowControlCommand(std::string const& name,
+                                       char const* error);
+  bool AddScriptedCommand(std::string const& name,
+                          cmStateEnums::CommandType type, BT<Command> command,
+                          cmMakefile& mf);
+  void RemoveBuiltinCommand(std::string const& name);
   void RemoveUserDefinedCommands();
   std::vector<std::string> GetCommandNames() const;
 
-  void SetGlobalProperty(const std::string& prop, const char* value);
-  void AppendGlobalProperty(const std::string& prop, const char* value,
+  void SetGlobalProperty(std::string const& prop, std::string const& value);
+  void SetGlobalProperty(std::string const& prop, cmValue value);
+  void AppendGlobalProperty(std::string const& prop, std::string const& value,
                             bool asString = false);
-  const char* GetGlobalProperty(const std::string& prop);
-  bool GetGlobalPropertyAsBool(const std::string& prop);
+  cmValue GetGlobalProperty(std::string const& prop);
+  bool GetGlobalPropertyAsBool(std::string const& prop);
 
-  const char* GetSourceDirectory() const;
+  std::string const& GetSourceDirectory() const;
   void SetSourceDirectory(std::string const& sourceDirectory);
-  const char* GetBinaryDirectory() const;
+  std::string const& GetBinaryDirectory() const;
   void SetBinaryDirectory(std::string const& binaryDirectory);
 
   void SetWindowsShell(bool windowsShell);
   bool UseWindowsShell() const;
   void SetWindowsVSIDE(bool windowsVSIDE);
   bool UseWindowsVSIDE() const;
+  void SetGhsMultiIDE(bool ghsMultiIDE);
+  bool UseGhsMultiIDE() const;
+  void SetBorlandMake(bool borlandMake);
+  bool UseBorlandMake() const;
   void SetWatcomWMake(bool watcomWMake);
   bool UseWatcomWMake() const;
   void SetMinGWMake(bool minGWMake);
@@ -154,42 +230,138 @@ public:
   bool UseNMake() const;
   void SetMSYSShell(bool mSYSShell);
   bool UseMSYSShell() const;
+  void SetNinja(bool ninja);
+  bool UseNinja() const;
+  void SetNinjaMulti(bool ninjaMulti);
+  bool UseNinjaMulti() const;
+  void SetFastbuildMake(bool fastbuildMake);
+  bool UseFastbuildMake() const;
 
   unsigned int GetCacheMajorVersion() const;
   unsigned int GetCacheMinorVersion() const;
 
+  void SetRoleToProjectForCMakeBuildVsReconfigure();
+  void SetRoleToHelpForListPresets();
+  Role GetRole() const;
+  std::string GetRoleString() const;
+
+  static std::string RoleToString(Role role);
+
+  TryCompile GetIsTryCompile() const;
+
+  void ClearDependencyProvider() { this->DependencyProvider.reset(); }
+  void SetDependencyProvider(cmDependencyProvider provider)
+  {
+    this->DependencyProvider = std::move(provider);
+  }
+  cm::optional<cmDependencyProvider> const& GetDependencyProvider() const
+  {
+    return this->DependencyProvider;
+  }
+  Command GetDependencyProviderCommand(
+    cmDependencyProvider::Method method) const;
+
+  void SetInTopLevelIncludes(bool inTopLevelIncludes)
+  {
+    this->ProcessingTopLevelIncludes = inTopLevelIncludes;
+  }
+  bool InTopLevelIncludes() const { return this->ProcessingTopLevelIncludes; }
+
+  void ClearDeleteCacheChangeVars() { this->DeleteCacheChangeVars.clear(); }
+  void AddDeleteCacheChangeVar(std::string var, std::string value)
+  {
+    this->DeleteCacheChangeVars[var] = value;
+  }
+  std::map<std::string, std::string> GetDeleteCacheChangeVars() const
+  {
+    return this->DeleteCacheChangeVars;
+  }
+
+  void SetReconfiguring(bool reconfiguring)
+  {
+    this->Reconfiguring = reconfiguring;
+  }
+  bool IsReconfiguring() const { return this->Reconfiguring; }
+
 private:
   friend class cmake;
-  void AddCacheEntry(const std::string& key, const char* value,
-                     const char* helpString,
+  cmStateSnapshot Reset(cmStateSnapshot const& diagnosticState);
+
+  void AddCacheEntry(std::string const& key, cmValue value,
+                     std::string const& helpString,
                      cmStateEnums::CacheEntryType type);
 
-  std::map<cmProperty::ScopeType, cmPropertyDefinitionMap> PropertyDefinitions;
+  bool DoWriteGlobVerifyTarget() const;
+  std::string const& GetGlobVerifyScript() const;
+  std::string const& GetGlobVerifyStamp() const;
+  bool SaveVerificationScript(std::string const& path, cmMessenger* messenger);
+  void AddGlobCacheEntry(cmGlobCacheEntry const& entry,
+                         std::string const& variable,
+                         cmListFileBacktrace const& bt,
+                         cmMessenger* messenger);
+  std::vector<cmGlobCacheEntry> GetGlobCacheEntries() const;
+
+  cmPropertyDefinitionMap PropertyDefinitions;
   std::vector<std::string> EnabledLanguages;
-  std::map<std::string, cmCommand*> BuiltinCommands;
-  std::map<std::string, cmCommand*> ScriptedCommands;
+
+  class CommandDescriptor
+  {
+  public:
+    using CommandType = cmStateEnums::CommandType;
+
+    CommandDescriptor()
+      : Type(CommandType::Macro)
+      , Script(nullptr)
+    {
+    }
+    CommandDescriptor(CommandType type, Command command);
+    CommandDescriptor(CommandDescriptor&& descriptor) noexcept;
+
+    CommandDescriptor& operator=(CommandDescriptor&& descriptor) noexcept;
+    CommandDescriptor& operator=(CommandDescriptor const& descriptor) =
+      default;
+
+    CommandType Type;
+    Command Script;
+  };
+  CommandDescriptor const* GetCommandDescriptorByExactName(
+    std::string const& name) const;
+
+  std::unordered_map<std::string, CommandDescriptor> BuiltinCommands;
+  std::unordered_map<std::string, CommandDescriptor> ScriptedCommands;
+  std::unordered_set<std::string> FlowControlCommands;
   cmPropertyMap GlobalProperties;
-  cmCacheManager* CacheManager;
+  std::unique_ptr<cmCacheManager> CacheManager;
+  std::unique_ptr<cmGlobVerificationManager> GlobVerificationManager;
 
   cmLinkedTree<cmStateDetail::BuildsystemDirectoryStateType>
     BuildsystemDirectory;
 
   cmLinkedTree<std::string> ExecutionListFiles;
 
+  cmLinkedTree<cmStateDetail::DiagnosticStackEntry> DiagnosticStack;
   cmLinkedTree<cmStateDetail::PolicyStackEntry> PolicyStack;
   cmLinkedTree<cmStateDetail::SnapshotDataType> SnapshotData;
   cmLinkedTree<cmDefinitions> VarTree;
 
   std::string SourceDirectory;
   std::string BinaryDirectory;
-  bool IsInTryCompile;
-  bool IsGeneratorMultiConfig;
-  bool WindowsShell;
-  bool WindowsVSIDE;
-  bool WatcomWMake;
-  bool MinGWMake;
-  bool NMake;
-  bool MSYSShell;
+  bool IsGeneratorMultiConfig = false;
+  bool WindowsShell = false;
+  bool WindowsVSIDE = false;
+  bool GhsMultiIDE = false;
+  bool BorlandMake = false;
+  bool WatcomWMake = false;
+  bool MinGWMake = false;
+  bool NMake = false;
+  bool MSYSShell = false;
+  bool Ninja = false;
+  bool NinjaMulti = false;
+  bool FastbuildMake = false;
+  Role StateRole = Role::Internal;
+  TryCompile IsTryCompile = TryCompile::No;
+  cm::optional<cmDependencyProvider> DependencyProvider;
+  bool ProcessingTopLevelIncludes = false;
+  std::map<std::string, std::string> DeleteCacheChangeVars;
+  bool Reconfiguring = false;
 };
-
-#endif

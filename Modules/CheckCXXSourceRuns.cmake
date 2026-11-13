@@ -1,95 +1,99 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# CheckCXXSourceRuns
-# ------------------
-#
-# Check if the given C++ source code compiles and runs.
-#
-# CHECK_CXX_SOURCE_RUNS(<code> <var>)
-#
-# ::
-#
-#   <code>   - source code to try to compile
-#   <var>    - variable to store the result
-#              (1 for success, empty for failure)
-#              Will be created as an internal cache variable.
-#
-# The following variables may be set before calling this macro to modify
-# the way the check is run:
-#
-# ::
-#
-#   CMAKE_REQUIRED_FLAGS = string of compile command line flags
-#   CMAKE_REQUIRED_DEFINITIONS = list of macros to define (-DFOO=bar)
-#   CMAKE_REQUIRED_INCLUDES = list of include directories
-#   CMAKE_REQUIRED_LIBRARIES = list of libraries to link
-#   CMAKE_REQUIRED_QUIET = execute quietly without messages
+#[=======================================================================[.rst:
+CheckCXXSourceRuns
+------------------
+
+This module provides a command to check whether a C++ source can be built
+and run.
+
+Load this module in a CMake project with:
+
+.. code-block:: cmake
+
+  include(CheckCXXSourceRuns)
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
+
+.. command:: check_cxx_source_runs
+
+  Checks once whether the given C++ source code compiles and links into an
+  executable that can subsequently be run:
+
+  .. code-block:: cmake
+
+    check_cxx_source_runs(<code> <variable>)
+
+  The C++ source supplied in ``<code>`` must contain at least a ``main()``
+  function.  The result of the check is stored in the internal cache variable
+  specified by ``<variable>``.  If the code builds and runs with exit code
+  ``0``, success is indicated by a boolean true value.  Failure to build or
+  run is indicated by a boolean false value, such as an empty string or an
+  error message.
+
+  .. rubric:: Variables Affecting the Check
+
+  The following variables may be set before calling this command to modify
+  the way the check is run:
+
+  .. include:: /module/include/CMAKE_REQUIRED_FLAGS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_DEFINITIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_INCLUDES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_OPTIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LIBRARIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_DIRECTORIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_QUIET.rst
+
+Examples
+^^^^^^^^
+
+The following example demonstrates how to check whether the C++ standard
+library is functional and ``std::vector`` works at runtime.  If the source
+compiles, links, and runs successfully, internal cache variable
+``HAVE_WORKING_STD_VECTOR`` will be set to boolean true value.  Code is
+supplied using :ref:`Bracket Argument` for easier embedded quotes handling:
+
+.. code-block:: cmake
+  :force:
+
+  include(CheckCXXSourceRuns)
+
+  check_cxx_source_runs([[
+    #include <iostream>
+    #include <vector>
+
+    int main()
+    {
+      std::vector<int> v = {1, 2, 3};
+      if (v.size() != 3) return 1;
+      std::cout << "Vector works correctly." << std::endl;
+      return 0;
+    }
+  ]] HAVE_WORKING_STD_VECTOR)
+
+See Also
+^^^^^^^^
+
+* The :module:`CheckSourceRuns` module for a more general command syntax.
+* The :module:`CheckSourceCompiles` module to check whether a source code
+  can be built.
+#]=======================================================================]
+
+include_guard(GLOBAL)
+include(Internal/CheckSourceRuns)
 
 macro(CHECK_CXX_SOURCE_RUNS SOURCE VAR)
-  if(NOT DEFINED "${VAR}")
-    set(MACRO_CHECK_FUNCTION_DEFINITIONS
-      "-D${VAR} ${CMAKE_REQUIRED_FLAGS}")
-    if(CMAKE_REQUIRED_LIBRARIES)
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_LIBRARIES
-        LINK_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-    else()
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_LIBRARIES)
-    endif()
-    if(CMAKE_REQUIRED_INCLUDES)
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_INCLUDES
-        "-DINCLUDE_DIRECTORIES:STRING=${CMAKE_REQUIRED_INCLUDES}")
-    else()
-      set(CHECK_CXX_SOURCE_COMPILES_ADD_INCLUDES)
-    endif()
-    file(WRITE "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src.cxx"
-      "${SOURCE}\n")
-
-    if(NOT CMAKE_REQUIRED_QUIET)
-      message(STATUS "Performing Test ${VAR}")
-    endif()
-    try_run(${VAR}_EXITCODE ${VAR}_COMPILED
-      ${CMAKE_BINARY_DIR}
-      ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src.cxx
-      COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
-      ${CHECK_CXX_SOURCE_COMPILES_ADD_LIBRARIES}
-      CMAKE_FLAGS -DCOMPILE_DEFINITIONS:STRING=${MACRO_CHECK_FUNCTION_DEFINITIONS}
-      -DCMAKE_SKIP_RPATH:BOOL=${CMAKE_SKIP_RPATH}
-      "${CHECK_CXX_SOURCE_COMPILES_ADD_INCLUDES}"
-      COMPILE_OUTPUT_VARIABLE OUTPUT)
-
-    # if it did not compile make the return value fail code of 1
-    if(NOT ${VAR}_COMPILED)
-      set(${VAR}_EXITCODE 1)
-    endif()
-    # if the return value was 0 then it worked
-    if("${${VAR}_EXITCODE}" EQUAL 0)
-      set(${VAR} 1 CACHE INTERNAL "Test ${VAR}")
-      if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Performing Test ${VAR} - Success")
-      endif()
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Performing C++ SOURCE FILE Test ${VAR} succeeded with the following output:\n"
-        "${OUTPUT}\n"
-        "Return value: ${${VAR}}\n"
-        "Source file was:\n${SOURCE}\n")
-    else()
-      if(CMAKE_CROSSCOMPILING AND "${${VAR}_EXITCODE}" MATCHES  "FAILED_TO_RUN")
-        set(${VAR} "${${VAR}_EXITCODE}")
-      else()
-        set(${VAR} "" CACHE INTERNAL "Test ${VAR}")
-      endif()
-
-      if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Performing Test ${VAR} - Failed")
-      endif()
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
-        "Performing C++ SOURCE FILE Test ${VAR} failed with the following output:\n"
-        "${OUTPUT}\n"
-        "Return value: ${${VAR}_EXITCODE}\n"
-        "Source file was:\n${SOURCE}\n")
-    endif()
-  endif()
+  set(_CheckSourceRuns_old_signature 1)
+  cmake_check_source_runs(CXX "${SOURCE}" ${VAR} ${ARGN})
+  unset(_CheckSourceRuns_old_signature)
 endmacro()
-

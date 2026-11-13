@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.10)
 project(FortranHello Fortran C)
 
 # add a function to test for -lsunquad on sunpro sun systems.
@@ -25,6 +25,15 @@ target_link_libraries(sunq sunquad)
   set(${result} "${RESULT}" PARENT_SCOPE)
 endfunction()
 
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "LFortran")
+  if(CMAKE_Fortran_COMPILER_VERSION VERSION_GREATER_EQUAL "0.55")
+    set(_LFORTRAN_SC_FLAG --separate-compilation)
+  else()
+    set(_LFORTRAN_SC_FLAG --generate-object-code)
+  endif()
+  add_compile_options(--implicit-interface ${_LFORTRAN_SC_FLAG})
+endif()
+
 # check for the fortran c interface mangling
 include(FortranCInterface)
 FortranCInterface_HEADER(HelloWorldFCMangle.h
@@ -33,7 +42,7 @@ FortranCInterface_HEADER(HelloWorldFCMangle.h
                          SYMBOLS hello world)
 add_library(hello SHARED hello.f)
 add_library(world SHARED world.f)
-target_link_libraries(hello world)
+target_link_libraries(hello PRIVATE world)
 if(CMAKE_Fortran_COMPILER_ID MATCHES SunPro)
   target_link_libraries(hello PRIVATE fsu)
   if(CMAKE_Fortran_PLATFORM_ID MATCHES SunOS)
@@ -43,4 +52,9 @@ if(CMAKE_Fortran_COMPILER_ID MATCHES SunPro)
       target_link_libraries(hello PRIVATE sunquad)
     endif()
   endif()
+elseif(CMAKE_Fortran_COMPILER_ID MATCHES Fujitsu)
+  # Fujitsu Fortran doesn't automatically link its runtime libraries into
+  # SOs
+  target_link_libraries(world PRIVATE fj90i fj90f fjsrcinfo)
+  target_link_libraries(hello PRIVATE fj90i fj90f fjsrcinfo)
 endif()

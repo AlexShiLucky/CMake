@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 # determine the compiler to use for Fortran programs
@@ -22,15 +22,15 @@ elseif("${CMAKE_GENERATOR}" MATCHES "Xcode")
   _cmake_find_compiler_path(Fortran)
 else()
   if(NOT CMAKE_Fortran_COMPILER)
-    # prefer the environment variable CC
+    # prefer the environment variable FC
     if(NOT $ENV{FC} STREQUAL "")
       get_filename_component(CMAKE_Fortran_COMPILER_INIT $ENV{FC} PROGRAM PROGRAM_ARGS CMAKE_Fortran_FLAGS_ENV_INIT)
       if(CMAKE_Fortran_FLAGS_ENV_INIT)
-        set(CMAKE_Fortran_COMPILER_ARG1 "${CMAKE_Fortran_FLAGS_ENV_INIT}" CACHE STRING "First argument to Fortran compiler")
+        set(CMAKE_Fortran_COMPILER_ARG1 "${CMAKE_Fortran_FLAGS_ENV_INIT}" CACHE STRING "Arguments to Fortran compiler")
       endif()
       if(EXISTS ${CMAKE_Fortran_COMPILER_INIT})
       else()
-        message(FATAL_ERROR "Could not find compiler set in environment variable FC:\n$ENV{FC}.")
+        message(FATAL_ERROR "Could not find the compiler specified in the environment variable FC:\n$ENV{FC}.")
       endif()
     endif()
 
@@ -44,43 +44,46 @@ else()
     # finally list compilers to try
     if(NOT CMAKE_Fortran_COMPILER_INIT)
       # Known compilers:
-      #  f77/f90/f95: generic compiler names
       #  ftn: Cray fortran compiler wrapper
-      #  g77: GNU Fortran 77 compiler
       #  gfortran: putative GNU Fortran 95+ compiler (in progress)
-      #  fort77: native F77 compiler under HP-UX (and some older Crays)
-      #  frt: Fujitsu F77 compiler
+      #  frt: Fujitsu Fortran compiler
       #  pathf90/pathf95/pathf2003: PathScale Fortran compiler
-      #  pgf77/pgf90/pgf95/pgfortran: Portland Group F77/F90/F95 compilers
-      #  xlf/xlf90/xlf95: IBM (AIX) F77/F90/F95 compilers
+      #  pgfortran: Portland Group Fortran compilers
+      #  nvfortran: NVHPC Fotran compiler
+      #  flang: Flang Fortran compiler
+      #  xlf: IBM (AIX) Fortran compiler
       #  lf95: Lahey-Fujitsu F95 compiler
       #  fl32: Microsoft Fortran 77 "PowerStation" compiler
       #  af77: Apogee F77 compiler for Intergraph hardware running CLIX
       #  epcf90: "Edinburgh Portable Compiler" F90
       #  fort: Compaq (now HP) Fortran 90/95 compiler for Tru64 and Linux/Alpha
-      #  ifc: Intel Fortran 95 compiler for Linux/x86
-      #  efc: Intel Fortran 95 compiler for IA64
+      #  ifx: Intel Fortran LLVM-based compiler
+      #  ifort: Intel Classic Fortran compiler
       #  nagfor: NAG Fortran compiler
+      #  lfortran: LFortran Fortran Compiler
       #
-      #  The order is 95 or newer compilers first, then 90,
-      #  then 77 or older compilers, gnu is always last in the group,
+      #  GNU is last to be searched,
       #  so if you paid for a compiler it is picked by default.
       set(CMAKE_Fortran_COMPILER_LIST
         ftn
-        ifort ifc af95 af90 efc f95 pathf2003 pathf95 pgf95 pgfortran lf95 xlf95
-        fort gfortran gfortran-4 g95 f90 pathf90 pgf90 xlf90 epcf90 fort77
-        frt pgf77 xlf fl32 af77 g77 f77 nag
+        ifx ifort nvfortran pgfortran lf95 xlf fort
+        flang lfortran frt nagfor
+        gfortran
         )
 
       # Vendor-specific compiler names.
-      set(_Fortran_COMPILER_NAMES_GNU       gfortran gfortran-4 g95 g77)
-      set(_Fortran_COMPILER_NAMES_Intel     ifort ifc efc)
+      set(_Fortran_COMPILER_NAMES_LCC       lfortran gfortran)
+      set(_Fortran_COMPILER_NAMES_GNU       gfortran)
+      set(_Fortran_COMPILER_NAMES_Intel     ifort ifc efc ifx)
       set(_Fortran_COMPILER_NAMES_Absoft    af95 af90 af77)
       set(_Fortran_COMPILER_NAMES_PGI       pgf95 pgfortran pgf90 pgf77)
+      set(_Fortran_COMPILER_NAMES_Flang     flang)
+      set(_Fortran_COMPILER_NAMES_LLVMFlang flang)
       set(_Fortran_COMPILER_NAMES_PathScale pathf2003 pathf95 pathf90)
       set(_Fortran_COMPILER_NAMES_XL        xlf)
       set(_Fortran_COMPILER_NAMES_VisualAge xlf95 xlf90 xlf)
-      set(_Fortran_COMPILER_NAMES_NAG nagfor)
+      set(_Fortran_COMPILER_NAMES_NAG       nagfor)
+      set(_Fortran_COMPILER_NAMES_NVHPC     nvfortran)
     endif()
 
     _cmake_find_compiler(Fortran)
@@ -96,6 +99,9 @@ else()
   set(CMAKE_Fortran_COMPILER_ID_TEST_FLAGS_FIRST
     # Get verbose output to help distinguish compilers.
     "-v"
+
+    # Try compiling to an object file only, with verbose output.
+    "-v -c"
     )
   set(CMAKE_Fortran_COMPILER_ID_TEST_FLAGS
     # Try compiling to an object file only.
@@ -103,7 +109,14 @@ else()
 
     # Intel on windows does not preprocess by default.
     "-fpp"
+
+    # LFortran does not preprocess by default.
+    "--cpp-infer"
     )
+endif()
+
+if(CMAKE_Fortran_COMPILER_TARGET)
+  set(CMAKE_Fortran_COMPILER_ID_TEST_FLAGS_FIRST "-v -c --target=${CMAKE_Fortran_COMPILER_TARGET}")
 endif()
 
 # Build a small source file to identify the compiler.
@@ -121,6 +134,9 @@ if(NOT CMAKE_Fortran_COMPILER_ID_RUN)
   list(APPEND CMAKE_Fortran_COMPILER_ID_VENDORS NAG) # Numerical Algorithms Group
   set(CMAKE_Fortran_COMPILER_ID_VENDOR_FLAGS_NAG "-V")
   set(CMAKE_Fortran_COMPILER_ID_VENDOR_REGEX_NAG "NAG Fortran Compiler")
+  list(APPEND CMAKE_Fortran_COMPILER_ID_VENDORS IBMFlang)
+  set(CMAKE_Fortran_COMPILER_ID_VENDOR_FLAGS_IBMFlang "--version")
+  set(CMAKE_Fortran_COMPILER_ID_VENDOR_REGEX_IBMFlang "IBM Open XL Fortran")
 
   # Match the link line from xcodebuild output of the form
   #  Ld ...
@@ -131,11 +147,11 @@ if(NOT CMAKE_Fortran_COMPILER_ID_RUN)
   set(CMAKE_Fortran_COMPILER_ID_TOOL_MATCH_INDEX 2)
 
   set(_version_info "")
-  foreach(m MAJOR MINOR PATCH TWEAK)
+  foreach(m IN ITEMS MAJOR MINOR PATCH TWEAK)
     set(_COMP "_${m}")
     string(APPEND _version_info "
 #if defined(COMPILER_VERSION${_COMP})")
-    foreach(d 1 2 3 4 5 6 7 8)
+    foreach(d RANGE 1 8)
       string(APPEND _version_info "
 # undef DEC
 # undef HEX
@@ -176,6 +192,8 @@ if(NOT CMAKE_Fortran_COMPILER_ID_RUN)
   include(${CMAKE_ROOT}/Modules/CMakeDetermineCompilerId.cmake)
   CMAKE_DETERMINE_COMPILER_ID(Fortran FFLAGS CMakeFortranCompilerId.F)
 
+  _cmake_find_compiler_sysroot(Fortran)
+
   # Fall back to old is-GNU test.
   if(NOT CMAKE_Fortran_COMPILER_ID)
     execute_process(COMMAND ${CMAKE_Fortran_COMPILER} ${CMAKE_Fortran_COMPILER_ID_FLAGS_LIST} -E "${CMAKE_ROOT}/Modules/CMakeTestGNU.c"
@@ -183,11 +201,11 @@ if(NOT CMAKE_Fortran_COMPILER_ID_RUN)
     if(NOT CMAKE_COMPILER_RETURN)
       if(CMAKE_COMPILER_OUTPUT MATCHES "THIS_IS_GNU")
         set(CMAKE_Fortran_COMPILER_ID "GNU")
-        file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
+        message(CONFIGURE_LOG
           "Determining if the Fortran compiler is GNU succeeded with "
           "the following output:\n${CMAKE_COMPILER_OUTPUT}\n\n")
       else()
-        file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
+        message(CONFIGURE_LOG
           "Determining if the Fortran compiler is GNU failed with "
           "the following output:\n${CMAKE_COMPILER_OUTPUT}\n\n")
       endif()
@@ -221,11 +239,49 @@ if(NOT CMAKE_Fortran_COMPILER_ID_RUN)
   if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
     set(CMAKE_COMPILER_IS_GNUG77 1)
   endif()
-  if(CMAKE_Fortran_PLATFORM_ID MATCHES "MinGW")
-    set(CMAKE_COMPILER_IS_MINGW 1)
-  elseif(CMAKE_Fortran_PLATFORM_ID MATCHES "Cygwin")
-    set(CMAKE_COMPILER_IS_CYGWIN 1)
+endif()
+
+if("${CMAKE_Fortran_COMPILER_ID};${CMAKE_Fortran_SIMULATE_ID}" STREQUAL "LLVMFlang;MSVC")
+  # With LLVMFlang targeting the MSVC ABI we link using lld-link.
+  # Detect the implicit link information from the compiler driver
+  # so we can explicitly pass it to the linker.
+  include(${CMAKE_ROOT}/Modules/CMakeParseImplicitLinkInfo.cmake)
+  set(_LLVMFlang_COMMAND "${CMAKE_Fortran_COMPILER}" "-###" ${CMAKE_CURRENT_LIST_DIR}/CMakeFortranCompilerABI.F)
+  if(CMAKE_Fortran_COMPILER_TARGET)
+    list(APPEND _LLVMFlang_COMMAND --target=${CMAKE_Fortran_COMPILER_TARGET})
   endif()
+  execute_process(COMMAND ${_LLVMFlang_COMMAND}
+    OUTPUT_VARIABLE _LLVMFlang_OUTPUT
+    ERROR_VARIABLE _LLVMFlang_OUTPUT
+    RESULT_VARIABLE _LLVMFlang_RESULT)
+  string(JOIN "\" \"" _LLVMFlang_COMMAND ${_LLVMFlang_COMMAND})
+  message(CONFIGURE_LOG
+    "Running the Fortran compiler: \"${_LLVMFlang_COMMAND}\"\n"
+    "${_LLVMFlang_OUTPUT}"
+    )
+  if(_LLVMFlang_RESULT EQUAL 0)
+    cmake_parse_implicit_link_info("${_LLVMFlang_OUTPUT}"
+                                   CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES
+                                   CMAKE_Fortran_IMPLICIT_LINK_DIRECTORIES
+                                   CMAKE_Fortran_IMPLICIT_LINK_FRAMEWORK_DIRECTORIES
+                                   log
+                                   "${CMAKE_Fortran_IMPLICIT_OBJECT_REGEX}"
+                                   LANGUAGE Fortran)
+    message(CONFIGURE_LOG
+      "Parsed Fortran implicit link information:\n"
+      "${log}\n"
+      )
+    set(_CMAKE_Fortran_IMPLICIT_LINK_INFORMATION_DETERMINED_EARLY 1)
+    if("x${CMAKE_Fortran_COMPILER_ARCHITECTURE_ID}" STREQUAL "xARM64" AND CMAKE_Fortran_COMPILER_VERSION VERSION_LESS 18.0)
+      # LLVMFlang < 18.0 does not add `-defaultlib:` fields to object
+      # files to specify link dependencies on its runtime libraries.
+      # For now, we add them ourselves.
+      list(APPEND CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES "clang_rt.builtins-aarch64.lib")
+    endif()
+  endif()
+  unset(_LLVMFlang_COMMAND)
+  unset(_LLVMFlang_OUTPUT)
+  unset(_LLVMFlang_RESULT)
 endif()
 
 if (NOT _CMAKE_TOOLCHAIN_LOCATION)
@@ -239,7 +295,7 @@ endif ()
 # NAME_WE cannot be used since then this test will fail for names like
 # "arm-unknown-nto-qnx6.3.0-gcc.exe", where BASENAME would be
 # "arm-unknown-nto-qnx6" instead of the correct "arm-unknown-nto-qnx6.3.0-"
-if (CMAKE_CROSSCOMPILING  AND NOT _CMAKE_TOOLCHAIN_PREFIX)
+if (NOT _CMAKE_TOOLCHAIN_PREFIX)
 
   if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
     get_filename_component(COMPILER_BASENAME "${CMAKE_Fortran_COMPILER}" NAME)
@@ -256,14 +312,30 @@ if (CMAKE_CROSSCOMPILING  AND NOT _CMAKE_TOOLCHAIN_PREFIX)
 
 endif ()
 
-include(CMakeFindBinUtils)
 set(_CMAKE_PROCESSING_LANGUAGE "Fortran")
+include(CMakeFindBinUtils)
 include(Compiler/${CMAKE_Fortran_COMPILER_ID}-FindBinUtils OPTIONAL)
 unset(_CMAKE_PROCESSING_LANGUAGE)
+
+if(CMAKE_Fortran_XL_CPP)
+  set(_SET_CMAKE_Fortran_XL_CPP
+    "set(CMAKE_Fortran_XL_CPP \"${CMAKE_Fortran_XL_CPP}\")")
+endif()
+
+if(CMAKE_Fortran_COMPILER_SYSROOT)
+  string(CONCAT _SET_CMAKE_Fortran_COMPILER_SYSROOT
+    "set(CMAKE_Fortran_COMPILER_SYSROOT \"${CMAKE_Fortran_COMPILER_SYSROOT}\")\n"
+    "set(CMAKE_COMPILER_SYSROOT \"${CMAKE_Fortran_COMPILER_SYSROOT}\")")
+else()
+  set(_SET_CMAKE_Fortran_COMPILER_SYSROOT "")
+endif()
 
 if(MSVC_Fortran_ARCHITECTURE_ID)
   set(SET_MSVC_Fortran_ARCHITECTURE_ID
     "set(MSVC_Fortran_ARCHITECTURE_ID ${MSVC_Fortran_ARCHITECTURE_ID})")
+endif()
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "NVHPC")
+  set(CMAKE_Fortran_VENDOR_SOURCE_FILE_EXTENSIONS ";cuf;CUF")
 endif()
 # configure variables set in this file for fast reload later on
 configure_file(${CMAKE_ROOT}/Modules/CMakeFortranCompiler.cmake.in

@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
-import sys, os
+import sys
 
 if len(sys.argv) != 2:
   sys.exit(-1)
 name = sys.argv[1] + "/CMake.qhp"
 
-f = open(name)
+f = open(name, "r", encoding="utf-8")
 
 if not f:
   sys.exit(-1)
@@ -21,8 +21,14 @@ newlines = []
 for line in lines:
 
   mapping = (("command", "command"),
+             ("cpack generator", "cpack_gen"),
+             ("envvar", "envvar"),
              ("variable", "variable"),
+             ("generator", "generator"),
+             ("genex", "genex"),
+             ("guide", "guide"),
              ("target property", "prop_tgt"),
+             ("file set property", "prop_fs"),
              ("test property", "prop_test"),
              ("source file property", "prop_sf"),
              ("global property", "prop_gbl"),
@@ -34,7 +40,7 @@ for line in lines:
 
   for domain_object_string, domain_object_type in mapping:
     if "<keyword name=\"" + domain_object_string + "\"" in line:
-      if not "id=\"" in line and not "#index-" in line:
+      if "id=\"" not in line and "#index-" not in line:
         prefix = "<keyword name=\"" + domain_object_string + "\" "
         part1, part2 = line.split(prefix)
         head, tail = part2.split("#" + domain_object_type + ":")
@@ -42,5 +48,5 @@ for line in lines:
         line = part1 + prefix + "id=\"" + domain_object_type + "/" + domain_object + "\" " + part2
   newlines.append(line + "\n")
 
-f = open(name, "w")
+f = open(name, "w", encoding="utf-8")
 f.writelines(newlines)

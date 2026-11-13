@@ -1,18 +1,19 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestVC_h
-#define cmCTestVC_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <string>
+#include <vector>
 
 #include "cmProcessOutput.h"
 #include "cmProcessTools.h"
 
 class cmCTest;
 class cmXMLWriter;
+class cmMakefile;
 
 /** \class cmCTestVC
  * \brief Base class for version control system handlers
@@ -22,7 +23,7 @@ class cmCTestVC : public cmProcessTools
 {
 public:
   /** Construct with a CTest instance and update log stream.  */
-  cmCTestVC(cmCTest* ctest, std::ostream& log);
+  cmCTestVC(cmCTest* ctest, cmMakefile* mf, std::ostream& log);
 
   virtual ~cmCTestVC();
 
@@ -36,13 +37,19 @@ public:
   std::string GetNightlyTime();
 
   /** Prepare the work tree.  */
-  bool InitialCheckout(const char* command);
+  bool InitialCheckout(std::string const& command);
 
   /** Perform cleanup operations on the work tree.  */
   void Cleanup();
 
   /** Update the working tree to the new revision.  */
   bool Update();
+
+  /** Use the explicitly specified version. */
+  bool UpdateVersionOverride(std::string const& version);
+
+  /** Do not actually update, just note the current version and finish.  */
+  bool UpdateVersionOnly();
 
   /** Get the command line used by the Update method.  */
   std::string const& GetUpdateCommandLine() const
@@ -70,6 +77,7 @@ protected:
   virtual bool NoteOldRevision();
   virtual bool UpdateImpl();
   virtual bool NoteNewRevision();
+  virtual void SetNewRevision(std::string const& revision);
   virtual bool WriteXMLUpdates(cmXMLWriter& xml);
 
 #if defined(__SUNPRO_CC) && __SUNPRO_CC <= 0x510
@@ -95,15 +103,10 @@ protected:
   /** Represent change to one file.  */
   struct File
   {
-    PathStatus Status;
-    Revision const* Rev;
-    Revision const* PriorRev;
-    File()
-      : Status(PathUpdated)
-      , Rev(CM_NULLPTR)
-      , PriorRev(CM_NULLPTR)
-    {
-    }
+    PathStatus Status = PathUpdated;
+    Revision const* Rev = nullptr;
+    Revision const* PriorRev = nullptr;
+    File() = default;
     File(PathStatus status, Revision const* rev, Revision const* priorRev)
       : Status(status)
       , Rev(rev)
@@ -113,16 +116,16 @@ protected:
   };
 
   /** Convert a list of arguments to a human-readable command line.  */
-  static std::string ComputeCommandLine(char const* const* cmd);
+  static std::string ComputeCommandLine(std::vector<std::string> const& cmd);
 
   /** Run a command line and send output to given parsers.  */
-  bool RunChild(char const* const* cmd, OutputParser* out, OutputParser* err,
-                const char* workDir = CM_NULLPTR,
+  bool RunChild(std::vector<std::string> const& cmd, OutputParser* out,
+                OutputParser* err, std::string workDir = {},
                 Encoding encoding = cmProcessOutput::Auto);
 
   /** Run VC update command line and send output to given parsers.  */
-  bool RunUpdateCommand(char const* const* cmd, OutputParser* out,
-                        OutputParser* err = CM_NULLPTR,
+  bool RunUpdateCommand(std::vector<std::string> const& cmd, OutputParser* out,
+                        OutputParser* err = nullptr,
                         Encoding encoding = cmProcessOutput::Auto);
 
   /** Write xml element for one file.  */
@@ -132,6 +135,7 @@ protected:
 
   // Instance of cmCTest running the script.
   cmCTest* CTest;
+  cmMakefile* Makefile;
 
   // A stream to which we write log information.
   std::ostream& Log;
@@ -149,5 +153,3 @@ protected:
   // Count paths reported with each PathStatus value.
   int PathCount[3];
 };
-
-#endif

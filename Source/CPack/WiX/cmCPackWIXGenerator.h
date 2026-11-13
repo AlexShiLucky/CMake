@@ -1,15 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackWIXGenerator_h
-#define cmCPackWIXGenerator_h
-
-#include "cmCPackGenerator.h"
-
-#include "cmWIXPatch.h"
-#include "cmWIXShortcut.h"
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include <map>
+#include <memory>
 #include <string>
+
+#include "cmCPackGenerator.h"
+#include "cmWIXInstallScope.h"
+#include "cmWIXPatch.h"
+#include "cmWIXShortcut.h"
 
 class cmWIXSourceWriter;
 class cmWIXDirectoriesSourceWriter;
@@ -25,32 +25,43 @@ public:
   cmCPackTypeMacro(cmCPackWIXGenerator, cmCPackGenerator);
 
   cmCPackWIXGenerator();
+  cmCPackWIXGenerator(cmCPackWIXGenerator const&) = delete;
+  cmCPackWIXGenerator const& operator=(cmCPackWIXGenerator const&) = delete;
   ~cmCPackWIXGenerator();
 
 protected:
-  virtual int InitializeInternal();
+  int InitializeInternal() override;
 
-  virtual int PackageFiles();
+  int PackageFiles() override;
 
-  virtual const char* GetOutputExtension() { return ".msi"; }
+  char const* GetOutputExtension() override { return ".msi"; }
 
-  virtual enum CPackSetDestdirSupport SupportsSetDestdir() const
+  enum CPackSetDestdirSupport SupportsSetDestdir() const override
   {
     return SETDESTDIR_UNSUPPORTED;
   }
 
-  virtual bool SupportsAbsoluteDestination() const { return false; }
+  bool SupportsAbsoluteDestination() const override { return false; }
 
-  virtual bool SupportsComponentInstallation() const { return true; }
+  bool SupportsComponentInstallation() const override { return true; }
 
 private:
-  typedef std::map<std::string, std::string> id_map_t;
-  typedef std::map<std::string, size_t> ambiguity_map_t;
-  typedef std::set<std::string> extension_set_t;
+  using id_map_t = std::map<std::string, std::string>;
+  using ambiguity_map_t = std::map<std::string, size_t>;
+  using extension_set_t = std::set<std::string>;
+  using xmlns_map_t = std::map<std::string, std::string>;
+
+  enum class DefinitionType
+  {
+    STRING,
+    PATH
+  };
 
   bool InitializeWiXConfiguration();
 
   bool PackageFilesImpl();
+  bool PackageWithWix();
+  bool PackageWithWix3();
 
   void CreateWiXVariablesIncludeFile();
 
@@ -58,7 +69,8 @@ private:
 
   void CreateWiXProductFragmentIncludeFile();
 
-  void CopyDefinition(cmWIXSourceWriter& source, std::string const& name);
+  void CopyDefinition(cmWIXSourceWriter& source, std::string const& name,
+                      DefinitionType type = DefinitionType::STRING);
 
   void AddDefinition(cmWIXSourceWriter& source, std::string const& name,
                      std::string const& value);
@@ -75,7 +87,8 @@ private:
     std::string const& rootPath, std::string const& featureId,
     cmWIXDirectoriesSourceWriter& directoryDefinitions,
     cmWIXFilesSourceWriter& fileDefinitions,
-    cmWIXFeaturesSourceWriter& featureDefinitions, cmWIXShortcuts& shortcuts);
+    cmWIXFeaturesSourceWriter& featureDefinitions, cmWIXShortcuts& shortcuts,
+    int diskId);
 
   bool CreateShortcuts(std::string const& cpackComponentName,
                        std::string const& featureId,
@@ -111,7 +124,7 @@ private:
     cmWIXFeaturesSourceWriter& featureDefinitions,
     std::vector<std::string> const& packageExecutables,
     std::vector<std::string> const& desktopExecutables,
-    cmWIXShortcuts& shortcuts);
+    cmWIXShortcuts& shortcuts, int diskId);
 
   bool RequireOption(std::string const& name, std::string& value) const;
 
@@ -138,22 +151,31 @@ private:
   void CollectExtensions(std::string const& variableName,
                          extension_set_t& extensions);
 
+  void CollectXmlNamespaces(std::string const& variableName,
+                            xmlns_map_t& namespaces);
+
   void AddCustomFlags(std::string const& variableName, std::ostream& stream);
 
   std::string RelativePathWithoutComponentPrefix(std::string const& path);
+
+  void InjectXmlNamespaces(cmWIXSourceWriter& sourceWriter);
+
+  cmWIXInstallScope GetInstallScope() const;
 
   std::vector<std::string> WixSources;
   id_map_t PathToIdMap;
   ambiguity_map_t IdAmbiguityCounter;
 
+  extension_set_t WixExtensions;
   extension_set_t CandleExtensions;
   extension_set_t LightExtensions;
+  xmlns_map_t CustomXmlNamespaces;
 
   std::string CPackTopLevel;
 
-  cmWIXPatch* Patch;
+  std::unique_ptr<cmWIXPatch> Patch;
+
+  unsigned long WixVersion = 3;
 
   cmWIXSourceWriter::GuidType ComponentGuidType;
 };
-
-#endif

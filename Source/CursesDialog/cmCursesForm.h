@@ -1,21 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCursesForm_h
-#define cmCursesForm_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCursesStandardIncludes.h"
+#include <string>
 
 #include "cmsys/FStream.hxx"
 
+#include "cmCursesStandardIncludes.h"
+
 class cmCursesForm
 {
-  CM_DISABLE_COPY(cmCursesForm)
-
 public:
   cmCursesForm();
   virtual ~cmCursesForm();
+
+  cmCursesForm(cmCursesForm const&) = delete;
+  cmCursesForm& operator=(cmCursesForm const&) = delete;
 
   // Description:
   // Handle user input.
@@ -33,7 +35,7 @@ public:
   // Description:
   // During a CMake run, an error handle should add errors
   // to be displayed afterwards.
-  virtual void AddError(const char*, const char*) {}
+  virtual void AddError(std::string const&, char const*) {}
 
   // Description:
   // Turn debugging on. This will create ccmakelog.txt.
@@ -45,7 +47,7 @@ public:
 
   // Description:
   // Write a debugging message.
-  static void LogMessage(const char* msg);
+  static void LogMessage(char const* msg);
 
   // Description:
   // Return the FORM. Should be only used by low-level methods.
@@ -53,11 +55,13 @@ public:
 
   static cmCursesForm* CurrentForm;
 
+  // Description:
+  // Handle resizing the form with curses.
+  void HandleResize();
+
 protected:
   static cmsys::ofstream DebugFile;
   static bool Debug;
 
   FORM* Form;
 };
-
-#endif // cmCursesForm_h

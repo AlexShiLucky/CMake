@@ -32,12 +32,21 @@
 #include <sys/sysctl.h>
 #include <unistd.h>  /* sysconf */
 
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+#  include <dlfcn.h>
+#  define mach_continuous_time uv__mach_continuous_time
+   static uint64_t (*uv__mach_continuous_time)(void);
+#endif
+
+static uv_once_t once = UV_ONCE_INIT;
+static mach_timebase_info_data_t timebase;
+
 
 int uv__platform_loop_init(uv_loop_t* loop) {
   loop->cf_state = NULL;
 
   if (uv__kqueue_init(loop))
-    return -errno;
+    return UV__ERR(errno);
 
   return 0;
 }
@@ -48,15 +57,21 @@ void uv__platform_loop_delete(uv_loop_t* loop) {
 }
 
 
-uint64_t uv__hrtime(uv_clocktype_t type) {
-  static mach_timebase_info_data_t info;
-
-  if ((ACCESS_ONCE(uint32_t, info.numer) == 0 ||
-       ACCESS_ONCE(uint32_t, info.denom) == 0) &&
-      mach_timebase_info(&info) != KERN_SUCCESS)
+static void uv__hrtime_init_once(void) {
+  if (KERN_SUCCESS != mach_timebase_info(&timebase))
     abort();
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+  uv__mach_continuous_time = (uint64_t (*)(void))
+    dlsym(RTLD_DEFAULT, "mach_continuous_time");
+  if (uv__mach_continuous_time == NULL)
+    uv__mach_continuous_time = mach_absolute_time;
+#endif
+}
 
-  return mach_absolute_time() * info.numer / info.denom;
+
+uint64_t uv__hrtime(uv_clocktype_t type) {
+  uv_once(&once, uv__hrtime_init_once);
+  return mach_continuous_time() * timebase.numer / timebase.denom;
 }
 
 
@@ -68,18 +83,18 @@ int uv_exepath(char* buffer, size_t* size) {
   size_t abspath_size;
 
   if (buffer == NULL || size == NULL || *size == 0)
-    return -EINVAL;
+    return UV_EINVAL;
 
   exepath_size = sizeof(exepath);
   if (_NSGetExecutablePath(exepath, &exepath_size))
-    return -EIO;
+    return UV_EIO;
 
   if (realpath(exepath, abspath) != abspath)
-    return -errno;
+    return UV__ERR(errno);
 
   abspath_size = strlen(abspath);
   if (abspath_size == 0)
-    return -EIO;
+    return UV_EIO;
 
   *size -= 1;
   if (*size > abspath_size)
@@ -98,7 +113,7 @@ uint64_t uv_get_free_memory(void) {
 
   if (host_statistics(mach_host_self(), HOST_VM_INFO,
                       (host_info_t)&info, &count) != KERN_SUCCESS) {
-    return -EINVAL;  /* FIXME(bnoordhuis) Translate error. */
+    return 0;
   }
 
   return (uint64_t) info.free_count * sysconf(_SC_PAGESIZE);
@@ -110,10 +125,28 @@ uint64_t uv_get_total_memory(void) {
   int which[] = {CTL_HW, HW_MEMSIZE};
   size_t size = sizeof(info);
 
-  if (sysctl(which, 2, &info, &size, NULL, 0))
-    return -errno;
+  if (sysctl(which, ARRAY_SIZE(which), &info, &size, NULL, 0))
+    return 0;
 
   return (uint64_t) info;
+}
+
+
+uint64_t uv_get_constrained_memory(void) {
+  return uv__get_rlimit_max_memory();
+}
+
+
+uint64_t uv_get_available_memory(void) {
+  vm_statistics_data_t info;
+  mach_msg_type_number_t count = sizeof(info) / sizeof(integer_t);
+
+  if (host_statistics(mach_host_self(), HOST_VM_INFO,
+                      (host_info_t)&info, &count) != KERN_SUCCESS) {
+    return 0;
+  }
+
+  return ((uint64_t) info.free_count + (uint64_t) info.inactive_count + (uint64_t) info.purgeable_count) * sysconf(_SC_PAGESIZE);
 }
 
 
@@ -122,7 +155,7 @@ void uv_loadavg(double avg[3]) {
   size_t size = sizeof(info);
   int which[] = {CTL_VM, VM_LOADAVG};
 
-  if (sysctl(which, 2, &info, &size, NULL, 0) < 0) return;
+  if (sysctl(which, ARRAY_SIZE(which), &info, &size, NULL, 0) < 0) return;
 
   avg[0] = (double) info.ldavg[0] / info.fscale;
   avg[1] = (double) info.ldavg[1] / info.fscale;
@@ -132,6 +165,25 @@ void uv_loadavg(double avg[3]) {
 
 int uv_resident_set_memory(size_t* rss) {
   mach_msg_type_number_t count;
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
+  task_vm_info_data_t info;
+  kern_return_t err;
+
+  /* phys_footprint, not resident_size: the latter keeps counting pages
+   * freed with madvise(MADV_FREE_REUSABLE), i.e. it never comes down.
+   */
+  count = TASK_VM_INFO_REV1_COUNT;
+  err = task_info(mach_task_self(),
+                  TASK_VM_INFO,
+                  (task_info_t) &info,
+                  &count);
+  (void) &err;
+  /* task_info(TASK_VM_INFO) cannot really fail. Anything other than
+   * KERN_SUCCESS implies a libuv bug.
+   */
+  assert(err == KERN_SUCCESS);
+  *rss = info.phys_footprint;
+#else
   task_basic_info_data_t info;
   kern_return_t err;
 
@@ -146,6 +198,7 @@ int uv_resident_set_memory(size_t* rss) {
    */
   assert(err == KERN_SUCCESS);
   *rss = info.resident_size;
+#endif
 
   return 0;
 }
@@ -157,8 +210,8 @@ int uv_uptime(double* uptime) {
   size_t size = sizeof(info);
   static int which[] = {CTL_KERN, KERN_BOOTTIME};
 
-  if (sysctl(which, 2, &info, &size, NULL, 0))
-    return -errno;
+  if (sysctl(which, ARRAY_SIZE(which), &info, &size, NULL, 0))
+    return UV__ERR(errno);
 
   now = time(NULL);
   *uptime = now - info.tv_sec;
@@ -181,23 +234,27 @@ int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
   size = sizeof(model);
   if (sysctlbyname("machdep.cpu.brand_string", &model, &size, NULL, 0) &&
       sysctlbyname("hw.model", &model, &size, NULL, 0)) {
-    return -errno;
+    return UV__ERR(errno);
   }
 
+  cpuspeed = 0;
   size = sizeof(cpuspeed);
-  if (sysctlbyname("hw.cpufrequency", &cpuspeed, &size, NULL, 0))
-    return -errno;
+  sysctlbyname("hw.cpufrequency", &cpuspeed, &size, NULL, 0);
+  if (cpuspeed == 0)
+    /* If sysctl hw.cputype == CPU_TYPE_ARM64, the correct value is unavailable
+     * from Apple, but we can hard-code it here to a plausible value. */
+    cpuspeed = 2400000000U;
 
   if (host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numcpus,
                           (processor_info_array_t*)&info,
                           &msg_type) != KERN_SUCCESS) {
-    return -EINVAL;  /* FIXME(bnoordhuis) Translate error. */
+    return UV_EINVAL;  /* FIXME(bnoordhuis) Translate error. */
   }
 
   *cpu_infos = uv__malloc(numcpus * sizeof(**cpu_infos));
   if (!(*cpu_infos)) {
     vm_deallocate(mach_task_self(), (vm_address_t)info, msg_type);
-    return -ENOMEM;
+    return UV_ENOMEM;
   }
 
   *count = numcpus;
@@ -212,20 +269,9 @@ int uv_cpu_info(uv_cpu_info_t** cpu_infos, int* count) {
     cpu_info->cpu_times.irq = 0;
 
     cpu_info->model = uv__strdup(model);
-    cpu_info->speed = cpuspeed/1000000;
+    cpu_info->speed = (int)(cpuspeed / 1000000);
   }
   vm_deallocate(mach_task_self(), (vm_address_t)info, msg_type);
 
   return 0;
-}
-
-
-void uv_free_cpu_info(uv_cpu_info_t* cpu_infos, int count) {
-  int i;
-
-  for (i = 0; i < count; i++) {
-    uv__free(cpu_infos[i].model);
-  }
-
-  uv__free(cpu_infos);
 }

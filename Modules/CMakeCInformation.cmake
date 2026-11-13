@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 # This file sets the basic flags for the C language in CMake.
@@ -27,7 +27,7 @@ endif()
 
 set(CMAKE_BASE_NAME)
 get_filename_component(CMAKE_BASE_NAME "${CMAKE_C_COMPILER}" NAME_WE)
-if(CMAKE_COMPILER_IS_GNUCC)
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
   set(CMAKE_BASE_NAME gcc)
 endif()
 
@@ -35,21 +35,21 @@ endif()
 # load a hardware specific file, mostly useful for embedded compilers
 if(CMAKE_SYSTEM_PROCESSOR)
   if(CMAKE_C_COMPILER_ID)
-    include(Platform/${CMAKE_SYSTEM_NAME}-${CMAKE_C_COMPILER_ID}-C-${CMAKE_SYSTEM_PROCESSOR} OPTIONAL RESULT_VARIABLE _INCLUDED_FILE)
+    include(Platform/${CMAKE_EFFECTIVE_SYSTEM_NAME}-${CMAKE_C_COMPILER_ID}-C-${CMAKE_SYSTEM_PROCESSOR} OPTIONAL RESULT_VARIABLE _INCLUDED_FILE)
   endif()
   if (NOT _INCLUDED_FILE)
-    include(Platform/${CMAKE_SYSTEM_NAME}-${CMAKE_BASE_NAME}-${CMAKE_SYSTEM_PROCESSOR} OPTIONAL)
+    include(Platform/${CMAKE_EFFECTIVE_SYSTEM_NAME}-${CMAKE_BASE_NAME}-${CMAKE_SYSTEM_PROCESSOR} OPTIONAL)
   endif ()
 endif()
 
 
 # load the system- and compiler specific files
 if(CMAKE_C_COMPILER_ID)
-  include(Platform/${CMAKE_SYSTEM_NAME}-${CMAKE_C_COMPILER_ID}-C
+  include(Platform/${CMAKE_EFFECTIVE_SYSTEM_NAME}-${CMAKE_C_COMPILER_ID}-C
     OPTIONAL RESULT_VARIABLE _INCLUDED_FILE)
 endif()
 if (NOT _INCLUDED_FILE)
-  include(Platform/${CMAKE_SYSTEM_NAME}-${CMAKE_BASE_NAME}
+  include(Platform/${CMAKE_EFFECTIVE_SYSTEM_NAME}-${CMAKE_BASE_NAME}
     OPTIONAL RESULT_VARIABLE _INCLUDED_FILE)
 endif ()
 
@@ -67,7 +67,7 @@ if (NOT _INCLUDED_FILE)
 endif ()
 
 if(CMAKE_C_SIZEOF_DATA_PTR)
-  foreach(f ${CMAKE_C_ABI_FILES})
+  foreach(f IN LISTS CMAKE_C_ABI_FILES)
     include(${f})
   endforeach()
   unset(CMAKE_C_ABI_FILES)
@@ -91,41 +91,9 @@ if(CMAKE_USER_MAKE_RULES_OVERRIDE_C)
   set(CMAKE_USER_MAKE_RULES_OVERRIDE_C "${_override}")
 endif()
 
-
-# for most systems a module is the same as a shared library
-# so unless the variable CMAKE_MODULE_EXISTS is set just
-# copy the values from the LIBRARY variables
-if(NOT CMAKE_MODULE_EXISTS)
-  set(CMAKE_SHARED_MODULE_C_FLAGS ${CMAKE_SHARED_LIBRARY_C_FLAGS})
-  set(CMAKE_SHARED_MODULE_CREATE_C_FLAGS ${CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS})
-endif()
-
 set(CMAKE_C_FLAGS_INIT "$ENV{CFLAGS} ${CMAKE_C_FLAGS_INIT}")
 
-foreach(c "" _DEBUG _RELEASE _MINSIZEREL _RELWITHDEBINFO)
-  string(STRIP "${CMAKE_C_FLAGS${c}_INIT}" CMAKE_C_FLAGS${c}_INIT)
-endforeach()
-
-set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS_INIT}" CACHE STRING
-     "Flags used by the compiler during all build types.")
-
-if(NOT CMAKE_NOT_USING_CONFIG_FLAGS)
-  get_property(_GENERATOR_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-  # default build type is none
-  if(NOT _GENERATOR_IS_MULTI_CONFIG AND NOT CMAKE_NO_BUILD_TYPE)
-    set (CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE_INIT} CACHE STRING
-      "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel.")
-  endif()
-  unset(_GENERATOR_IS_MULTI_CONFIG)
-  set (CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG_INIT}" CACHE STRING
-    "Flags used by the compiler during debug builds.")
-  set (CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL_INIT}" CACHE STRING
-    "Flags used by the compiler during release builds for minimum size.")
-  set (CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE_INIT}" CACHE STRING
-    "Flags used by the compiler during release builds.")
-  set (CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO_INIT}" CACHE STRING
-    "Flags used by the compiler during release builds with debug info.")
-endif()
+cmake_initialize_per_config_variable(CMAKE_C_FLAGS "Flags used by the C compiler")
 
 if(CMAKE_C_STANDARD_LIBRARIES_INIT)
   set(CMAKE_C_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT}"
@@ -133,7 +101,18 @@ if(CMAKE_C_STANDARD_LIBRARIES_INIT)
   mark_as_advanced(CMAKE_C_STANDARD_LIBRARIES)
 endif()
 
+if(NOT CMAKE_C_COMPILER_LAUNCHER AND DEFINED ENV{CMAKE_C_COMPILER_LAUNCHER})
+  set(CMAKE_C_COMPILER_LAUNCHER "$ENV{CMAKE_C_COMPILER_LAUNCHER}"
+    CACHE STRING "Compiler launcher for C.")
+endif()
+
+if(NOT CMAKE_C_LINKER_LAUNCHER AND DEFINED ENV{CMAKE_C_LINKER_LAUNCHER})
+  set(CMAKE_C_LINKER_LAUNCHER "$ENV{CMAKE_C_LINKER_LAUNCHER}"
+    CACHE STRING "Linker launcher for C.")
+endif()
+
 include(CMakeCommonLanguageInclude)
+_cmake_common_language_platform_flags(C)
 
 # now define the following rule variables
 
@@ -153,9 +132,6 @@ include(CMakeCommonLanguageInclude)
 
 # C compiler information
 # <CMAKE_C_COMPILER>
-# <CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS>
-# <CMAKE_SHARED_MODULE_CREATE_C_FLAGS>
-# <CMAKE_C_LINK_FLAGS>
 
 # Static library tools
 # <CMAKE_AR>
@@ -165,7 +141,7 @@ include(CMakeCommonLanguageInclude)
 # create a C shared library
 if(NOT CMAKE_C_CREATE_SHARED_LIBRARY)
   set(CMAKE_C_CREATE_SHARED_LIBRARY
-      "<CMAKE_C_COMPILER> <CMAKE_SHARED_LIBRARY_C_FLAGS> <LANGUAGE_COMPILE_FLAGS> <LINK_FLAGS> <CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS> <SONAME_FLAG><TARGET_SONAME> -o <TARGET> <OBJECTS> <LINK_LIBRARIES>")
+      "<CMAKE_C_COMPILER> <CMAKE_SHARED_LIBRARY_C_FLAGS> <LANGUAGE_COMPILE_FLAGS> <LINK_FLAGS> <SONAME_FLAG><TARGET_SONAME> -o <TARGET> <OBJECTS> <LINK_LIBRARIES>")
 endif()
 
 # create a C shared module just copy the shared library rule
@@ -179,7 +155,7 @@ if(NOT DEFINED CMAKE_C_ARCHIVE_CREATE)
   set(CMAKE_C_ARCHIVE_CREATE "<CMAKE_AR> qc <TARGET> <LINK_FLAGS> <OBJECTS>")
 endif()
 if(NOT DEFINED CMAKE_C_ARCHIVE_APPEND)
-  set(CMAKE_C_ARCHIVE_APPEND "<CMAKE_AR> q  <TARGET> <LINK_FLAGS> <OBJECTS>")
+  set(CMAKE_C_ARCHIVE_APPEND "<CMAKE_AR> q <TARGET> <LINK_FLAGS> <OBJECTS>")
 endif()
 if(NOT DEFINED CMAKE_C_ARCHIVE_FINISH)
   set(CMAKE_C_ARCHIVE_FINISH "<CMAKE_RANLIB> <TARGET>")
@@ -188,33 +164,14 @@ endif()
 # compile a C file into an object file
 if(NOT CMAKE_C_COMPILE_OBJECT)
   set(CMAKE_C_COMPILE_OBJECT
-    "<CMAKE_C_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT>   -c <SOURCE>")
+    "<CMAKE_C_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT> -c <SOURCE>")
 endif()
 
 if(NOT CMAKE_C_LINK_EXECUTABLE)
   set(CMAKE_C_LINK_EXECUTABLE
-    "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS>  -o <TARGET> <LINK_LIBRARIES>")
+    "<CMAKE_C_COMPILER> <FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
 endif()
 
-if(NOT CMAKE_EXECUTABLE_RUNTIME_C_FLAG)
-  set(CMAKE_EXECUTABLE_RUNTIME_C_FLAG ${CMAKE_SHARED_LIBRARY_RUNTIME_C_FLAG})
-endif()
+set(CMAKE_C_USE_LINKER_INFORMATION TRUE)
 
-if(NOT CMAKE_EXECUTABLE_RUNTIME_C_FLAG_SEP)
-  set(CMAKE_EXECUTABLE_RUNTIME_C_FLAG_SEP ${CMAKE_SHARED_LIBRARY_RUNTIME_C_FLAG_SEP})
-endif()
-
-if(NOT CMAKE_EXECUTABLE_RPATH_LINK_C_FLAG)
-  set(CMAKE_EXECUTABLE_RPATH_LINK_C_FLAG ${CMAKE_SHARED_LIBRARY_RPATH_LINK_C_FLAG})
-endif()
-
-mark_as_advanced(
-CMAKE_C_FLAGS
-CMAKE_C_FLAGS_DEBUG
-CMAKE_C_FLAGS_MINSIZEREL
-CMAKE_C_FLAGS_RELEASE
-CMAKE_C_FLAGS_RELWITHDEBINFO
-)
 set(CMAKE_C_INFORMATION_LOADED 1)
-
-

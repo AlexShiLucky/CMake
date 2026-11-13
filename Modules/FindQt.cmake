@@ -1,37 +1,72 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindQt
-# ------
-#
-# Searches for all installed versions of Qt.
-#
-# This should only be used if your project can work with multiple
-# versions of Qt.  If not, you should just directly use FindQt4 or
-# FindQt3.  If multiple versions of Qt are found on the machine, then
-# The user must set the option DESIRED_QT_VERSION to the version they
-# want to use.  If only one version of qt is found on the machine, then
-# the DESIRED_QT_VERSION is set to that version and the matching FindQt3
-# or FindQt4 module is included.  Once the user sets DESIRED_QT_VERSION,
-# then the FindQt3 or FindQt4 module is included.
-#
-# This module can only detect and switch between Qt versions 3 and 4. It
-# cannot handle Qt5 or any later versions.
-#
-# ::
-#
-#   QT_REQUIRED if this is set to TRUE then if CMake can
-#               not find Qt4 or Qt3 an error is raised
-#               and a message is sent to the user.
-#
-#
-#
-# ::
-#
-#   DESIRED_QT_VERSION OPTION is created
-#   QT4_INSTALLED is set to TRUE if qt4 is found.
-#   QT3_INSTALLED is set to TRUE if qt3 is found.
+#[=======================================================================[.rst:
+FindQt
+------
+
+.. deprecated:: 3.14
+
+  This module is available only if policy :policy:`CMP0084` is not set to
+  ``NEW``.  It supports only Qt3 and Qt4.  For Qt5 or later versions see
+  :manual:`cmake-qt(7)`.
+
+Finds an installed version of Qt3 or Qt4:
+
+.. code-block:: cmake
+
+  find_package(Qt [...])
+
+Qt is a cross-platform application development framework for creating
+graphical user interfaces and applications.
+
+Use this module only if the project can work with both Qt3 and Qt4
+versions.  If a specific version is required, use :module:`FindQt4` or
+:module:`FindQt3` module directly.
+
+Behavior:
+
+* If multiple Qt versions are found, the user must set the preferred major
+  Qt version with the ``DESIRED_QT_VERSION`` variable.
+* If only one Qt version is found, then the ``DESIRED_QT_VERSION`` is set
+  automatically.
+* Once the ``DESIRED_QT_VERSION`` variable is set, the corresponding
+  :module:`FindQt3` or :module:`FindQt4` module is included.
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``QT4_INSTALLED``
+  ``TRUE`` if Qt4 was found.
+``QT3_INSTALLED``
+  ``TRUE`` if Qt3 was found.
+
+Hints
+^^^^^
+
+``QT_REQUIRED``
+  If this variable is set to ``TRUE`` before calling ``find_package(Qt)``,
+  CMake will raise an error if neither Qt3 nor Qt4 is found.
+``DESIRED_QT_VERSION``
+  Specifies the Qt major version to use.  Can be either ``3``, ``4``, or empty,
+  to search for version automatically.
+
+Examples
+^^^^^^^^
+
+Finding Qt3 or Qt4 version:
+
+.. code-block:: cmake
+
+  find_package(Qt)
+#]=======================================================================]
+
+if(_findqt_testing)
+  set(_findqt_included TRUE)
+  return()
+endif()
 
 # look for signs of qt3 installations
 file(GLOB GLOB_TEMP_VAR /usr/lib*/qt-3*/bin/qmake /usr/lib*/qt3*/bin/qmake)
@@ -82,7 +117,7 @@ endif ()
 # now find qmake
 find_program(QT_QMAKE_EXECUTABLE_FINDQT NAMES qmake PATHS "${QT_SEARCH_PATH}/bin" "$ENV{QTDIR}/bin")
 if(QT_QMAKE_EXECUTABLE_FINDQT)
-  exec_program(${QT_QMAKE_EXECUTABLE_FINDQT} ARGS "-query QT_VERSION"
+  execute_process(COMMAND ${QT_QMAKE_EXECUTABLE_FINDQT} -query QT_VERSION
     OUTPUT_VARIABLE QTVERSION)
   if(QTVERSION MATCHES "4")
     set(QT_QMAKE_EXECUTABLE ${QT_QMAKE_EXECUTABLE_FINDQT} CACHE PATH "Qt4 qmake program.")
@@ -94,8 +129,8 @@ if(QT_QMAKE_EXECUTABLE_FINDQT)
 endif()
 
 if(QT_QMAKE_EXECUTABLE_FINDQT)
-  exec_program( ${QT_QMAKE_EXECUTABLE_FINDQT}
-    ARGS "-query QT_INSTALL_HEADERS"
+  execute_process(COMMAND ${QT_QMAKE_EXECUTABLE_FINDQT}
+    -query QT_INSTALL_HEADERS
     OUTPUT_VARIABLE qt_headers )
 endif()
 
@@ -105,13 +140,11 @@ find_file( QT4_QGLOBAL_H_FILE qglobal.h
   "[HKEY_CURRENT_USER\\Software\\Trolltech\\Versions\\4.0.0;InstallDir]/include/Qt"
   ${qt_headers}/Qt
   $ENV{QTDIR}/include/Qt
-  /usr/local/qt/include/Qt
-  /usr/local/include/Qt
   /usr/lib/qt/include/Qt
-  /usr/include/Qt
   /usr/share/qt4/include/Qt
   /usr/local/include/X11/qt4/Qt
-  C:/Progra~1/qt/include/Qt )
+  C:/Progra~1/qt/include/Qt
+  PATH_SUFFIXES qt/include/Qt include/Qt)
 
 if(QT4_QGLOBAL_H_FILE)
   set(QT4_INSTALLED TRUE)
@@ -125,14 +158,10 @@ find_file( QT3_QGLOBAL_H_FILE qglobal.h
   C:/Qt/3.3.3Educational/include
   $ENV{QTDIR}/include
   /usr/include/qt3/Qt
-  /usr/local/qt/include
-  /usr/local/include
-  /usr/lib/qt/include
-  /usr/include
   /usr/share/qt3/include
   /usr/local/include/X11/qt3
   C:/Progra~1/qt/include
-  /usr/include/qt3 )
+  PATH_SUFFIXES qt/include include/qt3)
 
 if(QT3_QGLOBAL_H_FILE)
   set(QT3_INSTALLED TRUE)

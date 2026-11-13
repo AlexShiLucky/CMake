@@ -1,23 +1,22 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCryptoHash_h
-#define cmCryptoHash_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include <stddef.h>
+#include <cstddef>
+#include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "cm_auto_ptr.hxx"
+#include <cm/string_view>
 
 /**
  * @brief Abstract base class for cryptographic hash generators
  */
 class cmCryptoHash
 {
-  CM_DISABLE_COPY(cmCryptoHash)
-
 public:
   enum Algo
   {
@@ -36,13 +35,16 @@ public:
   cmCryptoHash(Algo algo);
   ~cmCryptoHash();
 
+  cmCryptoHash(cmCryptoHash const&) = delete;
+  cmCryptoHash& operator=(cmCryptoHash const&) = delete;
+
   /// @brief Returns a new hash generator of the requested type
   /// @arg algo Hash type name. Supported hash types are
   ///      MD5, SHA1, SHA224, SHA256, SHA384, SHA512,
   ///      SHA3_224, SHA3_256, SHA3_384, SHA3_512
   /// @return A valid auto pointer if algo is supported or
   ///         an invalid/NULL pointer otherwise
-  static CM_AUTO_PTR<cmCryptoHash> New(const char* algo);
+  static std::unique_ptr<cmCryptoHash> New(cm::string_view algo);
 
   /// @brief Converts a hex character to its binary value (4 bits)
   /// @arg input Hex character [0-9a-fA-F].
@@ -51,31 +53,47 @@ public:
   static bool IntFromHexDigit(char input, char& output);
 
   /// @brief Converts a byte hash to a sequence of hex character pairs
-  static std::string ByteHashToString(const std::vector<unsigned char>& hash);
+  static std::string ByteHashToString(std::vector<unsigned char> const& hash);
 
   /// @brief Calculates a binary hash from string input data
   /// @return Binary hash vector
-  std::vector<unsigned char> ByteHashString(const std::string& input);
+  std::vector<unsigned char> ByteHashString(cm::string_view input);
+
+  /// @brief Calculates a binary hash from stream content
+  /// @see ByteHashString()
+  /// @return Non empty binary hash vector if the stream was read successfully.
+  ///         An empty vector otherwise.
+  std::vector<unsigned char> ByteHashStream(std::istream& sin);
 
   /// @brief Calculates a binary hash from file content
   /// @see ByteHashString()
   /// @return Non empty binary hash vector if the file was read successfully.
   ///         An empty vector otherwise.
-  std::vector<unsigned char> ByteHashFile(const std::string& file);
+  std::vector<unsigned char> ByteHashFile(std::string const& file);
 
   /// @brief Calculates a hash string from string input data
   /// @return Sequence of hex characters pairs for each byte of the binary hash
-  std::string HashString(const std::string& input);
+  std::string HashString(cm::string_view input);
+
+  /// @brief Calculates a hash string from stream content
+  /// @see HashString()
+  /// @return Non empty hash string if the stream was read successfully.
+  ///         An empty string otherwise.
+  std::string HashStream(std::istream& sin);
 
   /// @brief Calculates a hash string from file content
   /// @see HashString()
   /// @return Non empty hash string if the file was read successfully.
   ///         An empty string otherwise.
-  std::string HashFile(const std::string& file);
+  std::string HashFile(std::string const& file);
+
+  /// @brief Returns the name of the hash type.
+  /// @return The name of the hash type associated with this hash generator.
+  std::string GetHashAlgoName() const;
 
   void Initialize();
   void Append(void const*, size_t);
-  void Append(std::string const& str);
+  void Append(cm::string_view input);
   std::vector<unsigned char> Finalize();
   std::string FinalizeHex();
 
@@ -83,5 +101,3 @@ private:
   unsigned int Id;
   struct rhash_context* CTX;
 };
-
-#endif

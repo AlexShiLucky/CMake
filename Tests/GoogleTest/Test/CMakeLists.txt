@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(TestGoogleTest)
 include(CTest)
 
@@ -44,12 +44,13 @@ endif()
 set_tests_properties(set2.GoogleTest.ConditionalFail.foo PROPERTIES WILL_FAIL YES)
 
 
-# Search specific sources to get the test list
-add_executable(test_gtest2 main2.cxx)
+# Search specific sources to get the test list. Include an empty file
+# to ensure they are handled correctly too.
+add_executable(test_gtest2 main2.cxx empty.cxx)
 target_link_libraries(test_gtest2 GTest::Main)
 gtest_add_tests(TARGET test_gtest2
   TEST_LIST testList
-  SOURCES main2.h
+  SOURCES main2.h empty.cxx
 )
 set(expectedTests
   GoogleTest.SomethingElse
@@ -80,10 +81,30 @@ gtest_add_tests(test_gtest3 "" AUTO)
 if(NOT TEST GoogleTest.Foo)
   message(FATAL_ERROR "Test case GoogleTest.Foo not defined")
 endif()
+# Check if test has property DEF_SOURCE_LINE
+get_test_property(GoogleTest.Foo DEF_SOURCE_LINE testSourceLineFoo)
+if(NOT testSourceLineFoo)
+  message(FATAL_ERROR "Test GoogleTest.Foo should have DEF_SOURCE_LINE property")
+endif()
+# If check property ends with correct value
+string(FIND "${testSourceLineFoo}" "main3.cxx:3" testSourceLineFooFound)
+if(${testSourceLineFooFound} EQUAL -1)
+  message(FATAL_ERROR "Test GoogleTest.Foo should have DEF_SOURCE_LINE property with value main3.cxx:3")
+endif()
+
 if(NOT TEST GoogleTest.Bar)
   message(FATAL_ERROR "Test case GoogleTest.Bar not defined")
 endif()
-
+# Check if test has property DEF_SOURCE_LINE
+get_test_property(GoogleTest.Bar DEF_SOURCE_LINE testSourceLineBar)
+if(NOT testSourceLineBar)
+  message(FATAL_ERROR "Test GoogleTest.Bar should have DEF_SOURCE_LINE property")
+endif()
+# If check property ends with correct value
+string(FIND "${testSourceLineBar}" "main3.cxx:8" testSourceLineBarFound)
+if(${testSourceLineBarFound} EQUAL -1)
+  message(FATAL_ERROR "Test GoogleTest.Bar should have DEF_SOURCE_LINE property with value main3.cxx:8")
+endif()
 
 # Non-keyword form, explicitly specified sources. Allows a non-target to be
 # given for the executable.
@@ -93,3 +114,12 @@ gtest_add_tests($<TARGET_FILE:test_gtest4> "" main4.h)
 if(NOT TEST GoogleTest.NoKeywords)
   message(FATAL_ERROR "Test case GoogleTest.NoKeywords not defined")
 endif()
+
+# Check if PROPERTIES values are allowed to be lists
+add_executable(test_gtest5 main5.cxx)
+target_link_libraries(test_gtest5 GTest::Main)
+set(environment VALX=1 VALY=2)
+gtest_discover_tests(test_gtest5
+  PROPERTIES
+    ENVIRONMENT "${environment}"
+)

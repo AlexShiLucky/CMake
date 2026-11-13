@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 # This is an undocumented internal helper for the FindMatlab
 # module ``matlab_add_unit_test`` command.
@@ -15,11 +15,12 @@
 #   -Dcustom_Matlab_test_command=""
 #   -Dcmd_to_run_before_test=""
 #   -Dunittest_file_to_run
+#   -Dmaut_BATCH_OPTION="-batch"
 #   -P FindMatlab_TestsRedirect.cmake
 
 set(Matlab_UNIT_TESTS_CMD -nosplash -nodesktop -nodisplay ${Matlab_ADDITIONAL_STARTUP_OPTIONS})
-if(WIN32)
-  set(Matlab_UNIT_TESTS_CMD ${Matlab_UNIT_TESTS_CMD} -wait)
+if(WIN32 AND maut_BATCH_OPTION STREQUAL "-r")
+  list(APPEND Matlab_UNIT_TESTS_CMD -wait)
 endif()
 
 if(NOT test_timeout)
@@ -55,11 +56,12 @@ endif()
 
 
 if(no_unittest_framework)
-  set(unittest_to_run "try, ${unittest_file_to_run_name}, catch err, disp('An exception has been thrown during the execution'), disp(err), disp(err.stack), exit(1), end, exit(0)")
+  set(unittest_to_run "${unittest_file_to_run_name}")
 endif()
 
+set(command_to_run "try, ${unittest_to_run}, catch err, disp('An exception has been thrown during the execution'), disp(err), disp(err.stack), exit(1), end, exit(0)")
 set(Matlab_SCRIPT_TO_RUN
-    "addpath(${concat_string}); ${cmd_to_run_before_test}; ${unittest_to_run}"
+    "addpath(${concat_string}); ${cmd_to_run_before_test}; ${command_to_run}"
    )
 # if the working directory is not specified then default
 # to the output_directory because the log file will go there
@@ -83,7 +85,7 @@ execute_process(
   # Do not use a full path to log file.  Depend on the fact that the log file
   # is always going to go in the working_directory.  This is because matlab
   # on unix is a shell script that does not handle spaces in the logfile path.
-  COMMAND "${Matlab_PROGRAM}" ${Matlab_UNIT_TESTS_CMD} -logfile "${log_file_name}" -r "${Matlab_SCRIPT_TO_RUN}"
+  COMMAND "${Matlab_PROGRAM}" ${Matlab_UNIT_TESTS_CMD} -logfile "${log_file_name}" "${maut_BATCH_OPTION}" "${Matlab_SCRIPT_TO_RUN}"
   RESULT_VARIABLE res
   ${test_timeout}
   OUTPUT_QUIET # we do not want the output twice

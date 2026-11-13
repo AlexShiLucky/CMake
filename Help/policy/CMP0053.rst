@@ -1,6 +1,11 @@
 CMP0053
 -------
 
+.. |REMOVED_IN_CMAKE_VERSION| replace:: 4.0
+.. include:: include/REMOVED_PROLOGUE.rst
+
+.. versionadded:: 3.1
+
 Simplify variable reference and escape sequence evaluation.
 
 CMake 3.1 introduced a much faster implementation of evaluation of the
@@ -16,6 +21,10 @@ cleaned up to simplify the behavior.  Specifically:
 * Literal ``${VAR}`` reference syntax may contain only
   alphanumeric characters (``A-Z``, ``a-z``, ``0-9``) and
   the characters ``_``, ``.``, ``/``, ``-``, and ``+``.
+  Note that ``$`` is technically allowed in the ``NEW`` behavior, but is
+  invalid for ``OLD`` behavior.  This is due to an oversight during the
+  implementation of ``CMP0053`` and its use as a literal variable
+  reference is discouraged for this reason.
   Variables with other characters in their name may still
   be referenced indirectly, e.g.
 
@@ -38,9 +47,6 @@ The ``OLD`` behavior for this policy is to honor the legacy behavior for
 variable references and escape sequences.  The ``NEW`` behavior is to
 use the simpler variable expansion and escape sequence evaluation rules.
 
-This policy was introduced in CMake version 3.1.
-CMake version |release| warns when the policy is not set and uses
-``OLD`` behavior.  Use the :command:`cmake_policy` command to set
-it to ``OLD`` or ``NEW`` explicitly.
-
-.. include:: DEPRECATED.txt
+.. |INTRODUCED_IN_CMAKE_VERSION| replace:: 3.1
+.. |WARNED_OR_DID_NOT_WARN| replace:: warned
+.. include:: include/REMOVED_EPILOGUE.rst

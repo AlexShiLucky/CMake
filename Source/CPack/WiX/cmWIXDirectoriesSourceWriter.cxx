@@ -1,82 +1,149 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmWIXDirectoriesSourceWriter.h"
 
+#include <cmext/string_view>
+
+#include "cmStringAlgorithms.h"
+
 cmWIXDirectoriesSourceWriter::cmWIXDirectoriesSourceWriter(
-  cmCPackLog* logger, std::string const& filename, GuidType componentGuidType)
-  : cmWIXSourceWriter(logger, filename, componentGuidType)
+  unsigned long wixVersion, cmCPackLog* logger, std::string const& filename,
+  GuidType componentGuidType, cmWIXInstallScope installScope,
+  std::string componentKeysRegistryPath)
+  : cmWIXSourceWriter(wixVersion, logger, filename, componentGuidType)
+  , ComponentKeysRegistryPath(std::move(componentKeysRegistryPath))
 {
+  switch (installScope) {
+    case cmWIXInstallScope::PER_USER:
+      this->PerUserInstall = true;
+      break;
+    case cmWIXInstallScope::PER_MACHINE:
+    case cmWIXInstallScope::NONE:
+      this->PerUserInstall = false;
+      break;
+    default:
+      cmCPackLogger(cmCPackLog::LOG_ERROR,
+                    "Unhandled install scope value, this is a CPack Bug.");
+      break;
+  }
 }
 
 void cmWIXDirectoriesSourceWriter::EmitStartMenuFolder(
   std::string const& startMenuFolder)
 {
-  BeginElement("Directory");
+  BeginElement_StandardDirectory();
   AddAttribute("Id", "ProgramMenuFolder");
 
-  BeginElement("Directory");
-  AddAttribute("Id", "PROGRAM_MENU_FOLDER");
-  AddAttribute("Name", startMenuFolder);
-  EndElement("Directory");
+  if (startMenuFolder != "."_s) {
+    BeginElement("Directory");
+    AddAttribute("Id", "PROGRAM_MENU_FOLDER");
+    AddAttribute("Name", startMenuFolder);
+    EndElement("Directory");
+  }
 
-  EndElement("Directory");
+  EndElement_StandardDirectory();
 }
 
 void cmWIXDirectoriesSourceWriter::EmitDesktopFolder()
 {
-  BeginElement("Directory");
+  BeginElement_StandardDirectory();
   AddAttribute("Id", "DesktopFolder");
-  AddAttribute("Name", "Desktop");
-  EndElement("Directory");
+  if (this->WixVersion == 3) {
+    AddAttribute("Name", "Desktop");
+  }
+  EndElement_StandardDirectory();
 }
 
 void cmWIXDirectoriesSourceWriter::EmitStartupFolder()
 {
-  BeginElement("Directory");
+  BeginElement_StandardDirectory();
   AddAttribute("Id", "StartupFolder");
-  AddAttribute("Name", "Startup");
-  EndElement("Directory");
+  if (this->WixVersion == 3) {
+    AddAttribute("Name", "Startup");
+  }
+  EndElement_StandardDirectory();
 }
 
-size_t cmWIXDirectoriesSourceWriter::BeginInstallationPrefixDirectory(
+cm::optional<std::string>
+cmWIXDirectoriesSourceWriter::EmitRemoveFolderComponentOnUserInstall(
+  std::string const& directoryId)
+{
+  if (!this->PerUserInstall) {
+    return {};
+  }
+
+  BeginElement("Component");
+
+  std::string componentId = directoryId + "_RemoveFolderComponent";
+  AddAttribute("Id", componentId);
+  AddAttribute("Guid", CreateGuidFromComponentId(componentId));
+
+  BeginElement("RemoveFolder");
+  AddAttribute("Id", directoryId + "_RemoveFolder");
+  AddAttribute("Directory", directoryId);
+  AddAttribute("On", "uninstall");
+  EndElement("RemoveFolder");
+
+  // Need a keyPath for the component
+  BeginElement("RegistryValue");
+
+  AddAttribute("Root", "HKCU");
+  AddAttribute("Key", this->ComponentKeysRegistryPath);
+  AddAttribute("Name", componentId);
+  AddAttribute("Type", "string");
+  AddAttribute("Value", "1");
+  AddAttribute("KeyPath", "yes");
+
+  EndElement("RegistryValue");
+
+  EndElement("Component");
+
+  return componentId;
+}
+
+cmWIXDirectoriesSourceWriter::InstallationPrefixDirectory
+cmWIXDirectoriesSourceWriter::BeginInstallationPrefixDirectory(
   std::string const& programFilesFolderId,
   std::string const& installRootString)
 {
-  size_t offset = 1;
+  InstallationPrefixDirectory installationPrefixDirectory;
   if (!programFilesFolderId.empty()) {
-    BeginElement("Directory");
+    installationPrefixDirectory.HasStandardDirectory = true;
+    this->BeginElement_StandardDirectory();
     AddAttribute("Id", programFilesFolderId);
-    offset = 0;
   }
 
   std::vector<std::string> installRoot;
 
-  cmSystemTools::SplitPath(installRootString.c_str(), installRoot);
+  cmSystemTools::SplitPath(installRootString, installRoot);
 
   if (!installRoot.empty() && installRoot.back().empty()) {
     installRoot.pop_back();
   }
 
   for (size_t i = 1; i < installRoot.size(); ++i) {
+    ++installationPrefixDirectory.Depth;
     BeginElement("Directory");
 
     if (i == installRoot.size() - 1) {
       AddAttribute("Id", "INSTALL_ROOT");
     } else {
-      std::ostringstream tmp;
-      tmp << "INSTALL_PREFIX_" << i;
-      AddAttribute("Id", tmp.str());
+      AddAttribute("Id", cmStrCat("INSTALL_PREFIX_", i));
     }
 
     AddAttribute("Name", installRoot[i]);
   }
 
-  return installRoot.size() - offset;
+  return installationPrefixDirectory;
 }
 
-void cmWIXDirectoriesSourceWriter::EndInstallationPrefixDirectory(size_t size)
+void cmWIXDirectoriesSourceWriter::EndInstallationPrefixDirectory(
+  InstallationPrefixDirectory installationPrefixDirectory)
 {
-  for (size_t i = 0; i < size; ++i) {
+  for (size_t i = 0; i < installationPrefixDirectory.Depth; ++i) {
     EndElement("Directory");
+  }
+  if (installationPrefixDirectory.HasStandardDirectory) {
+    this->EndElement_StandardDirectory();
   }
 }

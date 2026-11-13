@@ -1,4 +1,6 @@
 CTEST_CVS_CHECKOUT
 ------------------
 
-Deprecated.  Use :variable:`CTEST_CHECKOUT_COMMAND` instead.
+.. deprecated:: 3.1
+
+  Use :variable:`CTEST_CHECKOUT_COMMAND` variable instead.

@@ -8,11 +8,11 @@ readonly name="librhash"
 readonly ownership="librhash upstream <kwrobot@kitware.com>"
 readonly subtree="Utilities/cmlibrhash"
 readonly repo="https://github.com/rhash/rhash.git"
-readonly tag="master"
+readonly tag="v1.4.4" # When updating, sync version in cmVersion_Dependencies.cxx!
 readonly shortlog=false
+readonly exact_tree_match=false
 readonly paths="
   COPYING
-  README
   librhash/algorithms.c
   librhash/algorithms.h
   librhash/byte_order.c
@@ -32,6 +32,7 @@ readonly paths="
   librhash/sha512.c
   librhash/sha512.h
   librhash/ustd.h
+  librhash/util.c
   librhash/util.h
 "
 

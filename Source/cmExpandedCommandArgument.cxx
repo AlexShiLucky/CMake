@@ -1,15 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmExpandedCommandArgument.h"
 
-cmExpandedCommandArgument::cmExpandedCommandArgument()
-  : Quoted(false)
-{
-}
+#include <utility>
 
-cmExpandedCommandArgument::cmExpandedCommandArgument(std::string const& value,
+cmExpandedCommandArgument::cmExpandedCommandArgument() = default;
+
+cmExpandedCommandArgument::cmExpandedCommandArgument(std::string value,
                                                      bool quoted)
-  : Value(value)
+  : Value(std::move(value))
   , Quoted(quoted)
 {
 }
@@ -24,6 +23,11 @@ bool cmExpandedCommandArgument::WasQuoted() const
   return this->Quoted;
 }
 
+bool cmExpandedCommandArgument::operator==(char const* value) const
+{
+  return this->Value == value;
+}
+
 bool cmExpandedCommandArgument::operator==(std::string const& value) const
 {
   return this->Value == value;
@@ -32,9 +36,4 @@ bool cmExpandedCommandArgument::operator==(std::string const& value) const
 bool cmExpandedCommandArgument::empty() const
 {
   return this->Value.empty();
-}
-
-const char* cmExpandedCommandArgument::c_str() const
-{
-  return this->Value.c_str();
 }

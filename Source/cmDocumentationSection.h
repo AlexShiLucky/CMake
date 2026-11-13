@@ -1,14 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef _cmDocumentationSection_h
-#define _cmDocumentationSection_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmDocumentationEntry.h"
-
+#include <iterator>
 #include <string>
 #include <vector>
+
+#include "cmDocumentationEntry.h"
 
 // Low-level interface for custom documents:
 /** Internal class representing a section of the documentation.
@@ -19,7 +19,7 @@ class cmDocumentationSection
 {
 public:
   /** Create a cmSection, with a special name for man-output mode. */
-  cmDocumentationSection(const char* name, const char*)
+  explicit cmDocumentationSection(char const* name)
     : Name(name)
   {
   }
@@ -34,36 +34,33 @@ public:
   std::string GetName() const { return this->Name; }
 
   /** Return a pointer to the first entry of this section. */
-  const std::vector<cmDocumentationEntry>& GetEntries() const
+  std::vector<cmDocumentationEntry> const& GetEntries() const
   {
     return this->Entries;
   }
 
   /** Append an entry to this section. */
-  void Append(const cmDocumentationEntry& entry)
+  void Append(cmDocumentationEntry const& entry)
   {
     this->Entries.push_back(entry);
   }
-  void Append(const std::vector<cmDocumentationEntry>& entries)
+
+  template <typename Iterable>
+  void Append(Iterable const& entries)
   {
-    this->Entries.insert(this->Entries.end(), entries.begin(), entries.end());
+    this->Entries.insert(std::end(this->Entries), std::begin(entries),
+                         std::end(entries));
   }
 
-  /** Append an entry to this section using NULL terminated chars */
-  void Append(const char* [][2]);
-  void Append(const char* n, const char* b);
-
   /** prepend some documentation to this section */
-  void Prepend(const char* [][2]);
-  void Prepend(const std::vector<cmDocumentationEntry>& entries)
+  template <typename Iterable>
+  void Prepend(Iterable const& entries)
   {
-    this->Entries.insert(this->Entries.begin(), entries.begin(),
-                         entries.end());
+    this->Entries.insert(std::begin(this->Entries), std::begin(entries),
+                         std::end(entries));
   }
 
 private:
   std::string Name;
   std::vector<cmDocumentationEntry> Entries;
 };
-
-#endif

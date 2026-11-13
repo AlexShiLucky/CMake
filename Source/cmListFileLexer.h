@@ -1,9 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmListFileLexer_h
-#define cmListFileLexer_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-typedef enum cmListFileLexer_Type_e {
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* NOLINTNEXTLINE(modernize-use-using) */
+typedef enum cmListFileLexer_Type_e
+{
   cmListFileLexer_Token_None,
   cmListFileLexer_Token_Space,
   cmListFileLexer_Token_Newline,
@@ -19,12 +26,13 @@ typedef enum cmListFileLexer_Type_e {
   cmListFileLexer_Token_BadString
 } cmListFileLexer_Type;
 
+/* NOLINTNEXTLINE(modernize-use-using) */
 typedef struct cmListFileLexer_Token_s cmListFileLexer_Token;
 struct cmListFileLexer_Token_s
 {
   cmListFileLexer_Type type;
   char* text;
-  int length;
+  size_t length;
   int line;
   int column;
 };
@@ -32,34 +40,30 @@ struct cmListFileLexer_Token_s
 enum cmListFileLexer_BOM_e
 {
   cmListFileLexer_BOM_None,
-  cmListFileLexer_BOM_Broken,
   cmListFileLexer_BOM_UTF8,
   cmListFileLexer_BOM_UTF16BE,
   cmListFileLexer_BOM_UTF16LE,
   cmListFileLexer_BOM_UTF32BE,
   cmListFileLexer_BOM_UTF32LE
 };
+
+/* NOLINTNEXTLINE(modernize-use-using) */
 typedef enum cmListFileLexer_BOM_e cmListFileLexer_BOM;
 
+/* NOLINTNEXTLINE(modernize-use-using) */
 typedef struct cmListFileLexer_s cmListFileLexer;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 cmListFileLexer* cmListFileLexer_New(void);
-int cmListFileLexer_SetFileName(cmListFileLexer*, const char*,
+int cmListFileLexer_SetFileName(cmListFileLexer*, char const*,
                                 cmListFileLexer_BOM* bom);
-int cmListFileLexer_SetString(cmListFileLexer*, const char*);
+int cmListFileLexer_SetString(cmListFileLexer*, char const*, size_t);
 cmListFileLexer_Token* cmListFileLexer_Scan(cmListFileLexer*);
 long cmListFileLexer_GetCurrentLine(cmListFileLexer*);
 long cmListFileLexer_GetCurrentColumn(cmListFileLexer*);
-const char* cmListFileLexer_GetTypeAsString(cmListFileLexer*,
+char const* cmListFileLexer_GetTypeAsString(cmListFileLexer*,
                                             cmListFileLexer_Type);
 void cmListFileLexer_Delete(cmListFileLexer*);
 
 #ifdef __cplusplus
 } /* extern "C" */
-#endif
-
 #endif

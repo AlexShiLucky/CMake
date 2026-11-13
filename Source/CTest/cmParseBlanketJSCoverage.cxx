@@ -1,26 +1,28 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmParseBlanketJSCoverage.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+
+#include "cmsys/FStream.hxx"
 
 #include "cmCTest.h"
 #include "cmCTestCoverageHandler.h"
 #include "cmSystemTools.h"
 
-#include "cmsys/FStream.hxx"
-#include <stdio.h>
-#include <stdlib.h>
-
 class cmParseBlanketJSCoverage::JSONParser
 {
 public:
-  typedef cmCTestCoverageHandlerContainer::SingleFileCoverageVector
-    FileLinesType;
+  using FileLinesType =
+    cmCTestCoverageHandlerContainer::SingleFileCoverageVector;
   JSONParser(cmCTestCoverageHandlerContainer& cont)
     : Coverage(cont)
   {
   }
 
-  virtual ~JSONParser() {}
+  virtual ~JSONParser() = default;
 
   std::string getValue(std::string const& line, int type)
   {
@@ -65,7 +67,7 @@ public:
         }
         foundFile = true;
         inSource = false;
-        filename = getValue(line, 0);
+        filename = this->getValue(line, 0);
       } else if ((line.find("coverage") != std::string::npos) && foundFile &&
                  inSource) {
         /*
@@ -77,7 +79,7 @@ public:
          *  FoundFile and foundSource ensure that
          *  only the value of the line coverage is captured
          */
-        std::string result = getValue(line, 1);
+        std::string result = this->getValue(line, 1);
         result = result.substr(2);
         if (result == "\"\"") {
           // Empty quotation marks indicate that the
@@ -110,30 +112,25 @@ cmParseBlanketJSCoverage::cmParseBlanketJSCoverage(
 {
 }
 
-bool cmParseBlanketJSCoverage::LoadCoverageData(std::vector<std::string> files)
+bool cmParseBlanketJSCoverage::LoadCoverageData(
+  std::vector<std::string> const& files)
 {
-  size_t i = 0;
-  std::string path;
-  cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                     "Found " << files.size() << " Files" << std::endl,
-                     this->Coverage.Quiet);
-  for (i = 0; i < files.size(); i++) {
-    cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                       "Reading JSON File " << files[i] << std::endl,
-                       this->Coverage.Quiet);
-
-    if (!this->ReadJSONFile(files[i])) {
-      return false;
-    }
-  }
-  return true;
+  cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT, this->Coverage.Quiet,
+                     "Found ", files.size(), " Files\n");
+  return std::all_of(files.begin(), files.end(),
+                     [this](std::string const& file) {
+                       cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
+                                          this->Coverage.Quiet,
+                                          "Reading JSON File ", file, '\n');
+                       return this->ReadJSONFile(file);
+                     });
 }
 
 bool cmParseBlanketJSCoverage::ReadJSONFile(std::string const& file)
 {
   cmParseBlanketJSCoverage::JSONParser parser(this->Coverage);
-  cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                     "Parsing " << file << std::endl, this->Coverage.Quiet);
+  cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT, this->Coverage.Quiet,
+                     "Parsing ", file, '\n');
   parser.ParseFile(file);
   return true;
 }

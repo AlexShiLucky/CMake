@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 project(TestDriverTest)
 
 set(Extra_SRCS testExtraStuff.cxx testExtraStuff2.cxx )
@@ -9,7 +9,6 @@ create_test_sourcelist(testSrcs
                        test1.cxx
                        test2.cxx
                        subdir/test3.cxx
-                       EXTRA_INCLUDE testArgs.h FUNCTION testProccessArgs)
+                       EXTRA_INCLUDE testArgs.h FUNCTION testProcessArgs)
 
 add_executable(TestDriverTest ${testSrcs} ${Extra_SRCS})
-

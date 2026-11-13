@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmVisualStudioSlnData_h
-#define cmVisualStudioSlnData_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <map>
 #include <string>
@@ -12,12 +11,12 @@
 class cmSlnProjectEntry
 {
 public:
-  cmSlnProjectEntry() {}
-  cmSlnProjectEntry(const std::string& guid, const std::string& name,
-                    const std::string& relativePath)
-    : Guid(guid)
-    , Name(name)
-    , RelativePath(relativePath)
+  cmSlnProjectEntry() = default;
+  cmSlnProjectEntry(std::string guid, std::string name,
+                    std::string relativePath)
+    : Guid(std::move(guid))
+    , Name(std::move(name))
+    , RelativePath(std::move(relativePath))
   {
   }
 
@@ -25,30 +24,61 @@ public:
   std::string GetName() const { return Name; }
   std::string GetRelativePath() const { return RelativePath; }
 
+  void AddProjectConfiguration(std::string const& solutionConfiguration,
+                               std::string const& projectConfiguration);
+
+  std::string GetProjectConfiguration(
+    std::string const& solutionConfiguration) const;
+
 private:
   std::string Guid, Name, RelativePath;
+  std::map<std::string, std::string> projectConfigurationMap;
 };
 
 class cmSlnData
 {
 public:
-  const cmSlnProjectEntry* GetProjectByGUID(
-    const std::string& projectGUID) const;
+  std::string GetVisualStudioVersion() const { return visualStudioVersion; }
+  void SetVisualStudioVersion(std::string const& version)
+  {
+    visualStudioVersion = version;
+  }
 
-  const cmSlnProjectEntry* GetProjectByName(
-    const std::string& projectName) const;
+  std::string GetMinimumVisualStudioVersion() const
+  {
+    return minimumVisualStudioVersion;
+  }
+
+  void SetMinimumVisualStudioVersion(std::string const& version)
+  {
+    minimumVisualStudioVersion = version;
+  }
+
+  cmSlnProjectEntry* GetProjectByGUID(std::string const& projectGUID);
+
+  cmSlnProjectEntry const* GetProjectByName(
+    std::string const& projectName) const;
 
   std::vector<cmSlnProjectEntry> GetProjects() const;
 
-  cmSlnProjectEntry* AddProject(const std::string& projectGUID,
-                                const std::string& projectName,
-                                const std::string& projectRelativePath);
+  cmSlnProjectEntry* AddProject(std::string const& projectGUID,
+                                std::string const& projectName,
+                                std::string const& projectRelativePath);
+
+  void AddConfiguration(std::string const& configuration)
+  {
+    solutionConfigurations.push_back(configuration);
+  }
+
+  std::string GetConfigurationTarget(std::string const& projectName,
+                                     std::string const& solutionConfiguration,
+                                     std::string const& platformName);
 
 private:
-  typedef std::map<std::string, cmSlnProjectEntry> ProjectStorage;
+  std::string visualStudioVersion, minimumVisualStudioVersion;
+  using ProjectStorage = std::map<std::string, cmSlnProjectEntry>;
   ProjectStorage ProjectsByGUID;
-  typedef std::map<std::string, ProjectStorage::iterator> ProjectStringIndex;
+  using ProjectStringIndex = std::map<std::string, ProjectStorage::iterator>;
   ProjectStringIndex ProjectNameIndex;
+  std::vector<std::string> solutionConfigurations;
 };
-
-#endif

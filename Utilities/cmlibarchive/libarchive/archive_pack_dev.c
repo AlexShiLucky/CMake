@@ -33,13 +33,6 @@
 
 #include "archive_platform.h"
 
-#if HAVE_SYS_CDEFS_H
-#include <sys/cdefs.h>
-#endif
-#if !defined(lint)
-__RCSID("$NetBSD$");
-#endif /* not lint */
-
 #ifdef HAVE_LIMITS_H
 #include <limits.h>
 #endif
@@ -57,6 +50,13 @@ __RCSID("$NetBSD$");
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
 #endif
+#if MAJOR_IN_MKDEV
+#include <sys/mkdev.h>
+#define HAVE_MAJOR
+#elif MAJOR_IN_SYSMACROS
+#include <sys/sysmacros.h>
+#define HAVE_MAJOR
+#endif
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -70,7 +70,7 @@ static	pack_t	pack_12_20;
 static	pack_t	pack_14_18;
 static	pack_t	pack_8_24;
 static	pack_t	pack_bsdos;
-static	int	compare_format(const void *, const void *);
+static	int	__LA_LIBC_CC compare_format(const void *, const void *);
 
 static const char iMajorError[] = "invalid major number";
 static const char iMinorError[] = "invalid minor number";
@@ -280,7 +280,7 @@ pack_bsdos(int n, unsigned long numbers[], const char **error)
 
 		/* list of formats and pack functions */
 		/* this list must be sorted lexically */
-static struct format {
+static const struct format {
 	const char	*name;
 	pack_t		*pack;
 } formats[] = {
@@ -303,6 +303,7 @@ static struct format {
 };
 
 static int
+__LA_LIBC_CC
 compare_format(const void *key, const void *element)
 {
 	const char		*name;
@@ -318,7 +319,7 @@ compare_format(const void *key, const void *element)
 pack_t *
 pack_find(const char *name)
 {
-	struct format	*format;
+	const struct format	*format;
 
 	format = bsearch(name, formats,
 	    sizeof(formats)/sizeof(formats[0]),

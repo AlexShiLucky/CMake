@@ -1,23 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmFortranParser_h
-#define cmFortranParser_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #if !defined(cmFortranLexer_cxx) && !defined(cmFortranParser_cxx)
-#include "cmConfigure.h"
+#  include "cmConfigure.h" // IWYU pragma: keep
 
-#include <set>
-#include <string>
-#include <vector>
+#  include <set>
+#  include <string>
+#  include <utility>
+#  include <vector>
 #endif
 
-#include <stddef.h> /* size_t */
+#include <cstddef> /* size_t */
 
 /* Forward declare parser object type.  */
-typedef struct cmFortranParser_s cmFortranParser;
+using cmFortranParser = struct cmFortranParser_s;
 
 /* Functions to enter/exit #include'd files in order.  */
-bool cmFortranParser_FilePush(cmFortranParser* parser, const char* fname);
+bool cmFortranParser_FilePush(cmFortranParser* parser, char const* fname);
 bool cmFortranParser_FilePop(cmFortranParser* parser);
 
 /* Callbacks for lexer.  */
@@ -25,7 +25,7 @@ int cmFortranParser_Input(cmFortranParser* parser, char* buffer,
                           size_t bufferSize);
 
 void cmFortranParser_StringStart(cmFortranParser* parser);
-const char* cmFortranParser_StringEnd(cmFortranParser* parser);
+char const* cmFortranParser_StringEnd(cmFortranParser* parser);
 void cmFortranParser_StringAppend(cmFortranParser* parser, char c);
 
 void cmFortranParser_SetInInterface(cmFortranParser* parser, bool is_in);
@@ -38,16 +38,26 @@ void cmFortranParser_SetOldStartcond(cmFortranParser* parser, int arg);
 int cmFortranParser_GetOldStartcond(cmFortranParser* parser);
 
 /* Callbacks for parser.  */
-void cmFortranParser_Error(cmFortranParser* parser, const char* message);
-void cmFortranParser_RuleUse(cmFortranParser* parser, const char* name);
+void cmFortranParser_Error(cmFortranParser* parser, char const* message);
+void cmFortranParser_RuleUse(cmFortranParser* parser, char const* module_name);
+void cmFortranParser_RuleUseIntrinsic(cmFortranParser* parser,
+                                      char const* module_name);
 void cmFortranParser_RuleLineDirective(cmFortranParser* parser,
-                                       const char* filename);
-void cmFortranParser_RuleInclude(cmFortranParser* parser, const char* name);
-void cmFortranParser_RuleModule(cmFortranParser* parser, const char* name);
-void cmFortranParser_RuleDefine(cmFortranParser* parser, const char* name);
-void cmFortranParser_RuleUndef(cmFortranParser* parser, const char* name);
-void cmFortranParser_RuleIfdef(cmFortranParser* parser, const char* name);
-void cmFortranParser_RuleIfndef(cmFortranParser* parser, const char* name);
+                                       char const* filename);
+void cmFortranParser_RuleInclude(cmFortranParser* parser, char const* name);
+void cmFortranParser_RuleModule(cmFortranParser* parser,
+                                char const* module_name);
+void cmFortranParser_RuleSubmodule(cmFortranParser* parser,
+                                   char const* module_name,
+                                   char const* submodule_name);
+void cmFortranParser_RuleSubmoduleNested(cmFortranParser* parser,
+                                         char const* module_name,
+                                         char const* submodule_name,
+                                         char const* nested_submodule_name);
+void cmFortranParser_RuleDefine(cmFortranParser* parser, char const* name);
+void cmFortranParser_RuleUndef(cmFortranParser* parser, char const* name);
+void cmFortranParser_RuleIfdef(cmFortranParser* parser, char const* name);
+void cmFortranParser_RuleIfndef(cmFortranParser* parser, char const* name);
 void cmFortranParser_RuleIf(cmFortranParser* parser);
 void cmFortranParser_RuleElif(cmFortranParser* parser);
 void cmFortranParser_RuleElse(cmFortranParser* parser);
@@ -65,20 +75,20 @@ struct cmFortran_yystype
 #define YYSTYPE cmFortran_yystype
 #define YYSTYPE_IS_DECLARED 1
 #if !defined(cmFortranLexer_cxx)
-#define YY_NO_UNISTD_H
-#include "cmFortranLexer.h"
+#  define YY_NO_UNISTD_H
+#  include "cmFortranLexer.h"
 #endif
 #if !defined(cmFortranLexer_cxx)
-#if !defined(cmFortranParser_cxx)
-#undef YY_EXTRA_TYPE
-#undef YY_DECL
-#undef YYSTYPE
-#undef YYSTYPE_IS_DECLARED
-#endif
+#  if !defined(cmFortranParser_cxx)
+#    undef YY_EXTRA_TYPE
+#    undef YY_DECL
+#    undef YYSTYPE
+#    undef YYSTYPE_IS_DECLARED
+#  endif
 #endif
 
 #if !defined(cmFortranLexer_cxx) && !defined(cmFortranParser_cxx)
-#include <stack>
+#  include <stack>
 
 // Information about a single source file.
 class cmFortranSourceInfo
@@ -90,6 +100,9 @@ public:
   // Set of provided and required modules.
   std::set<std::string> Provides;
   std::set<std::string> Requires;
+
+  // Set of intrinsic modules.
+  std::set<std::string> Intrinsics;
 
   // Set of files included in the translation unit.
   std::set<std::string> Includes;
@@ -106,34 +119,52 @@ int cmFortran_yyparse(yyscan_t);
 // Define parser object internal structure.
 struct cmFortranFile
 {
-  cmFortranFile(FILE* file, YY_BUFFER_STATE buffer, const std::string& dir)
+  cmFortranFile(FILE* file, YY_BUFFER_STATE buffer, std::string dir)
     : File(file)
     , Buffer(buffer)
-    , Directory(dir)
-    , LastCharWasNewline(false)
+    , Directory(std::move(dir))
   {
   }
   FILE* File;
   YY_BUFFER_STATE Buffer;
   std::string Directory;
-  bool LastCharWasNewline;
+  bool LastCharWasNewline = false;
+};
+
+struct cmFortranCompiler
+{
+  std::string Id;
+  std::string SModSep;
+  std::string SModExt;
 };
 
 struct cmFortranParser_s
 {
-  cmFortranParser_s(std::vector<std::string> const& includes,
-                    std::set<std::string> const& defines,
-                    cmFortranSourceInfo& info);
+  cmFortranParser_s(cmFortranCompiler fc, std::vector<std::string> includes,
+                    std::set<std::string> defines, cmFortranSourceInfo& info);
   ~cmFortranParser_s();
 
-  bool FindIncludeFile(const char* dir, const char* includeName,
+  cmFortranParser_s(cmFortranParser_s const&) = delete;
+  cmFortranParser_s& operator=(cmFortranParser_s const&) = delete;
+
+  bool FindIncludeFile(char const* dir, char const* includeName,
                        std::string& fileName);
+
+  std::string ModName(std::string const& mod_name) const;
+  std::string SModName(std::string const& mod_name,
+                       std::string const& sub_name) const;
+
+  // What compiler.
+  cmFortranCompiler Compiler;
 
   // The include file search path.
   std::vector<std::string> IncludePath;
 
   // Lexical scanner instance.
   yyscan_t Scanner;
+
+  // List of full paths to already processed files.
+  std::set<std::string> VisitedFilePaths;
 
   // Stack of open files in the translation unit.
   std::stack<cmFortranFile> FileStack;
@@ -155,6 +186,4 @@ struct cmFortranParser_s
   // Information about the parsed source.
   cmFortranSourceInfo& Info;
 };
-#endif
-
 #endif

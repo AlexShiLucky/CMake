@@ -1,49 +1,52 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmFileLock_h
-#define cmFileLock_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 
 #if defined(_WIN32)
-#include <windows.h> // HANDLE
+#  include <memory>
+using HANDLE = void*;
 #endif
 
 class cmFileLockResult;
 
 /**
-  * @brief Cross-platform file locking.
-  * @details Under the hood this class use 'fcntl' for Unix-like platforms and
-  * 'LockFileEx'/'UnlockFileEx' for Win32 platform. Locks are exclusive and
-  * advisory.
-  */
+ * @brief Cross-platform file locking.
+ * @details Under the hood this class use 'fcntl' for Unix-like platforms and
+ * 'LockFileEx'/'UnlockFileEx' for Win32 platform. Locks are exclusive and
+ * advisory.
+ */
 class cmFileLock
 {
-  CM_DISABLE_COPY(cmFileLock)
-
 public:
   cmFileLock();
   ~cmFileLock();
 
-  /**
-    * @brief Lock the file.
-    * @param timeoutSec Lock timeout. If -1 try until success or fatal error.
-    */
-  cmFileLockResult Lock(const std::string& filename, unsigned long timeoutSec);
+  cmFileLock(cmFileLock const&) = delete;
+  cmFileLock(cmFileLock&&) noexcept;
+  cmFileLock& operator=(cmFileLock const&) = delete;
+  cmFileLock& operator=(cmFileLock&&) noexcept;
 
   /**
-    * @brief Unlock the file.
-    */
+   * @brief Lock the file.
+   * @param timeoutSec Lock timeout. If -1 try until success or fatal error.
+   */
+  cmFileLockResult Lock(std::string const& filename, unsigned long timeoutSec);
+
+  /**
+   * @brief Unlock the file.
+   */
   cmFileLockResult Release();
 
   /**
-    * @brief Check file is locked by this class.
-    * @details This function helps to find double locks (deadlocks) and to do
-    * explicit unlocks.
-    */
-  bool IsLocked(const std::string& filename) const;
+   * @brief Check file is locked by this class.
+   * @details This function helps to find double locks (deadlocks) and to do
+   * explicit unlocks.
+   */
+  bool IsLocked(std::string const& filename) const;
 
 private:
   cmFileLockResult OpenFile();
@@ -51,15 +54,13 @@ private:
   cmFileLockResult LockWithTimeout(unsigned long timeoutSec);
 
 #if defined(_WIN32)
-  typedef HANDLE FileId;
-  BOOL LockFile(DWORD flags);
+  HANDLE File = (HANDLE)-1;
+  std::unique_ptr<struct _OVERLAPPED> Overlapped;
+  int LockFile(int flags);
 #else
-  typedef int FileId;
-  int LockFile(int cmd, int type);
+  int File = -1;
+  int LockFile(int cmd, int type) const;
 #endif
 
-  FileId File;
   std::string Filename;
 };
-
-#endif // cmFileLock_h

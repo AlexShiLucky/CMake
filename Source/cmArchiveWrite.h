@@ -1,16 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmArchiveWrite_h
-#define cmArchiveWrite_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <cstddef>
 #include <iosfwd>
-#include <stddef.h>
 #include <string>
+#include <vector>
 
-#if !defined(CMAKE_BUILD_WITH_CMAKE)
-#error "cmArchiveWrite not allowed during bootstrap build!"
+#if defined(CMAKE_BOOTSTRAP)
+#  error "cmArchiveWrite not allowed during bootstrap build!"
 #endif
 
 template <typename T>
@@ -27,7 +27,8 @@ public:
   }
   void Clear() { this->IsValueSet = false; }
   bool IsSet() const { return this->IsValueSet; }
-  T Get() const { return Value; }
+  T Get() const { return this->Value; }
+
 private:
   T Value;
   bool IsValueSet;
@@ -39,8 +40,6 @@ private:
  */
 class cmArchiveWrite
 {
-  typedef void (cmArchiveWrite::*safe_bool)();
-  void safe_bool_true() {}
 public:
   /** Compression type.  */
   enum Compress
@@ -50,14 +49,23 @@ public:
     CompressGZip,
     CompressBZip2,
     CompressLZMA,
-    CompressXZ
+    CompressXZ,
+    CompressZstd,
+    CompressPPMd,
   };
 
   /** Construct with output stream to which to write archive.  */
   cmArchiveWrite(std::ostream& os, Compress c = CompressNone,
-                 std::string const& format = "paxr");
+                 std::string const& format = "paxr",
+                 std::string const& encoding = "UTF-8",
+                 int compressionLevel = 0, int numThreads = 1);
 
   ~cmArchiveWrite();
+
+  cmArchiveWrite(cmArchiveWrite const&) = delete;
+  cmArchiveWrite& operator=(cmArchiveWrite const&) = delete;
+
+  bool Open();
 
   /**
    * Add a path (file or directory) to the archive.  Directories are
@@ -67,14 +75,11 @@ public:
    * skip.  The remaining part of the input path is appended to the
    * "prefix" value to construct the final name in the archive.
    */
-  bool Add(std::string path, size_t skip = 0, const char* prefix = CM_NULLPTR,
+  bool Add(std::string path, size_t skip = 0, char const* prefix = nullptr,
            bool recursive = true);
 
   /** Returns true if there has been no error.  */
-  operator safe_bool() const
-  {
-    return this->Okay() ? &cmArchiveWrite::safe_bool_true : CM_NULLPTR;
-  }
+  explicit operator bool() const { return this->Okay(); }
 
   /** Returns true if there has been an error.  */
   bool operator!() const { return !this->Okay(); }
@@ -125,7 +130,7 @@ public:
   }
 
   //! Sets UNAME and GNAME to be used in the tar file
-  void SetUNAMEAndGNAME(const std::string& uname_, const std::string& gname_)
+  void SetUNAMEAndGNAME(std::string const& uname_, std::string const& gname_)
   {
     this->Uname = uname_;
     this->Gname = gname_;
@@ -139,12 +144,17 @@ public:
     this->Gname = "";
   }
 
+  //! Sets exclusion patterns.  Any path whose archive entry name matches one
+  //! of the patterns is skipped, and excluded directories are not descended
+  //! into.  Returns false and sets the error if a pattern cannot be added.
+  bool SetExcludePatterns(std::vector<std::string> const& patterns);
+
 private:
   bool Okay() const { return this->Error.empty(); }
-  bool AddPath(const char* path, size_t skip, const char* prefix,
+  bool AddPath(std::string const& path, size_t skip, char const* prefix,
                bool recursive = true);
-  bool AddFile(const char* file, size_t skip, const char* prefix);
-  bool AddData(const char* file, size_t size);
+  bool AddFile(std::string const& file, size_t skip, char const* prefix);
+  bool AddData(std::string const& file, size_t size);
 
   struct Callback;
   friend struct Callback;
@@ -154,7 +164,8 @@ private:
   std::ostream& Stream;
   struct archive* Archive;
   struct archive* Disk;
-  bool Verbose;
+  struct archive* MatchObject = nullptr;
+  bool Verbose = false;
   std::string Format;
   std::string Error;
   std::string MTime;
@@ -175,5 +186,3 @@ private:
   cmArchiveWriteOptional<int> Permissions;
   cmArchiveWriteOptional<int> PermissionsMask;
 };
-
-#endif

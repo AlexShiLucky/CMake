@@ -1,8 +1,7 @@
-#this is adapted from FireBreath (http://www.firebreath.org)
-
-cmake_minimum_required(VERSION 2.8)
-
+cmake_minimum_required(VERSION 3.10)
 project(CFBundleTest)
+
+#this is adapted from FireBreath (http://www.firebreath.org)
 
 include(PluginConfig.cmake)
 
@@ -50,6 +49,8 @@ set_source_files_properties(
 set_target_properties(CFBundleTest PROPERTIES
     BUNDLE 1
     BUNDLE_EXTENSION plugin
+    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
+    XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
     XCODE_ATTRIBUTE_MACH_O_TYPE mh_bundle
     XCODE_ATTRIBUTE_INFOPLIST_FILE ${CMAKE_CURRENT_BINARY_DIR}/Info.plist
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist

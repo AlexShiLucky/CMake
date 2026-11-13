@@ -1,17 +1,18 @@
 #include "cmParseJacocoCoverage.h"
 
-#include "cmConfigure.h"
-
-#include "cmCTest.h"
-#include "cmCTestCoverageHandler.h"
-#include "cmSystemTools.h"
-#include "cmXMLParser.h"
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
 
 #include "cmsys/Directory.hxx"
 #include "cmsys/FStream.hxx"
 #include "cmsys/Glob.hxx"
-#include <stdlib.h>
-#include <string.h>
+
+#include "cmCTest.h"
+#include "cmCTestCoverageHandler.h"
+#include "cmStringAlgorithms.h"
+#include "cmSystemTools.h"
+#include "cmXMLParser.h"
 
 class cmParseJacocoCoverage::XMLParser : public cmXMLParser
 {
@@ -20,43 +21,39 @@ public:
     : CTest(ctest)
     , Coverage(cont)
   {
-    this->FilePath = "";
-    this->PackagePath = "";
-    this->PackageName = "";
   }
 
-  ~XMLParser() CM_OVERRIDE {}
-
 protected:
-  void EndElement(const std::string& /*name*/) CM_OVERRIDE {}
+  void EndElement(std::string const& /*name*/) override {}
 
-  void StartElement(const std::string& name, const char** atts) CM_OVERRIDE
+  void StartElement(std::string const& name, char const** atts) override
   {
     if (name == "package") {
       this->PackageName = atts[1];
-      this->PackagePath = "";
+      this->PackagePath.clear();
     } else if (name == "sourcefile") {
+      this->FilePath.clear();
       std::string fileName = atts[1];
 
-      if (this->PackagePath == "") {
+      if (this->PackagePath.empty()) {
         if (!this->FindPackagePath(fileName)) {
-          cmCTestLog(this->CTest, ERROR_MESSAGE, "Cannot find file: "
-                       << this->PackageName << "/" << fileName << std::endl);
+          cmCTestLog(this->CTest, ERROR_MESSAGE,
+                     "Cannot find file: ", this->PackageName, '/', fileName,
+                     '\n');
           this->Coverage.Error++;
           return;
         }
       }
 
       cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                         "Reading file: " << fileName << std::endl,
-                         this->Coverage.Quiet);
+                         this->Coverage.Quiet, "Reading file: ", fileName,
+                         '\n');
 
-      this->FilePath = this->PackagePath + "/" + fileName;
+      this->FilePath = cmStrCat(this->PackagePath, '/', fileName);
       cmsys::ifstream fin(this->FilePath.c_str());
       if (!fin) {
         cmCTestLog(this->CTest, ERROR_MESSAGE,
-                   "Jacoco Coverage: Error opening " << this->FilePath
-                                                     << std::endl);
+                   "Jacoco Coverage: Error opening ", this->FilePath, '\n');
       }
       std::string line;
       FileLinesType& curFileLines =
@@ -108,9 +105,7 @@ protected:
                                 std::string const& baseDir)
   {
     // Search for the file in the baseDir and its subdirectories.
-    std::string packageGlob = baseDir;
-    packageGlob += "/";
-    packageGlob += fileName;
+    std::string packageGlob = cmStrCat(baseDir, '/', fileName);
     cmsys::Glob gl;
     gl.RecurseOn();
     gl.RecurseThroughSymlinksOn();
@@ -121,27 +116,26 @@ protected:
     }
 
     // Check if any of the locations found match our package.
-    for (std::vector<std::string>::const_iterator fi = files.begin();
-         fi != files.end(); ++fi) {
-      std::string dir = cmsys::SystemTools::GetParentDirectory(*fi);
-      if (cmsys::SystemTools::StringEndsWith(dir, this->PackageName.c_str())) {
-        cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                           "Found package directory for " << fileName << ": "
-                                                          << dir << std::endl,
-                           this->Coverage.Quiet);
-        this->PackagePath = dir;
-        return true;
-      }
-    }
-    return false;
+    return std::any_of(
+      files.begin(), files.end(), [this, &fileName](std::string const& f) {
+        std::string dir = cmsys::SystemTools::GetParentDirectory(f);
+        if (cmHasSuffix(dir, this->PackageName)) {
+          cmCTestOptionalLog(
+            this->CTest, HANDLER_VERBOSE_OUTPUT, this->Coverage.Quiet,
+            "Found package directory for ", fileName, ": ", dir, '\n');
+          this->PackagePath = dir;
+          return true;
+        }
+        return false;
+      });
   }
 
 private:
   std::string FilePath;
   std::string PackagePath;
   std::string PackageName;
-  typedef cmCTestCoverageHandlerContainer::SingleFileCoverageVector
-    FileLinesType;
+  using FileLinesType =
+    cmCTestCoverageHandlerContainer::SingleFileCoverageVector;
   cmCTest* CTest;
   cmCTestCoverageHandlerContainer& Coverage;
 };
@@ -165,8 +159,7 @@ bool cmParseJacocoCoverage::LoadCoverageData(
     path = files[i];
 
     cmCTestOptionalLog(this->CTest, HANDLER_VERBOSE_OUTPUT,
-                       "Reading XML File " << path << std::endl,
-                       this->Coverage.Quiet);
+                       this->Coverage.Quiet, "Reading XML File ", path, '\n');
     if (cmSystemTools::GetFilenameLastExtension(path) == ".xml") {
       if (!this->ReadJacocoXML(path.c_str())) {
         return false;
@@ -176,7 +169,7 @@ bool cmParseJacocoCoverage::LoadCoverageData(
   return true;
 }
 
-bool cmParseJacocoCoverage::ReadJacocoXML(const char* file)
+bool cmParseJacocoCoverage::ReadJacocoXML(char const* file)
 {
   cmParseJacocoCoverage::XMLParser parser(this->CTest, this->Coverage);
   parser.ParseFile(file);

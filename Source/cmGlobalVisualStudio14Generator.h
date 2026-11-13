@@ -1,16 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGlobalVisualStudio14Generator_h
-#define cmGlobalVisualStudio14Generator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include <iosfwd>
+#include <memory>
 #include <string>
+
+#include <cm/optional>
 
 #include "cmGlobalVisualStudio12Generator.h"
 
-class cmGlobalGeneratorFactory;
 class cmMakefile;
 class cmake;
 
@@ -18,34 +18,50 @@ class cmake;
 class cmGlobalVisualStudio14Generator : public cmGlobalVisualStudio12Generator
 {
 public:
-  cmGlobalVisualStudio14Generator(cmake* cm, const std::string& name,
-                                  const std::string& platformName);
-  static cmGlobalGeneratorFactory* NewFactory();
+  char const* GetAndroidApplicationTypeRevision() const override
+  {
+    return "2.0";
+  }
 
-  virtual bool MatchesGeneratorName(const std::string& name) const;
-
-  virtual void WriteSLNHeader(std::ostream& fout);
-
-  virtual const char* GetToolsVersion() { return "14.0"; }
 protected:
-  virtual bool InitializeWindows(cmMakefile* mf);
-  virtual bool InitializeWindowsStore(cmMakefile* mf);
-  virtual bool SelectWindowsStoreToolset(std::string& toolset) const;
+  cmGlobalVisualStudio14Generator(cmake* cm, std::string const& name);
+
+  bool InitializeWindowsStore(cmMakefile* mf) override;
+  bool InitializeAndroid(cmMakefile* mf) override;
+  bool SelectWindowsStoreToolset(std::string& toolset) const override;
 
   // These aren't virtual because we need to check if the selected version
   // of the toolset is installed
   bool IsWindowsStoreToolsetInstalled() const;
 
-  virtual const char* GetIDEVersion() { return "14.0"; }
-  virtual bool SelectWindows10SDK(cmMakefile* mf, bool required);
+  virtual bool IsWin81SDKInstalled() const;
+
+  bool InitializePlatformWindows(cmMakefile* mf) override;
+  bool VerifyNoGeneratorPlatformVersion(cmMakefile* mf) const override;
+
+  bool ProcessGeneratorPlatformField(std::string const& key,
+                                     std::string const& value) override;
+
+  // Used to adjust the max-SDK-version calculation to accommodate user
+  // configuration.
+  std::string GetWindows10SDKMaxVersion(cmMakefile* mf) const;
+
+  // Used to make sure that the Windows 10 SDK selected can work with the
+  // version of the toolset.
+  virtual std::string GetWindows10SDKMaxVersionDefault(
+    cmMakefile* mf) const = 0;
+
+  virtual bool SelectWindows10SDK(cmMakefile* mf);
+
+  void SetWindowsTargetPlatformVersion(std::string const& version,
+                                       cmMakefile* mf);
 
   // Used to verify that the Desktop toolset for the current generator is
   // installed on the machine.
-  virtual bool IsWindowsDesktopToolsetInstalled() const;
+  bool IsWindowsDesktopToolsetInstalled() const override;
 
-  std::string GetWindows10SDKVersion();
+  std::string GetWindows10SDKVersion(cmMakefile* mf);
 
 private:
-  class Factory;
+  cm::optional<std::string> GeneratorPlatformVersion;
 };
-#endif

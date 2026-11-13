@@ -1,22 +1,27 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestBuildHandler_h
-#define cmCTestBuildHandler_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCTestGenericHandler.h"
-
-#include "cmProcessOutput.h"
-#include "cmsys/RegularExpression.hxx"
+#include <chrono>
+#include <cstddef>
 #include <deque>
 #include <iosfwd>
-#include <stddef.h>
 #include <string>
 #include <vector>
 
-class cmMakefile;
+#include <cm/string_view>
+
+#include "cmsys/RegularExpression.hxx"
+
+#include "cmCTestGenericHandler.h"
+#include "cmDuration.h"
+#include "cmProcessOutput.h"
+
+class cmStringReplaceHelper;
 class cmXMLWriter;
+class cmCTest;
 
 /** \class cmCTestBuildHandler
  * \brief A class that handles ctest -S invocations
@@ -25,34 +30,29 @@ class cmXMLWriter;
 class cmCTestBuildHandler : public cmCTestGenericHandler
 {
 public:
-  typedef cmCTestGenericHandler Superclass;
-  typedef cmProcessOutput::Encoding Encoding;
+  using Superclass = cmCTestGenericHandler;
+  using Encoding = cmProcessOutput::Encoding;
 
   /*
    * The main entry point for this class
    */
-  int ProcessHandler() CM_OVERRIDE;
+  int ProcessHandler() override;
 
-  cmCTestBuildHandler();
+  cmCTestBuildHandler(cmCTest* ctest);
 
-  void PopulateCustomVectors(cmMakefile* mf) CM_OVERRIDE;
+  void PopulateCustomVectors(cmMakefile* mf) override;
 
-  /**
-   * Initialize handler
-   */
-  void Initialize() CM_OVERRIDE;
-
-  int GetTotalErrors() { return this->TotalErrors; }
-  int GetTotalWarnings() { return this->TotalWarnings; }
+  int GetTotalErrors() const { return this->TotalErrors; }
+  int GetTotalWarnings() const { return this->TotalWarnings; }
 
 private:
   std::string GetMakeCommand();
 
   //! Run command specialized for make and configure. Returns process status
   // and retVal is return value or exception.
-  int RunMakeCommand(const char* command, int* retVal, const char* dir,
-                     int timeout, std::ostream& ofs,
-                     Encoding encoding = cmProcessOutput::Auto);
+  bool RunMakeCommand(std::string const& command, int* retVal, char const* dir,
+                      int timeout, std::ostream& ofs,
+                      Encoding encoding = cmProcessOutput::Auto);
 
   enum
   {
@@ -86,14 +86,15 @@ private:
   void GenerateXMLHeader(cmXMLWriter& xml);
   void GenerateXMLLaunched(cmXMLWriter& xml);
   void GenerateXMLLogScraped(cmXMLWriter& xml);
-  void GenerateXMLFooter(cmXMLWriter& xml, double elapsed_build_time);
-  bool IsLaunchedErrorFile(const char* fname);
-  bool IsLaunchedWarningFile(const char* fname);
+  void GenerateInstrumentationXML(cmXMLWriter& xml);
+  void GenerateXMLFooter(cmXMLWriter& xml, cmDuration elapsed_build_time);
+  bool IsLaunchedErrorFile(cm::string_view fname);
+  bool IsLaunchedWarningFile(cm::string_view fname);
 
   std::string StartBuild;
   std::string EndBuild;
-  double StartBuildTime;
-  double EndBuildTime;
+  std::chrono::system_clock::time_point StartBuildTime;
+  std::chrono::system_clock::time_point EndBuildTime;
 
   std::vector<std::string> CustomErrorMatches;
   std::vector<std::string> CustomErrorExceptions;
@@ -108,45 +109,47 @@ private:
   std::vector<cmsys::RegularExpression> WarningMatchRegex;
   std::vector<cmsys::RegularExpression> WarningExceptionRegex;
 
-  typedef std::deque<char> t_BuildProcessingQueueType;
+  using t_BuildProcessingQueueType = std::deque<char>;
 
-  void ProcessBuffer(const char* data, size_t length, size_t& tick,
+  void ProcessBuffer(char const* data, size_t length, size_t& tick,
                      size_t tick_len, std::ostream& ofs,
                      t_BuildProcessingQueueType* queue);
-  int ProcessSingleLine(const char* data);
+  int ProcessSingleLine(char const* data);
 
   t_BuildProcessingQueueType BuildProcessingQueue;
   t_BuildProcessingQueueType BuildProcessingErrorQueue;
-  size_t BuildOutputLogSize;
+  size_t BuildOutputLogSize = 0;
   std::vector<char> CurrentProcessingLine;
 
   std::string SimplifySourceDir;
   std::string SimplifyBuildDir;
-  size_t OutputLineCounter;
-  typedef std::vector<cmCTestBuildErrorWarning> t_ErrorsAndWarningsVector;
+  size_t OutputLineCounter = 0;
+  using t_ErrorsAndWarningsVector = std::vector<cmCTestBuildErrorWarning>;
   t_ErrorsAndWarningsVector ErrorsAndWarnings;
   t_ErrorsAndWarningsVector::iterator LastErrorOrWarning;
-  size_t PostContextCount;
-  size_t MaxPreContext;
-  size_t MaxPostContext;
+  size_t PostContextCount = 0;
+  size_t MaxPreContext = 10;
+  size_t MaxPostContext = 10;
   std::deque<std::string> PreContext;
 
-  int TotalErrors;
-  int TotalWarnings;
-  char LastTickChar;
+  int TotalErrors = 0;
+  int TotalWarnings = 0;
+  char LastTickChar = '\0';
 
-  bool ErrorQuotaReached;
-  bool WarningQuotaReached;
+  bool ErrorQuotaReached = false;
+  bool WarningQuotaReached = false;
 
-  int MaxErrors;
-  int MaxWarnings;
+  int MaxErrors = 50;
+  int MaxWarnings = 50;
 
-  bool UseCTestLaunch;
+  // Used to remove ANSI color codes before checking for errors and warnings.
+  cmStringReplaceHelper* ColorRemover;
+
+  bool UseCTestLaunch = false;
   std::string CTestLaunchDir;
+  std::string LogFileName;
   class LaunchHelper;
 
   friend class LaunchHelper;
   class FragmentCompare;
 };
-
-#endif

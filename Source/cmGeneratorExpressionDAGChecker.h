@@ -1,52 +1,39 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGeneratorExpressionDAGChecker_h
-#define cmGeneratorExpressionDAGChecker_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmListFileCache.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <map>
 #include <set>
 #include <string>
 
+#include "cmListFileCache.h"
+
+namespace cm {
+namespace GenEx {
+struct Context;
+struct Evaluation;
+}
+}
+
 struct GeneratorExpressionContent;
-struct cmGeneratorExpressionContext;
-
-#define CM_SELECT_BOTH(F, A1, A2) F(A1, A2)
-#define CM_SELECT_FIRST(F, A1, A2) F(A1)
-#define CM_SELECT_SECOND(F, A1, A2) F(A2)
-
-#define CM_FOR_EACH_TRANSITIVE_PROPERTY_IMPL(F, SELECT)                       \
-  SELECT(F, EvaluatingIncludeDirectories, INCLUDE_DIRECTORIES)                \
-  SELECT(F, EvaluatingSystemIncludeDirectories, SYSTEM_INCLUDE_DIRECTORIES)   \
-  SELECT(F, EvaluatingCompileDefinitions, COMPILE_DEFINITIONS)                \
-  SELECT(F, EvaluatingCompileOptions, COMPILE_OPTIONS)                        \
-  SELECT(F, EvaluatingAutoUicOptions, AUTOUIC_OPTIONS)                        \
-  SELECT(F, EvaluatingSources, SOURCES)                                       \
-  SELECT(F, EvaluatingCompileFeatures, COMPILE_FEATURES)
-
-#define CM_FOR_EACH_TRANSITIVE_PROPERTY(F)                                    \
-  CM_FOR_EACH_TRANSITIVE_PROPERTY_IMPL(F, CM_SELECT_BOTH)
-
-#define CM_FOR_EACH_TRANSITIVE_PROPERTY_METHOD(F)                             \
-  CM_FOR_EACH_TRANSITIVE_PROPERTY_IMPL(F, CM_SELECT_FIRST)
-
-#define CM_FOR_EACH_TRANSITIVE_PROPERTY_NAME(F)                               \
-  CM_FOR_EACH_TRANSITIVE_PROPERTY_IMPL(F, CM_SELECT_SECOND)
+class cmGeneratorTarget;
 
 struct cmGeneratorExpressionDAGChecker
 {
-  cmGeneratorExpressionDAGChecker(const cmListFileBacktrace& backtrace,
-                                  const std::string& target,
-                                  const std::string& property,
-                                  const GeneratorExpressionContent* content,
-                                  cmGeneratorExpressionDAGChecker* parent);
-  cmGeneratorExpressionDAGChecker(const std::string& target,
-                                  const std::string& property,
-                                  const GeneratorExpressionContent* content,
-                                  cmGeneratorExpressionDAGChecker* parent);
+  enum class ComputingLinkLibraries
+  {
+    No,
+    Yes,
+  };
+  cmGeneratorExpressionDAGChecker(
+    cmGeneratorTarget const* target, std::string property,
+    GeneratorExpressionContent const* content,
+    cmGeneratorExpressionDAGChecker* parent, cm::GenEx::Context const& context,
+    cmListFileBacktrace backtrace = cmListFileBacktrace(),
+    ComputingLinkLibraries computingLinkLibraries =
+      ComputingLinkLibraries::No);
 
   enum Result
   {
@@ -58,35 +45,54 @@ struct cmGeneratorExpressionDAGChecker
 
   Result Check() const;
 
-  void ReportError(cmGeneratorExpressionContext* context,
-                   const std::string& expr);
+  void ReportError(cm::GenEx::Evaluation* eval, std::string const& expr);
 
-  bool EvaluatingLinkLibraries(const char* tgt = CM_NULLPTR);
+  bool EvaluatingTransitiveProperty() const;
+  bool EvaluatingGenexExpression() const;
+  bool EvaluatingPICExpression() const;
+  bool EvaluatingCompileExpression() const;
+  bool EvaluatingLinkExpression() const;
+  bool EvaluatingLinkOptionsExpression() const;
+  bool EvaluatingLinkerLauncher() const;
 
-#define DECLARE_TRANSITIVE_PROPERTY_METHOD(METHOD) bool METHOD() const;
+  /** Returns true only when computing the actual link dependency
+      graph for cmGeneratorTarget::GetLinkImplementationLibraries
+      or cmGeneratorTarget::GetLinkInterfaceLibraries.  */
+  bool IsComputingLinkLibraries() const;
 
-  CM_FOR_EACH_TRANSITIVE_PROPERTY_METHOD(DECLARE_TRANSITIVE_PROPERTY_METHOD)
+  enum class ForGenex
+  {
+    ANY,
+    LINK_LIBRARY,
+    LINK_GROUP
+  };
+  bool EvaluatingLinkLibraries(cmGeneratorTarget const* tgt = nullptr,
+                               ForGenex genex = ForGenex::ANY) const;
 
-#undef DECLARE_TRANSITIVE_PROPERTY_METHOD
+  bool EvaluatingSources() const;
 
-  bool GetTransitivePropertiesOnly();
+  bool GetTransitivePropertiesOnly() const;
   void SetTransitivePropertiesOnly() { this->TransitivePropertiesOnly = true; }
 
-  std::string TopTarget() const;
+  bool GetTransitivePropertiesOnlyCMP0131() const;
+  void SetTransitivePropertiesOnlyCMP0131() { this->CMP0131 = true; }
+
+  cmGeneratorTarget const* TopTarget() const;
 
 private:
   Result CheckGraph() const;
-  void Initialize();
 
-private:
-  const cmGeneratorExpressionDAGChecker* const Parent;
-  const std::string Target;
-  const std::string Property;
-  std::map<std::string, std::set<std::string> > Seen;
-  const GeneratorExpressionContent* const Content;
-  const cmListFileBacktrace Backtrace;
+  cmGeneratorExpressionDAGChecker const* const Parent;
+  cmGeneratorExpressionDAGChecker const* const Top;
+  cmGeneratorTarget const* Target;
+  std::string const Property;
+  mutable std::map<cmGeneratorTarget const*, std::set<std::string>> Seen;
+  GeneratorExpressionContent const* const Content;
+  cmListFileBacktrace const Backtrace;
   Result CheckResult;
-  bool TransitivePropertiesOnly;
+  bool TransitivePropertiesOnly = false;
+  bool CMP0131 = false;
+  bool TopIsTransitiveProperty = false;
+  ComputingLinkLibraries const ComputingLinkLibraries_ =
+    ComputingLinkLibraries::No;
 };
-
-#endif

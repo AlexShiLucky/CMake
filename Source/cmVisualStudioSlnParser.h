@@ -1,14 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmVisualStudioSlnParser_h
-#define cmVisualStudioSlnParser_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <bitset>
+#include <cstddef>
 #include <iosfwd>
-#include <stddef.h>
 #include <string>
+
+#include <cm/string_view>
 
 class cmSlnData;
 
@@ -42,20 +43,20 @@ public:
     DataGroupCount
   };
 
-  typedef std::bitset<DataGroupCount> DataGroupSet;
+  using DataGroupSet = std::bitset<DataGroupCount>;
 
-  static const DataGroupSet DataGroupProjects;
-  static const DataGroupSet DataGroupProjectDependencies;
-  static const DataGroupSet DataGroupSolutionConfigurations;
-  static const DataGroupSet DataGroupProjectConfigurations;
-  static const DataGroupSet DataGroupSolutionFilters;
-  static const DataGroupSet DataGroupGenericGlobalSections;
-  static const DataGroupSet DataGroupAll;
+  static DataGroupSet const DataGroupProjects;
+  static DataGroupSet const DataGroupProjectDependencies;
+  static DataGroupSet const DataGroupSolutionConfigurations;
+  static DataGroupSet const DataGroupProjectConfigurations;
+  static DataGroupSet const DataGroupSolutionFilters;
+  static DataGroupSet const DataGroupGenericGlobalSections;
+  static DataGroupSet const DataGroupAll;
 
   bool Parse(std::istream& input, cmSlnData& output,
              DataGroupSet dataGroups = DataGroupAll);
 
-  bool ParseFile(const std::string& file, cmSlnData& output,
+  bool ParseFile(std::string const& file, cmSlnData& output,
                  DataGroupSet dataGroups = DataGroupAll);
 
   ParseResult GetParseResult() const;
@@ -72,8 +73,8 @@ protected:
 
   struct ResultData
   {
-    ParseResult Result;
-    size_t ResultLine;
+    ParseResult Result = ResultOK;
+    size_t ResultLine = 0;
     bool HadBOM;
 
     ResultData();
@@ -87,19 +88,16 @@ protected:
 
   bool ParseBOM(std::istream& input, std::string& line, State& state);
 
-  bool ParseMultiValueTag(const std::string& line, ParsedLine& parsedLine,
+  bool ParseMultiValueTag(std::string const& line, ParsedLine& parsedLine,
                           State& state);
 
-  bool ParseSingleValueTag(const std::string& line, ParsedLine& parsedLine,
+  bool ParseSingleValueTag(std::string const& line, ParsedLine& parsedLine,
                            State& state);
 
-  bool ParseKeyValuePair(const std::string& line, ParsedLine& parsedLine,
+  bool ParseKeyValuePair(std::string const& line, ParsedLine& parsedLine,
                          State& state);
 
-  bool ParseTag(const std::string& fullTag, ParsedLine& parsedLine,
-                State& state);
+  bool ParseTag(cm::string_view fullTag, ParsedLine& parsedLine, State& state);
 
-  bool ParseValue(const std::string& value, ParsedLine& parsedLine);
+  bool ParseValue(std::string const& value, ParsedLine& parsedLine);
 };
-
-#endif

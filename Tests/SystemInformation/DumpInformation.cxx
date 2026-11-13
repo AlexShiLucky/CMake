@@ -1,8 +1,10 @@
 #include "DumpInformation.h"
+
 #include <stdio.h>
+
 #include <sys/stat.h>
 
-void cmDumpInformationPrintFile(const char* name, FILE* fout)
+void cmDumpInformationPrintFile(char const* name, FILE* fout)
 {
   fprintf(fout, "Avoid ctest truncation of output: CTEST_FULL_OUTPUT\n");
   fprintf(
@@ -22,7 +24,7 @@ void cmDumpInformationPrintFile(const char* name, FILE* fout)
       "Contents of \"%s\":\n"
       "----------------------------------------------------------------\n",
       name);
-    const int bufferSize = 4096;
+    int const bufferSize = 4096;
     char buffer[bufferSize];
     int n;
     while ((n = fread(buffer, 1, bufferSize, fin)) > 0) {
@@ -51,9 +53,9 @@ void cmDumpInformationPrintFile(const char* name, FILE* fout)
   }
 }
 
-int main(int, char* [])
+int main(int, char*[])
 {
-  const char* files[] = {
+  char const* files[] = {
     DumpInformation_BINARY_DIR "/SystemInformation.out",
     DumpInformation_BINARY_DIR "/AllVariables.txt",
     DumpInformation_BINARY_DIR "/AllCommands.txt",
@@ -61,17 +63,13 @@ int main(int, char* [])
     DumpInformation_BINARY_DIR "/OtherProperties.txt",
     DumpInformation_BINARY_DIR "/../../Source/cmConfigure.h",
     DumpInformation_BINARY_DIR "/../../CMakeCache.txt",
-    DumpInformation_BINARY_DIR "/../../CMakeFiles/CMakeOutput.log",
-    DumpInformation_BINARY_DIR "/../../CMakeFiles/CMakeError.log",
     DumpInformation_BINARY_DIR "/../../Bootstrap.cmk/cmake_bootstrap.log",
     DumpInformation_BINARY_DIR "/../../Source/cmsys/Configure.hxx",
     DumpInformation_BINARY_DIR "/../../Source/cmsys/Configure.h",
-    DumpInformation_BINARY_DIR "/CMakeFiles/CMakeOutput.log",
-    DumpInformation_BINARY_DIR "/CMakeFiles/CMakeError.log",
     0
   };
 
-  const char** f;
+  char const** f;
   for (f = files; *f; ++f) {
     cmDumpInformationPrintFile(*f, stdout);
   }

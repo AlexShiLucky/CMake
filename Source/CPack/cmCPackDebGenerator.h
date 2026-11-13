@@ -1,14 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackDebGenerator_h
-#define cmCPackDebGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmCPackGenerator.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
+
+#include "cmCPackGenerator.h"
 
 /** \class cmCPackDebGenerator
  * \brief A generator for Debian packages
@@ -23,16 +22,16 @@ public:
    * Construct generator
    */
   cmCPackDebGenerator();
-  ~cmCPackDebGenerator() CM_OVERRIDE;
+  ~cmCPackDebGenerator() override;
 
   static bool CanGenerate()
   {
 #ifdef __APPLE__
     // on MacOS enable CPackDeb iff dpkg is found
     std::vector<std::string> locations;
-    locations.push_back("/sw/bin");        // Fink
-    locations.push_back("/opt/local/bin"); // MacPorts
-    return cmSystemTools::FindProgram("dpkg", locations) != "" ? true : false;
+    locations.emplace_back("/sw/bin");        // Fink
+    locations.emplace_back("/opt/local/bin"); // MacPorts
+    return !cmSystemTools::FindProgram("dpkg", locations).empty();
 #else
     // legacy behavior on other systems
     return true;
@@ -40,7 +39,7 @@ public:
   }
 
 protected:
-  int InitializeInternal() CM_OVERRIDE;
+  int InitializeInternal() override;
   /**
    * This method factors out the work done in component packaging case.
    */
@@ -56,16 +55,19 @@ protected:
    * Special case of component install where all
    * components will be put in a single installer.
    */
-  int PackageComponentsAllInOne(const std::string& compInstDirName);
-  int PackageFiles() CM_OVERRIDE;
-  const char* GetOutputExtension() CM_OVERRIDE { return ".deb"; }
-  bool SupportsComponentInstallation() const CM_OVERRIDE;
+  int PackageComponentsAllInOne(std::string const& compInstDirName);
+  int PackageFiles() override;
+  char const* GetOutputExtension() override { return ".deb"; }
+  bool SupportsComponentInstallation() const override;
+  std::string GetComponentInstallSuffix(
+    std::string const& componentName) override;
   std::string GetComponentInstallDirNameSuffix(
-    const std::string& componentName) CM_OVERRIDE;
+    std::string const& componentName) override;
 
 private:
-  int createDeb();
+  bool createDebPackages();
+  bool createDeb();
+  bool createDbgsymDDeb();
+
   std::vector<std::string> packageFiles;
 };
-
-#endif

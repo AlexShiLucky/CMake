@@ -1,29 +1,47 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmSourceFile.h"
 
-#include <sstream>
+#include <utility>
 
-#include "cmCustomCommand.h"
+#include <cm/string_view>
+#include <cmext/string_view>
+
 #include "cmGlobalGenerator.h"
+#include "cmList.h"
+#include "cmListFileCache.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
+#include "cmPolicies.h"
 #include "cmProperty.h"
 #include "cmState.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
+#include "cmValue.h"
 #include "cmake.h"
 
-cmSourceFile::cmSourceFile(cmMakefile* mf, const std::string& name)
-  : Location(mf, name)
+cmSourceFile::cmSourceFile(cmMakefile* mf, std::string const& name,
+                           bool generated, cmSourceFileLocationKind kind)
+  : Location(mf, name, (!generated) ? kind : cmSourceFileLocationKind::Known)
 {
-  this->CustomCommand = CM_NULLPTR;
-  this->FindFullPathFailed = false;
-  this->IsUiFile = (".ui" == cmSystemTools::GetFilenameLastExtension(
-                               this->Location.GetName()));
+  if (generated) {
+    this->MarkAsGenerated();
+  }
 }
 
-cmSourceFile::~cmSourceFile()
+void cmSourceFile::SetSpecialSourceType(cmSourceFile::SpecialSourceType type)
 {
-  this->SetCustomCommand(CM_NULLPTR);
+  this->SpecialSource = type;
+}
+
+bool cmSourceFile::IsPchHeader() const
+{
+  return this->SpecialSource == SpecialSourceType::PchHeader;
+}
+
+bool cmSourceFile::IsPchSource() const
+{
+  return this->SpecialSource == SpecialSourceType::PchSource;
 }
 
 std::string const& cmSourceFile::GetExtension() const
@@ -31,7 +49,14 @@ std::string const& cmSourceFile::GetExtension() const
   return this->Extension;
 }
 
-const std::string cmSourceFile::propLANGUAGE = "LANGUAGE";
+std::string const cmSourceFile::propLANGUAGE = "LANGUAGE";
+std::string const cmSourceFile::propLOCATION = "LOCATION";
+std::string const cmSourceFile::propGENERATED = "GENERATED";
+std::string const cmSourceFile::propCOMPILE_DEFINITIONS =
+  "COMPILE_DEFINITIONS";
+std::string const cmSourceFile::propCOMPILE_OPTIONS = "COMPILE_OPTIONS";
+std::string const cmSourceFile::propINCLUDE_DIRECTORIES =
+  "INCLUDE_DIRECTORIES";
 
 void cmSourceFile::SetObjectLibrary(std::string const& objlib)
 {
@@ -43,51 +68,46 @@ std::string cmSourceFile::GetObjectLibrary() const
   return this->ObjectLibrary;
 }
 
-std::string cmSourceFile::GetLanguage()
+std::string const& cmSourceFile::GetOrDetermineLanguage()
 {
   // If the language was set explicitly by the user then use it.
-  if (const char* lang = this->GetProperty(propLANGUAGE)) {
-    return lang;
+  if (cmValue lang = this->GetProperty(propLANGUAGE)) {
+    // Assign to member in order to return a reference.
+    this->Language = *lang;
+    return this->Language;
   }
 
   // Perform computation needed to get the language if necessary.
-  if (this->FullPath.empty() && this->Language.empty()) {
-    // If a known extension is given or a known full path is given
-    // then trust that the current extension is sufficient to
-    // determine the language.  This will fail only if the user
-    // specifies a full path to the source but leaves off the
-    // extension, which is kind of weird.
-    if (this->Location.ExtensionIsAmbiguous() &&
+  if (this->Language.empty()) {
+    // If a known extension is given or a known full path is given then trust
+    // that the current extension is sufficient to determine the language. This
+    // will fail only if the user specifies a full path to the source but
+    // leaves off the extension, which is kind of weird.
+    if (this->FullPath.empty() && this->Location.ExtensionIsAmbiguous() &&
         this->Location.DirectoryIsAmbiguous()) {
-      // Finalize the file location to get the extension and set the
-      // language.
-      this->GetFullPath();
+      // Finalize the file location to get the extension and set the language.
+      this->ResolveFullPath();
     } else {
       // Use the known extension to get the language if possible.
-      std::string ext =
-        cmSystemTools::GetFilenameLastExtension(this->Location.GetName());
+      cm::string_view ext =
+        cmSystemTools::GetFilenameLastExtensionView(this->Location.GetName());
       this->CheckLanguage(ext);
     }
   }
 
-  // Now try to determine the language.
-  return static_cast<cmSourceFile const*>(this)->GetLanguage();
+  // Use the language determined from the file extension.
+  return this->Language;
 }
 
 std::string cmSourceFile::GetLanguage() const
 {
   // If the language was set explicitly by the user then use it.
-  if (const char* lang = this->GetProperty(propLANGUAGE)) {
-    return lang;
+  if (cmValue lang = this->GetProperty(propLANGUAGE)) {
+    return *lang;
   }
 
-  // If the language was determined from the source file extension use it.
-  if (!this->Language.empty()) {
-    return this->Language;
-  }
-
-  // The language is not known.
-  return "";
+  // Use the language determined from the file extension.
+  return this->Language;
 }
 
 cmSourceFileLocation const& cmSourceFile::GetLocation() const
@@ -95,10 +115,11 @@ cmSourceFileLocation const& cmSourceFile::GetLocation() const
   return this->Location;
 }
 
-std::string const& cmSourceFile::GetFullPath(std::string* error)
+std::string const& cmSourceFile::ResolveFullPath(std::string* error,
+                                                 std::string* cmp0115Warning)
 {
   if (this->FullPath.empty()) {
-    if (this->FindFullPath(error)) {
+    if (this->FindFullPath(error, cmp0115Warning)) {
       this->CheckExtension();
     }
   }
@@ -110,108 +131,139 @@ std::string const& cmSourceFile::GetFullPath() const
   return this->FullPath;
 }
 
-bool cmSourceFile::FindFullPath(std::string* error)
+bool cmSourceFile::FindFullPath(std::string* error,
+                                std::string* cmp0115Warning)
 {
-  // If thie method has already failed once do not try again.
+  // If the file is generated compute the location without checking on disk.
+  // Note: We also check for a locally set GENERATED property, because
+  //       it might have been set before policy CMP0118 (or CMP0163) was set
+  //       to NEW.
+  if (this->GetIsGenerated(CheckScope::GlobalAndLocal)) {
+    // The file is either already a full path or is relative to the
+    // build directory for the target.
+    this->Location.DirectoryUseBinary();
+    this->FullPath = this->Location.GetFullPath();
+    this->FindFullPathFailed = false;
+    return true;
+  }
+
+  // If this method has already failed once do not try again.
   if (this->FindFullPathFailed) {
     return false;
   }
 
-  // If the file is generated compute the location without checking on
-  // disk.
-  if (this->GetPropertyAsBool("GENERATED")) {
-    // The file is either already a full path or is relative to the
-    // build directory for the target.
-    this->Location.DirectoryUseBinary();
-    this->FullPath = this->Location.GetDirectory();
-    this->FullPath += "/";
-    this->FullPath += this->Location.GetName();
-    return true;
-  }
-
   // The file is not generated.  It must exist on disk.
-  cmMakefile const* mf = this->Location.GetMakefile();
-  const char* tryDirs[3] = { CM_NULLPTR, CM_NULLPTR, CM_NULLPTR };
-  if (this->Location.DirectoryIsAmbiguous()) {
-    tryDirs[0] = mf->GetCurrentSourceDirectory();
-    tryDirs[1] = mf->GetCurrentBinaryDirectory();
-  } else {
-    tryDirs[0] = "";
-  }
-  const std::vector<std::string>& srcExts =
-    mf->GetCMakeInstance()->GetSourceExtensions();
-  std::vector<std::string> hdrExts =
-    mf->GetCMakeInstance()->GetHeaderExtensions();
-  for (const char* const* di = tryDirs; *di; ++di) {
-    std::string tryPath = this->Location.GetDirectory();
-    if (!tryPath.empty()) {
-      tryPath += "/";
+  cmMakefile const* makefile = this->Location.GetMakefile();
+  // Location path
+  std::string const& lPath = this->Location.GetFullPath();
+  // List of extension lists
+  std::vector<std::string> exts =
+    makefile->GetCMakeInstance()->GetAllExtensions();
+  auto cmp0115 = makefile->GetPolicyStatus(cmPolicies::CMP0115);
+  auto cmp0163 = makefile->GetPolicyStatus(cmPolicies::CMP0163);
+  auto cmp0118 = makefile->GetPolicyStatus(cmPolicies::CMP0118);
+  bool const cmp0163new =
+    cmp0163 != cmPolicies::OLD && cmp0163 != cmPolicies::WARN;
+  bool const cmp0118new =
+    cmp0163new || (cmp0118 != cmPolicies::OLD && cmp0118 != cmPolicies::WARN);
+
+  // Tries to find the file in a given directory
+  auto findInDir = [this, &exts, &lPath, cmp0115, cmp0115Warning, cmp0118new,
+                    makefile](std::string const& dir) -> bool {
+    // Compute full path
+    std::string const fullPath = cmSystemTools::CollapseFullPath(lPath, dir);
+    // Try full path
+    // Is this file globally marked as generated? Then mark so locally.
+    if (cmp0118new &&
+        makefile->GetGlobalGenerator()->IsGeneratedFile(fullPath)) {
+      this->IsGenerated = true;
     }
-    tryPath += this->Location.GetName();
-    tryPath = cmSystemTools::CollapseFullPath(tryPath, *di);
-    if (this->TryFullPath(tryPath, "")) {
+    if (this->IsGenerated || cmSystemTools::FileExists(fullPath)) {
+      this->FullPath = fullPath;
       return true;
     }
-    for (std::vector<std::string>::const_iterator ei = srcExts.begin();
-         ei != srcExts.end(); ++ei) {
-      if (this->TryFullPath(tryPath, *ei)) {
-        return true;
+    // This has to be an if statement due to a bug in Oracle Developer Studio.
+    // See https://community.oracle.com/tech/developers/discussion/4476246/
+    // for details.
+    if (cmp0115 == cmPolicies::OLD || cmp0115 == cmPolicies::WARN) {
+      // Try full path with extension
+      for (std::string const& ext : exts) {
+        if (!ext.empty()) {
+          std::string extPath = cmStrCat(fullPath, '.', ext);
+          // Is this file globally marked as generated? Then mark so locally.
+          if (cmp0118new &&
+              makefile->GetGlobalGenerator()->IsGeneratedFile(extPath)) {
+            this->IsGenerated = true;
+          }
+          if (this->IsGenerated || cmSystemTools::FileExists(extPath)) {
+            this->FullPath = extPath;
+            if (cmp0115 == cmPolicies::WARN) {
+              std::string warning = cmStrCat("File:\n  "_s, extPath);
+              if (cmp0115Warning) {
+                *cmp0115Warning = std::move(warning);
+              } else {
+                makefile->IssuePolicyWarning(cmPolicies::CMP0115, {}, warning,
+                                             cmListFileBacktrace{});
+              }
+            }
+            return true;
+          }
+        }
       }
     }
-    for (std::vector<std::string>::const_iterator ei = hdrExts.begin();
-         ei != hdrExts.end(); ++ei) {
-      if (this->TryFullPath(tryPath, *ei)) {
-        return true;
-      }
+    // File not found
+    return false;
+  };
+
+  // Try to find the file in various directories
+  if (this->Location.DirectoryIsAmbiguous()) {
+    if (findInDir(makefile->GetCurrentSourceDirectory()) ||
+        findInDir(makefile->GetCurrentBinaryDirectory())) {
+      return true;
+    }
+  } else {
+    if (findInDir({})) {
+      return true;
     }
   }
 
-  std::ostringstream e;
-  std::string missing = this->Location.GetDirectory();
-  if (!missing.empty()) {
-    missing += "/";
+  // Compose error
+  std::string err = cmStrCat("Cannot find source file:\n  ", lPath);
+  switch (cmp0115) {
+    case cmPolicies::OLD:
+    case cmPolicies::WARN:
+      err = cmStrCat(std::move(err), "\nTried extensions");
+      for (auto const& ext : exts) {
+        err = cmStrCat(std::move(err), " .", ext);
+      }
+      break;
+    case cmPolicies::NEW:
+      break;
   }
-  missing += this->Location.GetName();
-  e << "Cannot find source file:\n  " << missing << "\nTried extensions";
-  for (std::vector<std::string>::const_iterator ext = srcExts.begin();
-       ext != srcExts.end(); ++ext) {
-    e << " ." << *ext;
-  }
-  for (std::vector<std::string>::const_iterator ext = hdrExts.begin();
-       ext != hdrExts.end(); ++ext) {
-    e << " ." << *ext;
+  if (lPath == "FILE_SET"_s) {
+    err += "\nHint: the FILE_SET keyword may only appear after a visibility "
+           "specifier or another FILE_SET within the target_sources() "
+           "command.";
   }
   if (error) {
-    *error = e.str();
+    *error = std::move(err);
   } else {
-    this->Location.GetMakefile()->IssueMessage(cmake::FATAL_ERROR, e.str());
+    makefile->IssueMessage(MessageType::FATAL_ERROR, err);
   }
   this->FindFullPathFailed = true;
-  return false;
-}
 
-bool cmSourceFile::TryFullPath(const std::string& path, const std::string& ext)
-{
-  std::string tryPath = path;
-  if (!ext.empty()) {
-    tryPath += ".";
-    tryPath += ext;
-  }
-  if (cmSystemTools::FileExists(tryPath.c_str())) {
-    this->FullPath = tryPath;
-    return true;
-  }
+  // File not found
   return false;
 }
 
 void cmSourceFile::CheckExtension()
 {
   // Compute the extension.
-  std::string realExt =
-    cmSystemTools::GetFilenameLastExtension(this->FullPath);
+  cm::string_view realExt =
+    cmSystemTools::GetFilenameLastExtensionView(this->FullPath);
   if (!realExt.empty()) {
     // Store the extension without the leading '.'.
-    this->Extension = realExt.substr(1);
+    this->Extension = std::string(realExt.substr(1));
   }
 
   // Look for object files.
@@ -226,14 +278,14 @@ void cmSourceFile::CheckExtension()
   }
 }
 
-void cmSourceFile::CheckLanguage(std::string const& ext)
+void cmSourceFile::CheckLanguage(cm::string_view ext)
 {
   // Try to identify the source file language from the extension.
   cmMakefile const* mf = this->Location.GetMakefile();
   cmGlobalGenerator* gg = mf->GetGlobalGenerator();
-  std::string l = gg->GetLanguageFromExtension(ext.c_str());
+  cm::string_view l = gg->GetLanguageFromExtension(ext);
   if (!l.empty()) {
-    this->Language = l;
+    this->Language = std::string(l);
   }
 }
 
@@ -242,25 +294,55 @@ bool cmSourceFile::Matches(cmSourceFileLocation const& loc)
   return this->Location.Matches(loc);
 }
 
-void cmSourceFile::SetProperty(const std::string& prop, const char* value)
+void cmSourceFile::SetProperty(std::string const& prop, cmValue value)
 {
-  this->Properties.SetProperty(prop, value);
-
-  if (this->IsUiFile) {
-    cmMakefile const* mf = this->Location.GetMakefile();
-    if (prop == "AUTOUIC_OPTIONS") {
-      const_cast<cmMakefile*>(mf)->AddQtUiFileWithOptions(this);
+  if (prop == propINCLUDE_DIRECTORIES) {
+    this->IncludeDirectories.clear();
+    if (value) {
+      cmListFileBacktrace lfbt = this->Location.GetMakefile()->GetBacktrace();
+      this->IncludeDirectories.emplace_back(value, lfbt);
     }
+  } else if (prop == propCOMPILE_OPTIONS) {
+    this->CompileOptions.clear();
+    if (value) {
+      cmListFileBacktrace lfbt = this->Location.GetMakefile()->GetBacktrace();
+      this->CompileOptions.emplace_back(value, lfbt);
+    }
+  } else if (prop == propCOMPILE_DEFINITIONS) {
+    this->CompileDefinitions.clear();
+    if (value) {
+      cmListFileBacktrace lfbt = this->Location.GetMakefile()->GetBacktrace();
+      this->CompileDefinitions.emplace_back(value, lfbt);
+    }
+  } else {
+    this->Properties.SetProperty(prop, value);
   }
 }
 
-void cmSourceFile::AppendProperty(const std::string& prop, const char* value,
-                                  bool asString)
+void cmSourceFile::AppendProperty(std::string const& prop,
+                                  std::string const& value, bool asString)
 {
-  this->Properties.AppendProperty(prop, value, asString);
+  if (prop == propINCLUDE_DIRECTORIES) {
+    if (!value.empty()) {
+      cmListFileBacktrace lfbt = this->Location.GetMakefile()->GetBacktrace();
+      this->IncludeDirectories.emplace_back(value, lfbt);
+    }
+  } else if (prop == propCOMPILE_OPTIONS) {
+    if (!value.empty()) {
+      cmListFileBacktrace lfbt = this->Location.GetMakefile()->GetBacktrace();
+      this->CompileOptions.emplace_back(value, lfbt);
+    }
+  } else if (prop == propCOMPILE_DEFINITIONS) {
+    if (!value.empty()) {
+      cmListFileBacktrace lfbt = this->Location.GetMakefile()->GetBacktrace();
+      this->CompileDefinitions.emplace_back(value, lfbt);
+    }
+  } else {
+    this->Properties.AppendProperty(prop, value, asString);
+  }
 }
 
-const char* cmSourceFile::GetPropertyForUser(const std::string& prop)
+cmValue cmSourceFile::GetPropertyForUser(std::string const& prop)
 {
   // This method is a consequence of design history and backwards
   // compatibility.  GetProperty is (and should be) a const method.
@@ -276,56 +358,154 @@ const char* cmSourceFile::GetPropertyForUser(const std::string& prop)
   // cmSourceFileLocation class to commit to a particular full path to
   // the source file as late as possible.  If the users requests the
   // LOCATION property we must commit now.
-  if (prop == "LOCATION") {
+  if (prop == propLOCATION) {
     // Commit to a location.
-    this->GetFullPath();
+    this->ResolveFullPath();
+  }
+
+  // Similarly, LANGUAGE can be determined by the file extension
+  // if it is requested by the user.
+  if (prop == propLANGUAGE) {
+    // The pointer is valid until `this->Language` is modified.
+    return cmValue(this->GetOrDetermineLanguage());
+  }
+
+  // Special handling for GENERATED property.
+  if (prop == propGENERATED) {
+    // We need to check policy CMP0163 and CMP0118 in order to determine if we
+    // need to possibly consider the value of a locally set GENERATED property,
+    // too.
+    auto cmp0163 =
+      this->Location.GetMakefile()->GetPolicyStatus(cmPolicies::CMP0163);
+    auto cmp0118 =
+      this->Location.GetMakefile()->GetPolicyStatus(cmPolicies::CMP0118);
+    bool const cmp0163new =
+      cmp0163 != cmPolicies::OLD && cmp0163 != cmPolicies::WARN;
+    bool const cmp0118new = cmp0163new ||
+      (cmp0118 != cmPolicies::OLD && cmp0118 != cmPolicies::WARN);
+    if (this->GetIsGenerated((!cmp0118new) ? CheckScope::GlobalAndLocal
+                                           : CheckScope::Global)) {
+      return cmValue::True;
+    }
+    return cmValue::False;
   }
 
   // Perform the normal property lookup.
   return this->GetProperty(prop);
 }
 
-const char* cmSourceFile::GetProperty(const std::string& prop) const
+cmValue cmSourceFile::GetProperty(std::string const& prop) const
 {
   // Check for computed properties.
-  if (prop == "LOCATION") {
+  if (prop == propLOCATION) {
     if (this->FullPath.empty()) {
-      return CM_NULLPTR;
+      return nullptr;
     }
-    return this->FullPath.c_str();
+    return cmValue(this->FullPath);
   }
 
-  const char* retVal = this->Properties.GetPropertyValue(prop);
+  // Check for the properties with backtraces.
+  if (prop == propINCLUDE_DIRECTORIES) {
+    if (this->IncludeDirectories.empty()) {
+      return nullptr;
+    }
+
+    static std::string output;
+    output = cmList::to_string(this->IncludeDirectories);
+    return cmValue(output);
+  }
+
+  if (prop == propCOMPILE_OPTIONS) {
+    if (this->CompileOptions.empty()) {
+      return nullptr;
+    }
+
+    static std::string output;
+    output = cmList::to_string(this->CompileOptions);
+    return cmValue(output);
+  }
+
+  if (prop == propCOMPILE_DEFINITIONS) {
+    if (this->CompileDefinitions.empty()) {
+      return nullptr;
+    }
+
+    static std::string output;
+    output = cmList::to_string(this->CompileDefinitions);
+    return cmValue(output);
+  }
+
+  cmValue retVal = this->Properties.GetPropertyValue(prop);
   if (!retVal) {
     cmMakefile const* mf = this->Location.GetMakefile();
-    const bool chain =
+    bool const chain =
       mf->GetState()->IsPropertyChained(prop, cmProperty::SOURCE_FILE);
     if (chain) {
       return mf->GetProperty(prop, chain);
     }
+    return nullptr;
   }
 
   return retVal;
 }
 
-bool cmSourceFile::GetPropertyAsBool(const std::string& prop) const
+std::string const& cmSourceFile::GetSafeProperty(std::string const& prop) const
 {
-  return cmSystemTools::IsOn(this->GetProperty(prop));
+  cmValue ret = this->GetProperty(prop);
+  if (ret) {
+    return *ret;
+  }
+
+  static std::string const s_empty;
+  return s_empty;
 }
 
-cmCustomCommand* cmSourceFile::GetCustomCommand()
+bool cmSourceFile::GetPropertyAsBool(std::string const& prop) const
 {
-  return this->CustomCommand;
+  return this->GetProperty(prop).IsOn();
 }
 
-cmCustomCommand const* cmSourceFile::GetCustomCommand() const
+void cmSourceFile::MarkAsGenerated()
 {
-  return this->CustomCommand;
+  this->IsGenerated = true;
+  auto const& mf = *this->Location.GetMakefile();
+  mf.GetGlobalGenerator()->MarkAsGeneratedFile(this->ResolveFullPath());
 }
 
-void cmSourceFile::SetCustomCommand(cmCustomCommand* cc)
+bool cmSourceFile::GetIsGenerated(CheckScope checkScope) const
 {
-  cmCustomCommand* old = this->CustomCommand;
-  this->CustomCommand = cc;
-  delete old;
+  if (this->IsGenerated) {
+    // Globally marked as generated!
+    return true;
+  }
+  if (checkScope == CheckScope::GlobalAndLocal) {
+    // Check locally stored properties.
+    return this->GetPropertyAsBool(propGENERATED);
+  }
+  return false;
+}
+
+void cmSourceFile::SetProperties(cmPropertyMap properties)
+{
+  this->Properties = std::move(properties);
+}
+
+cmCustomCommand* cmSourceFile::GetCustomCommand() const
+{
+  return this->CustomCommand.get();
+}
+
+void cmSourceFile::SetCustomCommand(std::unique_ptr<cmCustomCommand> cc)
+{
+  this->CustomCommand = std::move(cc);
+}
+
+cmValue cmSourceFile::GetRustEmitProperty() const
+{
+  static std::string const s_default = "link";
+  cmValue const value = this->GetProperty("Rust_EMIT");
+  if (!value || value->empty()) {
+    return cmValue(s_default);
+  }
+  return value;
 }

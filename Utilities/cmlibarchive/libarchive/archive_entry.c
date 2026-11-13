@@ -25,7 +25,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_entry.c 201096 2009-12-28 02:41:27Z kientzle $");
 
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
@@ -119,7 +118,7 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_entry.c 201096 2009-12-28 02:41:
 static char *	 ae_fflagstostr(unsigned long bitset, unsigned long bitclear);
 static const wchar_t	*ae_wcstofflags(const wchar_t *stringp,
 		    unsigned long *setp, unsigned long *clrp);
-static const char	*ae_strtofflags(const char *stringp,
+static const char	*ae_strtofflags(const char *stringp, size_t length,
 		    unsigned long *setp, unsigned long *clrp);
 
 #ifndef HAVE_WCSCPY
@@ -158,16 +157,16 @@ archive_entry_clear(struct archive_entry *entry)
 		return (NULL);
 	archive_mstring_clean(&entry->ae_fflags_text);
 	archive_mstring_clean(&entry->ae_gname);
-	archive_mstring_clean(&entry->ae_hardlink);
+	archive_mstring_clean(&entry->ae_linkname);
 	archive_mstring_clean(&entry->ae_pathname);
 	archive_mstring_clean(&entry->ae_sourcepath);
-	archive_mstring_clean(&entry->ae_symlink);
 	archive_mstring_clean(&entry->ae_uname);
 	archive_entry_copy_mac_metadata(entry, NULL, 0);
 	archive_acl_clear(&entry->acl);
 	archive_entry_xattr_clear(entry);
 	archive_entry_sparse_clear(entry);
 	free(entry->stat);
+	entry->ae_symlink_type = AE_SYMLINK_TYPE_UNDEFINED;
 	memset(entry, 0, sizeof(*entry));
 	return entry;
 }
@@ -195,15 +194,30 @@ archive_entry_clone(struct archive_entry *entry)
 	 * character sets are different? XXX */
 	archive_mstring_copy(&entry2->ae_fflags_text, &entry->ae_fflags_text);
 	archive_mstring_copy(&entry2->ae_gname, &entry->ae_gname);
-	archive_mstring_copy(&entry2->ae_hardlink, &entry->ae_hardlink);
+	archive_mstring_copy(&entry2->ae_linkname, &entry->ae_linkname);
 	archive_mstring_copy(&entry2->ae_pathname, &entry->ae_pathname);
 	archive_mstring_copy(&entry2->ae_sourcepath, &entry->ae_sourcepath);
-	archive_mstring_copy(&entry2->ae_symlink, &entry->ae_symlink);
 	entry2->ae_set = entry->ae_set;
 	archive_mstring_copy(&entry2->ae_uname, &entry->ae_uname);
 
+	/* Copy symlink type */
+	entry2->ae_symlink_type = entry->ae_symlink_type;
+
 	/* Copy encryption status */
 	entry2->encryption = entry->encryption;
+
+	/* Copy digests */
+#define copy_digest(_e2, _e, _t) \
+	memcpy(_e2->digest._t, _e->digest._t, sizeof(_e2->digest._t))
+
+	copy_digest(entry2, entry, md5);
+	copy_digest(entry2, entry, rmd160);
+	copy_digest(entry2, entry, sha1);
+	copy_digest(entry2, entry, sha256);
+	copy_digest(entry2, entry, sha384);
+	copy_digest(entry2, entry, sha512);
+
+#undef copy_digest
 	
 	/* Copy ACL data over. */
 	archive_acl_copy(&entry2->acl, &entry->acl);
@@ -249,10 +263,11 @@ archive_entry_new2(struct archive *a)
 {
 	struct archive_entry *entry;
 
-	entry = (struct archive_entry *)calloc(1, sizeof(*entry));
+	entry = calloc(1, sizeof(*entry));
 	if (entry == NULL)
 		return (NULL);
 	entry->archive = a;
+	entry->ae_symlink_type = AE_SYMLINK_TYPE_UNDEFINED;
 	return (entry);
 }
 
@@ -260,7 +275,7 @@ archive_entry_new2(struct archive *a)
  * Functions for reading fields from an archive_entry.
  */
 
-time_t
+__LA_TIME_T
 archive_entry_atime(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_atime);
@@ -278,7 +293,7 @@ archive_entry_atime_is_set(struct archive_entry *entry)
 	return (entry->ae_set & AE_SET_ATIME);
 }
 
-time_t
+__LA_TIME_T
 archive_entry_birthtime(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_birthtime);
@@ -296,7 +311,7 @@ archive_entry_birthtime_is_set(struct archive_entry *entry)
 	return (entry->ae_set & AE_SET_BIRTHTIME);
 }
 
-time_t
+__LA_TIME_T
 archive_entry_ctime(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_ctime);
@@ -314,7 +329,7 @@ archive_entry_ctime_nsec(struct archive_entry *entry)
 	return (entry->ae_stat.aest_ctime_nsec);
 }
 
-dev_t
+__LA_DEV_T
 archive_entry_dev(struct archive_entry *entry)
 {
 	if (entry->ae_stat.aest_dev_is_broken_down)
@@ -330,7 +345,7 @@ archive_entry_dev_is_set(struct archive_entry *entry)
 	return (entry->ae_set & AE_SET_DEV);
 }
 
-dev_t
+__LA_DEV_T
 archive_entry_devmajor(struct archive_entry *entry)
 {
 	if (entry->ae_stat.aest_dev_is_broken_down)
@@ -339,7 +354,7 @@ archive_entry_devmajor(struct archive_entry *entry)
 		return major(entry->ae_stat.aest_dev);
 }
 
-dev_t
+__LA_DEV_T
 archive_entry_devminor(struct archive_entry *entry)
 {
 	if (entry->ae_stat.aest_dev_is_broken_down)
@@ -348,10 +363,16 @@ archive_entry_devminor(struct archive_entry *entry)
 		return minor(entry->ae_stat.aest_dev);
 }
 
-mode_t
+__LA_MODE_T
 archive_entry_filetype(struct archive_entry *entry)
 {
 	return (AE_IFMT & entry->acl.mode);
+}
+
+int
+archive_entry_filetype_is_set(struct archive_entry *entry)
+{
+	return (entry->ae_set & AE_SET_FILETYPE);
 }
 
 void
@@ -401,10 +422,16 @@ archive_entry_fflags_text(struct archive_entry *entry)
 	return (NULL);
 }
 
-int64_t
+la_int64_t
 archive_entry_gid(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_gid);
+}
+
+int
+archive_entry_gid_is_set(struct archive_entry *entry)
+{
+	return (entry->ae_set & AE_SET_GID);
 }
 
 const char *
@@ -445,7 +472,16 @@ int
 _archive_entry_gname_l(struct archive_entry *entry,
     const char **p, size_t *len, struct archive_string_conv *sc)
 {
-	return (archive_mstring_get_mbs_l(&entry->ae_gname, p, len, sc));
+	return (archive_mstring_get_mbs_l(entry->archive, &entry->ae_gname, p, len, sc));
+}
+
+void
+archive_entry_set_link_to_hardlink(struct archive_entry *entry)
+{
+	if ((entry->ae_set & AE_SET_SYMLINK) != 0) {
+		entry->ae_set &= ~AE_SET_SYMLINK;
+	}
+	entry->ae_set |= AE_SET_HARDLINK;
 }
 
 const char *
@@ -455,7 +491,7 @@ archive_entry_hardlink(struct archive_entry *entry)
 	if ((entry->ae_set & AE_SET_HARDLINK) == 0)
 		return (NULL);
 	if (archive_mstring_get_mbs(
-	    entry->archive, &entry->ae_hardlink, &p) == 0)
+	    entry->archive, &entry->ae_linkname, &p) == 0)
 		return (p);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
@@ -469,7 +505,7 @@ archive_entry_hardlink_utf8(struct archive_entry *entry)
 	if ((entry->ae_set & AE_SET_HARDLINK) == 0)
 		return (NULL);
 	if (archive_mstring_get_utf8(
-	    entry->archive, &entry->ae_hardlink, &p) == 0)
+	    entry->archive, &entry->ae_linkname, &p) == 0)
 		return (p);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
@@ -483,11 +519,17 @@ archive_entry_hardlink_w(struct archive_entry *entry)
 	if ((entry->ae_set & AE_SET_HARDLINK) == 0)
 		return (NULL);
 	if (archive_mstring_get_wcs(
-	    entry->archive, &entry->ae_hardlink, &p) == 0)
+	    entry->archive, &entry->ae_linkname, &p) == 0)
 		return (p);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
 	return (NULL);
+}
+
+int
+archive_entry_hardlink_is_set(struct archive_entry *entry)
+{
+	return (entry->ae_set & AE_SET_HARDLINK) != 0;
 }
 
 int
@@ -499,10 +541,10 @@ _archive_entry_hardlink_l(struct archive_entry *entry,
 		*len = 0;
 		return (0);
 	}
-	return (archive_mstring_get_mbs_l(&entry->ae_hardlink, p, len, sc));
+	return (archive_mstring_get_mbs_l(entry->archive, &entry->ae_linkname, p, len, sc));
 }
 
-int64_t
+la_int64_t
 archive_entry_ino(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_ino);
@@ -514,19 +556,19 @@ archive_entry_ino_is_set(struct archive_entry *entry)
 	return (entry->ae_set & AE_SET_INO);
 }
 
-int64_t
+la_int64_t
 archive_entry_ino64(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_ino);
 }
 
-mode_t
+__LA_MODE_T
 archive_entry_mode(struct archive_entry *entry)
 {
 	return (entry->acl.mode);
 }
 
-time_t
+__LA_TIME_T
 archive_entry_mtime(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_mtime);
@@ -550,6 +592,13 @@ archive_entry_nlink(struct archive_entry *entry)
 	return (entry->ae_stat.aest_nlink);
 }
 
+/* Instead, our caller could have chosen a specific encoding
+ * (archive_mstring_get_mbs, archive_mstring_get_utf8,
+ * archive_mstring_get_wcs).  So we should try multiple
+ * encodings.  Try mbs first because of history, even though
+ * utf8 might be better for pathname portability.
+ * Also omit wcs because of type mismatch (char * versus wchar *)
+ */
 const char *
 archive_entry_pathname(struct archive_entry *entry)
 {
@@ -557,6 +606,13 @@ archive_entry_pathname(struct archive_entry *entry)
 	if (archive_mstring_get_mbs(
 	    entry->archive, &entry->ae_pathname, &p) == 0)
 		return (p);
+#if HAVE_EILSEQ  /*{*/
+    if (errno == EILSEQ) {
+	    if (archive_mstring_get_utf8(
+	        entry->archive, &entry->ae_pathname, &p) == 0)
+		    return (p);
+    }
+#endif  /*}*/
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
 	return (NULL);
@@ -590,44 +646,68 @@ int
 _archive_entry_pathname_l(struct archive_entry *entry,
     const char **p, size_t *len, struct archive_string_conv *sc)
 {
-	return (archive_mstring_get_mbs_l(&entry->ae_pathname, p, len, sc));
+	return (archive_mstring_get_mbs_l(entry->archive, &entry->ae_pathname, p, len, sc));
 }
 
-mode_t
+__LA_MODE_T
 archive_entry_perm(struct archive_entry *entry)
 {
 	return (~AE_IFMT & entry->acl.mode);
 }
 
-dev_t
+int
+archive_entry_perm_is_set(struct archive_entry *entry)
+{
+	return (entry->ae_set & AE_SET_PERM);
+}
+
+int
+archive_entry_rdev_is_set(struct archive_entry *entry)
+{
+	return (entry->ae_set & AE_SET_RDEV);
+}
+
+__LA_DEV_T
 archive_entry_rdev(struct archive_entry *entry)
 {
-	if (entry->ae_stat.aest_rdev_is_broken_down)
-		return ae_makedev(entry->ae_stat.aest_rdevmajor,
-		    entry->ae_stat.aest_rdevminor);
-	else
-		return (entry->ae_stat.aest_rdev);
+	if (archive_entry_rdev_is_set(entry)) {
+		if (entry->ae_stat.aest_rdev_is_broken_down)
+			return ae_makedev(entry->ae_stat.aest_rdevmajor,
+			    entry->ae_stat.aest_rdevminor);
+		else
+			return (entry->ae_stat.aest_rdev);
+	} else {
+		return 0;
+	}
 }
 
-dev_t
+__LA_DEV_T
 archive_entry_rdevmajor(struct archive_entry *entry)
 {
-	if (entry->ae_stat.aest_rdev_is_broken_down)
-		return (entry->ae_stat.aest_rdevmajor);
-	else
-		return major(entry->ae_stat.aest_rdev);
+	if (archive_entry_rdev_is_set(entry)) {
+		if (entry->ae_stat.aest_rdev_is_broken_down)
+			return (entry->ae_stat.aest_rdevmajor);
+		else
+			return major(entry->ae_stat.aest_rdev);
+	} else {
+		return 0;
+	}
 }
 
-dev_t
+__LA_DEV_T
 archive_entry_rdevminor(struct archive_entry *entry)
 {
-	if (entry->ae_stat.aest_rdev_is_broken_down)
-		return (entry->ae_stat.aest_rdevminor);
-	else
-		return minor(entry->ae_stat.aest_rdev);
+	if (archive_entry_rdev_is_set(entry)) {
+		if (entry->ae_stat.aest_rdev_is_broken_down)
+			return (entry->ae_stat.aest_rdevminor);
+		else
+			return minor(entry->ae_stat.aest_rdev);
+	} else {
+		return 0;
+	}
 }
 
-int64_t
+la_int64_t
 archive_entry_size(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_size);
@@ -668,11 +748,26 @@ archive_entry_symlink(struct archive_entry *entry)
 	if ((entry->ae_set & AE_SET_SYMLINK) == 0)
 		return (NULL);
 	if (archive_mstring_get_mbs(
-	    entry->archive, &entry->ae_symlink, &p) == 0)
+	    entry->archive, &entry->ae_linkname, &p) == 0)
 		return (p);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
 	return (NULL);
+}
+
+void
+archive_entry_set_link_to_symlink(struct archive_entry *entry)
+{
+	if ((entry->ae_set & AE_SET_HARDLINK) != 0) {
+		entry->ae_set &= ~AE_SET_HARDLINK;
+	}
+	entry->ae_set |= AE_SET_SYMLINK;
+}
+
+int
+archive_entry_symlink_type(struct archive_entry *entry)
+{
+	return (entry->ae_symlink_type);
 }
 
 const char *
@@ -682,7 +777,7 @@ archive_entry_symlink_utf8(struct archive_entry *entry)
 	if ((entry->ae_set & AE_SET_SYMLINK) == 0)
 		return (NULL);
 	if (archive_mstring_get_utf8(
-	    entry->archive, &entry->ae_symlink, &p) == 0)
+	    entry->archive, &entry->ae_linkname, &p) == 0)
 		return (p);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
@@ -696,7 +791,7 @@ archive_entry_symlink_w(struct archive_entry *entry)
 	if ((entry->ae_set & AE_SET_SYMLINK) == 0)
 		return (NULL);
 	if (archive_mstring_get_wcs(
-	    entry->archive, &entry->ae_symlink, &p) == 0)
+	    entry->archive, &entry->ae_linkname, &p) == 0)
 		return (p);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
@@ -712,13 +807,19 @@ _archive_entry_symlink_l(struct archive_entry *entry,
 		*len = 0;
 		return (0);
 	}
-	return (archive_mstring_get_mbs_l( &entry->ae_symlink, p, len, sc));
+	return (archive_mstring_get_mbs_l(entry->archive, &entry->ae_linkname, p, len, sc));
 }
 
-int64_t
+la_int64_t
 archive_entry_uid(struct archive_entry *entry)
 {
 	return (entry->ae_stat.aest_uid);
+}
+
+int
+archive_entry_uid_is_set(struct archive_entry *entry)
+{
+	return (entry->ae_set & AE_SET_UID);
 }
 
 const char *
@@ -758,7 +859,7 @@ int
 _archive_entry_uname_l(struct archive_entry *entry,
     const char **p, size_t *len, struct archive_string_conv *sc)
 {
-	return (archive_mstring_get_mbs_l(&entry->ae_uname, p, len, sc));
+	return (archive_mstring_get_mbs_l(entry->archive, &entry->ae_uname, p, len, sc));
 }
 
 int
@@ -789,6 +890,7 @@ archive_entry_set_filetype(struct archive_entry *entry, unsigned int type)
 	entry->stat_valid = 0;
 	entry->acl.mode &= ~AE_IFMT;
 	entry->acl.mode |= AE_IFMT & type;
+	entry->ae_set |= AE_SET_FILETYPE;
 }
 
 void
@@ -802,10 +904,17 @@ archive_entry_set_fflags(struct archive_entry *entry,
 
 const char *
 archive_entry_copy_fflags_text(struct archive_entry *entry,
-    const char *flags)
+	const char *flags)
 {
-	archive_mstring_copy_mbs(&entry->ae_fflags_text, flags);
-	return (ae_strtofflags(flags,
+	return archive_entry_copy_fflags_text_len(entry, flags, strlen(flags));
+}
+
+const char *
+archive_entry_copy_fflags_text_len(struct archive_entry *entry,
+    const char *flags, size_t flags_length)
+{
+	archive_mstring_copy_mbs_len(&entry->ae_fflags_text, flags, flags_length);
+	return (ae_strtofflags(flags, flags_length,
 		    &entry->ae_fflags_set, &entry->ae_fflags_clear));
 }
 
@@ -819,10 +928,14 @@ archive_entry_copy_fflags_text_w(struct archive_entry *entry,
 }
 
 void
-archive_entry_set_gid(struct archive_entry *entry, int64_t g)
+archive_entry_set_gid(struct archive_entry *entry, la_int64_t g)
 {
+	if (g < 0) {
+		g = 0;
+	}
 	entry->stat_valid = 0;
 	entry->ae_stat.aest_gid = g;
+	entry->ae_set |= AE_SET_GID;
 }
 
 void
@@ -868,16 +981,26 @@ _archive_entry_copy_gname_l(struct archive_entry *entry,
 }
 
 void
-archive_entry_set_ino(struct archive_entry *entry, int64_t ino)
+archive_entry_set_ino(struct archive_entry *entry, la_int64_t ino)
 {
+	if (ino < 0) {
+		entry->stat_valid = 0;
+		entry->ae_set &= ~AE_SET_INO;
+		return;
+	}
 	entry->stat_valid = 0;
 	entry->ae_set |= AE_SET_INO;
 	entry->ae_stat.aest_ino = ino;
 }
 
 void
-archive_entry_set_ino64(struct archive_entry *entry, int64_t ino)
+archive_entry_set_ino64(struct archive_entry *entry, la_int64_t ino)
 {
+	if (ino < 0) {
+		entry->stat_valid = 0;
+		entry->ae_set &= ~AE_SET_INO;
+		return;
+	}
 	entry->stat_valid = 0;
 	entry->ae_set |= AE_SET_INO;
 	entry->ae_stat.aest_ino = ino;
@@ -886,17 +1009,24 @@ archive_entry_set_ino64(struct archive_entry *entry, int64_t ino)
 void
 archive_entry_set_hardlink(struct archive_entry *entry, const char *target)
 {
-	archive_mstring_copy_mbs(&entry->ae_hardlink, target);
-	if (target != NULL)
-		entry->ae_set |= AE_SET_HARDLINK;
-	else
+	if (target == NULL) {
 		entry->ae_set &= ~AE_SET_HARDLINK;
+		if (entry->ae_set & AE_SET_SYMLINK) {
+			return;
+		}
+	} else {
+		entry->ae_set |= AE_SET_HARDLINK;
+	}
+	entry->ae_set &= ~AE_SET_SYMLINK;
+	archive_mstring_copy_mbs(&entry->ae_linkname, target);
 }
 
 void
 archive_entry_set_hardlink_utf8(struct archive_entry *entry, const char *target)
 {
-	archive_mstring_copy_utf8(&entry->ae_hardlink, target);
+	if (target == NULL && (entry->ae_set & AE_SET_SYMLINK))
+		return;
+	archive_mstring_copy_utf8(&entry->ae_linkname, target);
 	if (target != NULL)
 		entry->ae_set |= AE_SET_HARDLINK;
 	else
@@ -906,7 +1036,9 @@ archive_entry_set_hardlink_utf8(struct archive_entry *entry, const char *target)
 void
 archive_entry_copy_hardlink(struct archive_entry *entry, const char *target)
 {
-	archive_mstring_copy_mbs(&entry->ae_hardlink, target);
+	if (target == NULL && (entry->ae_set & AE_SET_SYMLINK))
+		return;
+	archive_mstring_copy_mbs(&entry->ae_linkname, target);
 	if (target != NULL)
 		entry->ae_set |= AE_SET_HARDLINK;
 	else
@@ -916,7 +1048,9 @@ archive_entry_copy_hardlink(struct archive_entry *entry, const char *target)
 void
 archive_entry_copy_hardlink_w(struct archive_entry *entry, const wchar_t *target)
 {
-	archive_mstring_copy_wcs(&entry->ae_hardlink, target);
+	if (target == NULL && (entry->ae_set & AE_SET_SYMLINK))
+		return;
+	archive_mstring_copy_wcs(&entry->ae_linkname, target);
 	if (target != NULL)
 		entry->ae_set |= AE_SET_HARDLINK;
 	else
@@ -926,12 +1060,14 @@ archive_entry_copy_hardlink_w(struct archive_entry *entry, const wchar_t *target
 int
 archive_entry_update_hardlink_utf8(struct archive_entry *entry, const char *target)
 {
+	if (target == NULL && (entry->ae_set & AE_SET_SYMLINK))
+		return (0);
 	if (target != NULL)
 		entry->ae_set |= AE_SET_HARDLINK;
 	else
 		entry->ae_set &= ~AE_SET_HARDLINK;
 	if (archive_mstring_update_utf8(entry->archive,
-	    &entry->ae_hardlink, target) == 0)
+	    &entry->ae_linkname, target) == 0)
 		return (1);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
@@ -944,7 +1080,9 @@ _archive_entry_copy_hardlink_l(struct archive_entry *entry,
 {
 	int r;
 
-	r = archive_mstring_copy_mbs_len_l(&entry->ae_hardlink,
+	if (target == NULL && (entry->ae_set & AE_SET_SYMLINK))
+		return (0);
+	r = archive_mstring_copy_mbs_len_l(&entry->ae_linkname,
 	    target, len, sc);
 	if (target != NULL && r == 0)
 		entry->ae_set |= AE_SET_HARDLINK;
@@ -954,7 +1092,7 @@ _archive_entry_copy_hardlink_l(struct archive_entry *entry,
 }
 
 void
-archive_entry_set_atime(struct archive_entry *entry, time_t t, long ns)
+archive_entry_set_atime(struct archive_entry *entry, __LA_TIME_T t, long ns)
 {
 	FIX_NS(t, ns);
 	entry->stat_valid = 0;
@@ -971,7 +1109,7 @@ archive_entry_unset_atime(struct archive_entry *entry)
 }
 
 void
-archive_entry_set_birthtime(struct archive_entry *entry, time_t t, long ns)
+archive_entry_set_birthtime(struct archive_entry *entry, __LA_TIME_T t, long ns)
 {
 	FIX_NS(t, ns);
 	entry->stat_valid = 0;
@@ -988,7 +1126,7 @@ archive_entry_unset_birthtime(struct archive_entry *entry)
 }
 
 void
-archive_entry_set_ctime(struct archive_entry *entry, time_t t, long ns)
+archive_entry_set_ctime(struct archive_entry *entry, __LA_TIME_T t, long ns)
 {
 	FIX_NS(t, ns);
 	entry->stat_valid = 0;
@@ -1005,7 +1143,7 @@ archive_entry_unset_ctime(struct archive_entry *entry)
 }
 
 void
-archive_entry_set_dev(struct archive_entry *entry, dev_t d)
+archive_entry_set_dev(struct archive_entry *entry, __LA_DEV_T d)
 {
 	entry->stat_valid = 0;
 	entry->ae_set |= AE_SET_DEV;
@@ -1014,7 +1152,7 @@ archive_entry_set_dev(struct archive_entry *entry, dev_t d)
 }
 
 void
-archive_entry_set_devmajor(struct archive_entry *entry, dev_t m)
+archive_entry_set_devmajor(struct archive_entry *entry, __LA_DEV_T m)
 {
 	entry->stat_valid = 0;
 	entry->ae_set |= AE_SET_DEV;
@@ -1023,7 +1161,7 @@ archive_entry_set_devmajor(struct archive_entry *entry, dev_t m)
 }
 
 void
-archive_entry_set_devminor(struct archive_entry *entry, dev_t m)
+archive_entry_set_devminor(struct archive_entry *entry, __LA_DEV_T m)
 {
 	entry->stat_valid = 0;
 	entry->ae_set |= AE_SET_DEV;
@@ -1035,51 +1173,50 @@ archive_entry_set_devminor(struct archive_entry *entry, dev_t m)
 void
 archive_entry_set_link(struct archive_entry *entry, const char *target)
 {
-	if (entry->ae_set & AE_SET_SYMLINK)
-		archive_mstring_copy_mbs(&entry->ae_symlink, target);
-	else
-		archive_mstring_copy_mbs(&entry->ae_hardlink, target);
+	archive_mstring_copy_mbs(&entry->ae_linkname, target);
+	if ((entry->ae_set & AE_SET_SYMLINK) == 0) {
+		entry->ae_set |= AE_SET_HARDLINK;
+	}
 }
 
 void
 archive_entry_set_link_utf8(struct archive_entry *entry, const char *target)
 {
-	if (entry->ae_set & AE_SET_SYMLINK)
-		archive_mstring_copy_utf8(&entry->ae_symlink, target);
-	else
-		archive_mstring_copy_utf8(&entry->ae_hardlink, target);
+	archive_mstring_copy_utf8(&entry->ae_linkname, target);
+	if ((entry->ae_set & AE_SET_SYMLINK) == 0) {
+		entry->ae_set |= AE_SET_HARDLINK;
+	}
 }
 
 /* Set symlink if symlink is already set, else set hardlink. */
 void
 archive_entry_copy_link(struct archive_entry *entry, const char *target)
 {
-	if (entry->ae_set & AE_SET_SYMLINK)
-		archive_mstring_copy_mbs(&entry->ae_symlink, target);
-	else
-		archive_mstring_copy_mbs(&entry->ae_hardlink, target);
+	archive_mstring_copy_mbs(&entry->ae_linkname, target);
+	if ((entry->ae_set & AE_SET_SYMLINK) == 0) {
+		entry->ae_set |= AE_SET_HARDLINK;
+	}
 }
 
 /* Set symlink if symlink is already set, else set hardlink. */
 void
 archive_entry_copy_link_w(struct archive_entry *entry, const wchar_t *target)
 {
-	if (entry->ae_set & AE_SET_SYMLINK)
-		archive_mstring_copy_wcs(&entry->ae_symlink, target);
-	else
-		archive_mstring_copy_wcs(&entry->ae_hardlink, target);
+	archive_mstring_copy_wcs(&entry->ae_linkname, target);
+	if ((entry->ae_set & AE_SET_SYMLINK) == 0) {
+		entry->ae_set |= AE_SET_HARDLINK;
+	}
 }
 
 int
 archive_entry_update_link_utf8(struct archive_entry *entry, const char *target)
 {
 	int r;
-	if (entry->ae_set & AE_SET_SYMLINK)
-		r = archive_mstring_update_utf8(entry->archive,
-		    &entry->ae_symlink, target);
-	else
-		r = archive_mstring_update_utf8(entry->archive,
-		    &entry->ae_hardlink, target);
+	r = archive_mstring_update_utf8(entry->archive,
+		    &entry->ae_linkname, target);
+	if ((entry->ae_set & AE_SET_SYMLINK) == 0) {
+		entry->ae_set |= AE_SET_HARDLINK;
+	}
 	if (r == 0)
 		return (1);
 	if (errno == ENOMEM)
@@ -1093,24 +1230,24 @@ _archive_entry_copy_link_l(struct archive_entry *entry,
 {
 	int r;
 
-	if (entry->ae_set & AE_SET_SYMLINK)
-		r = archive_mstring_copy_mbs_len_l(&entry->ae_symlink,
+	r = archive_mstring_copy_mbs_len_l(&entry->ae_linkname,
 		    target, len, sc);
-	else
-		r = archive_mstring_copy_mbs_len_l(&entry->ae_hardlink,
-		    target, len, sc);
+	if ((entry->ae_set & AE_SET_SYMLINK) == 0) {
+		entry->ae_set |= AE_SET_HARDLINK;
+	}
 	return (r);
 }
 
 void
-archive_entry_set_mode(struct archive_entry *entry, mode_t m)
+archive_entry_set_mode(struct archive_entry *entry, __LA_MODE_T m)
 {
 	entry->stat_valid = 0;
 	entry->acl.mode = m;
+	entry->ae_set |= AE_SET_PERM | AE_SET_FILETYPE;
 }
 
 void
-archive_entry_set_mtime(struct archive_entry *entry, time_t t, long ns)
+archive_entry_set_mtime(struct archive_entry *entry, __LA_TIME_T t, long ns)
 {
 	FIX_NS(t, ns);
 	entry->stat_valid = 0;
@@ -1177,40 +1314,51 @@ _archive_entry_copy_pathname_l(struct archive_entry *entry,
 }
 
 void
-archive_entry_set_perm(struct archive_entry *entry, mode_t p)
+archive_entry_set_perm(struct archive_entry *entry, __LA_MODE_T p)
 {
 	entry->stat_valid = 0;
 	entry->acl.mode &= AE_IFMT;
 	entry->acl.mode |= ~AE_IFMT & p;
+	entry->ae_set |= AE_SET_PERM;
 }
 
 void
-archive_entry_set_rdev(struct archive_entry *entry, dev_t m)
+archive_entry_set_rdev(struct archive_entry *entry, __LA_DEV_T m)
 {
 	entry->stat_valid = 0;
 	entry->ae_stat.aest_rdev = m;
 	entry->ae_stat.aest_rdev_is_broken_down = 0;
+	entry->ae_stat.aest_rdevmajor = 0;
+	entry->ae_stat.aest_rdevminor = 0;
+	entry->ae_set |= AE_SET_RDEV;
 }
 
 void
-archive_entry_set_rdevmajor(struct archive_entry *entry, dev_t m)
+archive_entry_set_rdevmajor(struct archive_entry *entry, __LA_DEV_T m)
 {
 	entry->stat_valid = 0;
 	entry->ae_stat.aest_rdev_is_broken_down = 1;
+	entry->ae_stat.aest_rdev = 0;
 	entry->ae_stat.aest_rdevmajor = m;
+	entry->ae_set |= AE_SET_RDEV;
 }
 
 void
-archive_entry_set_rdevminor(struct archive_entry *entry, dev_t m)
+archive_entry_set_rdevminor(struct archive_entry *entry, __LA_DEV_T m)
 {
 	entry->stat_valid = 0;
 	entry->ae_stat.aest_rdev_is_broken_down = 1;
+	entry->ae_stat.aest_rdev = 0;
 	entry->ae_stat.aest_rdevminor = m;
+	entry->ae_set |= AE_SET_RDEV;
 }
 
 void
-archive_entry_set_size(struct archive_entry *entry, int64_t s)
+archive_entry_set_size(struct archive_entry *entry, la_int64_t s)
 {
+	if (s < 0) {
+		s = 0;
+	}
 	entry->stat_valid = 0;
 	entry->ae_stat.aest_size = s;
 	entry->ae_set |= AE_SET_SIZE;
@@ -1238,52 +1386,73 @@ archive_entry_copy_sourcepath_w(struct archive_entry *entry, const wchar_t *path
 void
 archive_entry_set_symlink(struct archive_entry *entry, const char *linkname)
 {
-	archive_mstring_copy_mbs(&entry->ae_symlink, linkname);
-	if (linkname != NULL)
-		entry->ae_set |= AE_SET_SYMLINK;
-	else
+	if (linkname == NULL && (entry->ae_set & AE_SET_HARDLINK))
+		return;
+	archive_mstring_copy_mbs(&entry->ae_linkname, linkname);
+	entry->ae_set &= ~AE_SET_HARDLINK;
+	if (linkname == NULL)
 		entry->ae_set &= ~AE_SET_SYMLINK;
+	else
+		entry->ae_set |= AE_SET_SYMLINK;
+}
+
+void
+archive_entry_set_symlink_type(struct archive_entry *entry, int type)
+{
+	entry->ae_symlink_type = type;
 }
 
 void
 archive_entry_set_symlink_utf8(struct archive_entry *entry, const char *linkname)
 {
-	archive_mstring_copy_utf8(&entry->ae_symlink, linkname);
-	if (linkname != NULL)
-		entry->ae_set |= AE_SET_SYMLINK;
-	else
+	if (linkname == NULL && (entry->ae_set & AE_SET_HARDLINK))
+		return;
+	archive_mstring_copy_utf8(&entry->ae_linkname, linkname);
+	entry->ae_set &= ~AE_SET_HARDLINK;
+	if (linkname == NULL)
 		entry->ae_set &= ~AE_SET_SYMLINK;
+	else
+		entry->ae_set |= AE_SET_SYMLINK;
 }
 
 void
 archive_entry_copy_symlink(struct archive_entry *entry, const char *linkname)
 {
-	archive_mstring_copy_mbs(&entry->ae_symlink, linkname);
-	if (linkname != NULL)
-		entry->ae_set |= AE_SET_SYMLINK;
-	else
+	if (linkname == NULL && (entry->ae_set & AE_SET_HARDLINK))
+		return;
+	archive_mstring_copy_mbs(&entry->ae_linkname, linkname);
+	entry->ae_set &= ~AE_SET_HARDLINK;
+	if (linkname == NULL)
 		entry->ae_set &= ~AE_SET_SYMLINK;
+	else
+		entry->ae_set |= AE_SET_SYMLINK;
 }
 
 void
 archive_entry_copy_symlink_w(struct archive_entry *entry, const wchar_t *linkname)
 {
-	archive_mstring_copy_wcs(&entry->ae_symlink, linkname);
-	if (linkname != NULL)
-		entry->ae_set |= AE_SET_SYMLINK;
-	else
+	if (linkname == NULL && (entry->ae_set & AE_SET_HARDLINK))
+		return;
+	archive_mstring_copy_wcs(&entry->ae_linkname, linkname);
+	entry->ae_set &= ~AE_SET_HARDLINK;
+	if (linkname == NULL)
 		entry->ae_set &= ~AE_SET_SYMLINK;
+	else
+		entry->ae_set |= AE_SET_SYMLINK;
 }
 
 int
 archive_entry_update_symlink_utf8(struct archive_entry *entry, const char *linkname)
 {
-	if (linkname != NULL)
-		entry->ae_set |= AE_SET_SYMLINK;
-	else
+	if (linkname == NULL && (entry->ae_set & AE_SET_HARDLINK))
+		return (0);
+	entry->ae_set &= ~AE_SET_HARDLINK;
+	if (linkname == NULL)
 		entry->ae_set &= ~AE_SET_SYMLINK;
+	else
+		entry->ae_set |= AE_SET_SYMLINK;
 	if (archive_mstring_update_utf8(entry->archive,
-	    &entry->ae_symlink, linkname) == 0)
+	    &entry->ae_linkname, linkname) == 0)
 		return (1);
 	if (errno == ENOMEM)
 		__archive_errx(1, "No memory");
@@ -1296,20 +1465,27 @@ _archive_entry_copy_symlink_l(struct archive_entry *entry,
 {
 	int r;
 
-	r = archive_mstring_copy_mbs_len_l(&entry->ae_symlink,
+	if (linkname == NULL && (entry->ae_set & AE_SET_HARDLINK))
+		return (0);
+	entry->ae_set &= ~AE_SET_HARDLINK;
+	r = archive_mstring_copy_mbs_len_l(&entry->ae_linkname,
 	    linkname, len, sc);
-	if (linkname != NULL && r == 0)
-		entry->ae_set |= AE_SET_SYMLINK;
-	else
+	if (linkname == NULL || r != 0)
 		entry->ae_set &= ~AE_SET_SYMLINK;
+	else
+		entry->ae_set |= AE_SET_SYMLINK;
 	return (r);
 }
 
 void
-archive_entry_set_uid(struct archive_entry *entry, int64_t u)
+archive_entry_set_uid(struct archive_entry *entry, la_int64_t u)
 {
+	if (u < 0) {
+		u = 0;
+	}
 	entry->stat_valid = 0;
 	entry->ae_stat.aest_uid = u;
+	entry->ae_set |= AE_SET_UID;
 }
 
 void
@@ -1386,17 +1562,83 @@ void
 archive_entry_copy_mac_metadata(struct archive_entry *entry,
     const void *p, size_t s)
 {
-  free(entry->mac_metadata);
-  if (p == NULL || s == 0) {
-    entry->mac_metadata = NULL;
-    entry->mac_metadata_size = 0;
-  } else {
-    entry->mac_metadata_size = s;
-    entry->mac_metadata = malloc(s);
-    if (entry->mac_metadata == NULL)
-      abort();
-    memcpy(entry->mac_metadata, p, s);
-  }
+	void *metadata;
+
+	if (p == NULL || s == 0) {
+		free(entry->mac_metadata);
+		entry->mac_metadata = NULL;
+		entry->mac_metadata_size = 0;
+	} else {
+		metadata = malloc(s);
+		if (metadata == NULL)
+			abort();
+		memcpy(metadata, p, s);
+		free(entry->mac_metadata);
+		entry->mac_metadata = metadata;
+		entry->mac_metadata_size = s;
+	}
+}
+
+/* Digest handling */
+const unsigned char *
+archive_entry_digest(struct archive_entry *entry, int type)
+{
+	switch (type) {
+	case ARCHIVE_ENTRY_DIGEST_MD5:
+		return entry->digest.md5;
+	case ARCHIVE_ENTRY_DIGEST_RMD160:
+		return entry->digest.rmd160;
+	case ARCHIVE_ENTRY_DIGEST_SHA1:
+		return entry->digest.sha1;
+	case ARCHIVE_ENTRY_DIGEST_SHA256:
+		return entry->digest.sha256;
+	case ARCHIVE_ENTRY_DIGEST_SHA384:
+		return entry->digest.sha384;
+	case ARCHIVE_ENTRY_DIGEST_SHA512:
+		return entry->digest.sha512;
+	default:
+		return NULL;
+	}
+}
+
+int
+archive_entry_set_digest(struct archive_entry *entry, int type,
+    const unsigned char *digest)
+{
+#define copy_digest(_e, _t, _d)\
+	memcpy(_e->digest._t, _d, sizeof(_e->digest._t))
+
+	switch (type) {
+	case ARCHIVE_ENTRY_DIGEST_MD5:
+		copy_digest(entry, md5, digest);
+		entry->mset_digest |= AE_MSET_DIGEST_MD5;
+		break;
+	case ARCHIVE_ENTRY_DIGEST_RMD160:
+		copy_digest(entry, rmd160, digest);
+		entry->mset_digest |= AE_MSET_DIGEST_RMD160;
+		break;
+	case ARCHIVE_ENTRY_DIGEST_SHA1:
+		copy_digest(entry, sha1, digest);
+		entry->mset_digest |= AE_MSET_DIGEST_SHA1;
+		break;
+	case ARCHIVE_ENTRY_DIGEST_SHA256:
+		copy_digest(entry, sha256, digest);
+		entry->mset_digest |= AE_MSET_DIGEST_SHA256;
+		break;
+	case ARCHIVE_ENTRY_DIGEST_SHA384:
+		copy_digest(entry, sha384, digest);
+		entry->mset_digest |= AE_MSET_DIGEST_SHA384;
+		break;
+	case ARCHIVE_ENTRY_DIGEST_SHA512:
+		copy_digest(entry, sha512, digest);
+		entry->mset_digest |= AE_MSET_DIGEST_SHA512;
+		break;
+	default:
+		return ARCHIVE_WARN;
+	}
+
+	return ARCHIVE_OK;
+#undef copy_digest
 }
 
 /*
@@ -1491,7 +1733,7 @@ archive_entry_acl_next(struct archive_entry *entry, int want_type, int *type,
  * the style of the generated ACL.
  */
 wchar_t *
-archive_entry_acl_to_text_w(struct archive_entry *entry, ssize_t *len,
+archive_entry_acl_to_text_w(struct archive_entry *entry, la_ssize_t *len,
     int flags)
 {
 	return (archive_acl_to_text_w(&entry->acl, len, flags,
@@ -1499,7 +1741,7 @@ archive_entry_acl_to_text_w(struct archive_entry *entry, ssize_t *len,
 }
 
 char *
-archive_entry_acl_to_text(struct archive_entry *entry, ssize_t *len,
+archive_entry_acl_to_text(struct archive_entry *entry, la_ssize_t *len,
     int flags)
 {
 	return (archive_acl_to_text_l(&entry->acl, len, flags, NULL));
@@ -1560,10 +1802,8 @@ archive_entry_acl_text_compat(int *flags)
 const wchar_t *
 archive_entry_acl_text_w(struct archive_entry *entry, int flags)
 {
-	if (entry->acl.acl_text_w != NULL) {
-		free(entry->acl.acl_text_w);
-		entry->acl.acl_text_w = NULL;
-	}
+	free(entry->acl.acl_text_w);
+	entry->acl.acl_text_w = NULL;
 	if (archive_entry_acl_text_compat(&flags) == 0)
 		entry->acl.acl_text_w = archive_acl_to_text_w(&entry->acl,
 		    NULL, flags, entry->archive);
@@ -1574,10 +1814,8 @@ archive_entry_acl_text_w(struct archive_entry *entry, int flags)
 const char *
 archive_entry_acl_text(struct archive_entry *entry, int flags)
 {
-	if (entry->acl.acl_text != NULL) {
-		free(entry->acl.acl_text);
-		entry->acl.acl_text = NULL;
-	}
+	free(entry->acl.acl_text);
+	entry->acl.acl_text = NULL;
 	if (archive_entry_acl_text_compat(&flags) == 0)
 		entry->acl.acl_text = archive_acl_to_text_l(&entry->acl, NULL,
 		    flags, NULL);
@@ -1590,10 +1828,8 @@ int
 _archive_entry_acl_text_l(struct archive_entry *entry, int flags,
     const char **acl_text, size_t *len, struct archive_string_conv *sc)
 {
-	if (entry->acl.acl_text != NULL) {
-		free(entry->acl.acl_text);
-		entry->acl.acl_text = NULL;
-        }
+	free(entry->acl.acl_text);
+	entry->acl.acl_text = NULL;
 
 	if (archive_entry_acl_text_compat(&flags) == 0)
 		entry->acl.acl_text = archive_acl_to_text_l(&entry->acl,
@@ -1638,195 +1874,215 @@ _archive_entry_acl_text_l(struct archive_entry *entry, int flags,
  * SUCH DAMAGE.
  */
 
-static struct flag {
+/*
+ * Supported file flags on FreeBSD and Mac OS:
+ * sappnd,sappend		SF_APPEND
+ * arch,archived		SF_ARCHIVED
+ * schg,schange,simmutable	SF_IMMUTABLE
+ * sunlnk,sunlink		SF_NOUNLINK	(FreeBSD only)
+ * uappnd,uappend		UF_APPEND
+ * compressed			UF_COMPRESSED	(Mac OS only)
+ * hidden,uhidden		UF_HIDDEN
+ * uchg,uchange,uimmutable	UF_IMMUTABLE
+ * nodump			UF_NODUMP
+ * uunlnk,uunlink		UF_NOUNLINK	(FreeBSD only)
+ * offline,uoffline		UF_OFFLINE	(FreeBSD only)
+ * opaque			UF_OPAQUE
+ * rdonly,urdonly,readonly	UF_READONLY	(FreeBSD only)
+ * reparse,ureparse		UF_REPARSE	(FreeBSD only)
+ * sparse,usparse		UF_SPARSE	(FreeBSD only)
+ * system,usystem		UF_SYSTEM	(FreeBSD only)
+ *
+ * See chflags(2) for more information
+ *
+ * Supported file attributes on Linux:
+ * a	append only			FS_APPEND_FL		sappnd
+ * A	no atime updates		FS_NOATIME_FL		atime
+ * c	compress			FS_COMPR_FL		compress
+ * C	no copy on write		FS_NOCOW_FL		cow
+ * d	no dump				FS_NODUMP_FL		dump
+ * D	synchronous directory updates	FS_DIRSYNC_FL		dirsync
+ * i	immutable			FS_IMMUTABLE_FL		schg
+ * j	data journalling		FS_JOURNAL_DATA_FL	journal
+ * P	project hierarchy		FS_PROJINHERIT_FL	projinherit
+ * s	secure deletion			FS_SECRM_FL		securedeletion
+ * S	synchronous updates		FS_SYNC_FL		sync
+ * t	no tail-merging			FS_NOTAIL_FL		tail
+ * T	top of directory hierarchy	FS_TOPDIR_FL		topdir
+ * u	undeletable			FS_UNRM_FL		undel
+ *
+ * See ioctl_iflags(2) for more information
+ *
+ * Equivalent file flags supported on FreeBSD / Mac OS and Linux:
+ * SF_APPEND		FS_APPEND_FL		sappnd
+ * SF_IMMUTABLE		FS_IMMUTABLE_FL		schg
+ * UF_NODUMP		FS_NODUMP_FL		nodump
+ */
+
+static const struct flag {
 	const char	*name;
 	const wchar_t	*wname;
 	unsigned long	 set;
 	unsigned long	 clear;
-} flags[] = {
+} fileflags[] = {
 	/* Preferred (shorter) names per flag first, all prefixed by "no" */
 #ifdef SF_APPEND
-	{ "nosappnd",	L"nosappnd",		SF_APPEND,	0 },
-	{ "nosappend",	L"nosappend",		SF_APPEND,	0 },
+	{ "nosappnd",	L"nosappnd",		SF_APPEND,	0},
+	{ "nosappend",	L"nosappend",		SF_APPEND,	0},
 #endif
 #if defined(FS_APPEND_FL)			/* 'a' */
-	{ "nosappnd",	L"nosappnd",		FS_APPEND_FL,	0 },
-	{ "nosappend",	L"nosappend",		FS_APPEND_FL,	0 },
+	{ "nosappnd",	L"nosappnd",		FS_APPEND_FL,	0},
+	{ "nosappend",	L"nosappend",		FS_APPEND_FL,	0},
 #elif defined(EXT2_APPEND_FL)			/* 'a' */
-	{ "nosappnd",	L"nosappnd",		EXT2_APPEND_FL,	0 },
-	{ "nosappend",	L"nosappend",		EXT2_APPEND_FL,	0 },
+	{ "nosappnd",	L"nosappnd",		EXT2_APPEND_FL,	0},
+	{ "nosappend",	L"nosappend",		EXT2_APPEND_FL,	0},
 #endif
 #ifdef SF_ARCHIVED
-	{ "noarch",	L"noarch",		SF_ARCHIVED,	0 },
-	{ "noarchived",	L"noarchived",       	SF_ARCHIVED,	0 },
+	{ "noarch",	L"noarch",		SF_ARCHIVED,	0},
+	{ "noarchived",	L"noarchived",       	SF_ARCHIVED,	0},
 #endif
 #ifdef SF_IMMUTABLE
-	{ "noschg",	L"noschg",		SF_IMMUTABLE,	0 },
-	{ "noschange",	L"noschange",		SF_IMMUTABLE,	0 },
-	{ "nosimmutable",	L"nosimmutable",	SF_IMMUTABLE,	0 },
+	{ "noschg",	L"noschg",		SF_IMMUTABLE,	0},
+	{ "noschange",	L"noschange",		SF_IMMUTABLE,	0},
+	{ "nosimmutable",	L"nosimmutable",	SF_IMMUTABLE,	0},
 #endif
 #if defined(FS_IMMUTABLE_FL)			/* 'i' */
-	{ "noschg",	L"noschg",		FS_IMMUTABLE_FL,	0 },
-	{ "noschange",	L"noschange",		FS_IMMUTABLE_FL,	0 },
-	{ "nosimmutable",	L"nosimmutable",	FS_IMMUTABLE_FL,	0 },
+	{ "noschg",	L"noschg",		FS_IMMUTABLE_FL,	0},
+	{ "noschange",	L"noschange",		FS_IMMUTABLE_FL,	0},
+	{ "nosimmutable",	L"nosimmutable",	FS_IMMUTABLE_FL,	0},
 #elif defined(EXT2_IMMUTABLE_FL)		/* 'i' */
-	{ "noschg",	L"noschg",		EXT2_IMMUTABLE_FL,	0 },
-	{ "noschange",	L"noschange",		EXT2_IMMUTABLE_FL,	0 },
-	{ "nosimmutable",	L"nosimmutable",	EXT2_IMMUTABLE_FL,	0 },
+	{ "noschg",	L"noschg",		EXT2_IMMUTABLE_FL,	0},
+	{ "noschange",	L"noschange",		EXT2_IMMUTABLE_FL,	0},
+	{ "nosimmutable",	L"nosimmutable",	EXT2_IMMUTABLE_FL,	0},
 #endif
 #ifdef SF_NOUNLINK
-	{ "nosunlnk",	L"nosunlnk",		SF_NOUNLINK,	0 },
-	{ "nosunlink",	L"nosunlink",		SF_NOUNLINK,	0 },
-#endif
-#ifdef SF_SNAPSHOT
-	{ "nosnapshot",	L"nosnapshot",	SF_SNAPSHOT,	0 },
+	{ "nosunlnk",	L"nosunlnk",		SF_NOUNLINK,	0},
+	{ "nosunlink",	L"nosunlink",		SF_NOUNLINK,	0},
 #endif
 #ifdef UF_APPEND
-	{ "nouappnd",	L"nouappnd",		UF_APPEND,	0 },
-	{ "nouappend",	L"nouappend",		UF_APPEND,	0 },
+	{ "nouappnd",	L"nouappnd",		UF_APPEND,	0},
+	{ "nouappend",	L"nouappend",		UF_APPEND,	0},
 #endif
 #ifdef UF_IMMUTABLE
-	{ "nouchg",	L"nouchg",		UF_IMMUTABLE,	0 },
-	{ "nouchange",	L"nouchange",		UF_IMMUTABLE,	0 },
-	{ "nouimmutable",	L"nouimmutable",	UF_IMMUTABLE,	0 },
+	{ "nouchg",	L"nouchg",		UF_IMMUTABLE,	0},
+	{ "nouchange",	L"nouchange",		UF_IMMUTABLE,	0},
+	{ "nouimmutable",	L"nouimmutable",	UF_IMMUTABLE,	0},
 #endif
 #ifdef UF_NODUMP
 	{ "nodump",	L"nodump",		0,		UF_NODUMP},
 #endif
 #if defined(FS_NODUMP_FL)	/* 'd' */
 	{ "nodump",	L"nodump",		0,		FS_NODUMP_FL},
-#elif defined(EXT2_NODUMP_FL) 	/* 'd' */
+#elif defined(EXT2_NODUMP_FL)
 	{ "nodump",	L"nodump",		0,		EXT2_NODUMP_FL},
 #endif
 #ifdef UF_OPAQUE
-	{ "noopaque",	L"noopaque",		UF_OPAQUE,	0 },
+	{ "noopaque",	L"noopaque",		UF_OPAQUE,	0},
 #endif
 #ifdef UF_NOUNLINK
-	{ "nouunlnk",	L"nouunlnk",		UF_NOUNLINK,	0 },
-	{ "nouunlink",	L"nouunlink",		UF_NOUNLINK,	0 },
+	{ "nouunlnk",	L"nouunlnk",		UF_NOUNLINK,	0},
+	{ "nouunlink",	L"nouunlink",		UF_NOUNLINK,	0},
 #endif
 #ifdef UF_COMPRESSED
-	{ "nocompressed",L"nocompressed",	UF_COMPRESSED,	0 },
+	/* Mac OS */
+	{ "nocompressed",	L"nocompressed",	UF_COMPRESSED,	0},
 #endif
-#if defined(FS_UNRM_FL)
-        { "nouunlink",	L"nouunlink",		FS_UNRM_FL,	0},
+#ifdef UF_HIDDEN
+	{ "nohidden",	L"nohidden",		UF_HIDDEN,	0},
+	{ "nouhidden",	L"nouhidden",		UF_HIDDEN,	0},
+#endif
+#ifdef FILE_ATTRIBUTE_HIDDEN
+	{ "nohidden",	L"nohidden",	FILE_ATTRIBUTE_HIDDEN,	0},
+	{ "nouhidden",	L"nouhidden",	FILE_ATTRIBUTE_HIDDEN,	0},
+#endif
+#ifdef UF_OFFLINE
+	{ "nooffline",	L"nooffline",		UF_OFFLINE,	0},
+	{ "nouoffline",	L"nouoffline",		UF_OFFLINE,	0},
+#endif
+#ifdef UF_READONLY
+	{ "nordonly",	L"nordonly",		UF_READONLY,	0},
+	{ "nourdonly",	L"nourdonly",		UF_READONLY,	0},
+	{ "noreadonly",	L"noreadonly",		UF_READONLY,	0},
+#endif
+#ifdef FILE_ATTRIBUTE_READONLY
+	{ "nordonly",	L"nordonly",	FILE_ATTRIBUTE_READONLY,	0},
+	{ "nourdonly",	L"nourdonly",	FILE_ATTRIBUTE_READONLY,	0},
+	{ "noreadonly",	L"noreadonly",	FILE_ATTRIBUTE_READONLY,	0},
+#endif
+#ifdef UF_SPARSE
+	{ "nosparse",	L"nosparse",		UF_SPARSE,	0},
+	{ "nousparse",	L"nousparse",		UF_SPARSE,	0},
+#endif
+#ifdef UF_REPARSE
+	{ "noreparse",	L"noreparse",		UF_REPARSE,	0},
+	{ "noureparse",	L"noureparse",		UF_REPARSE,	0},
+#endif
+#ifdef UF_SYSTEM
+	{ "nosystem",	L"nosystem",		UF_SYSTEM,	0},
+	{ "nousystem",	L"nousystem",		UF_SYSTEM,	0},
+#endif
+#ifdef FILE_ATTRIBUTE_SYSTEM
+	{ "nosystem",	L"nosystem",	FILE_ATTRIBUTE_SYSTEM,	0},
+	{ "nousystem",	L"nousystem",	FILE_ATTRIBUTE_SYSTEM,	0},
+#endif
+#if defined(FS_UNRM_FL)		/* 'u' */
+	{ "noundel",	L"noundel",		FS_UNRM_FL,	0},
 #elif defined(EXT2_UNRM_FL)
-        { "nouunlink",	L"nouunlink",		EXT2_UNRM_FL,	0},
+	{ "noundel",	L"noundel",		EXT2_UNRM_FL,	0},
 #endif
 
-#if defined(FS_BTREE_FL)
-        { "nobtree",	L"nobtree",       	FS_BTREE_FL,	0 },
-#elif defined(EXT2_BTREE_FL)
-        { "nobtree",	L"nobtree",       	EXT2_BTREE_FL,	0 },
+#if defined(FS_COMPR_FL)	/* 'c' */
+	{ "nocompress",	L"nocompress",       	FS_COMPR_FL,	0},
+#elif defined(EXT2_COMPR_FL)
+	{ "nocompress",	L"nocompress",       	EXT2_COMPR_FL,	0},
 #endif
 
-#if defined(FS_ECOMPR_FL)
-        { "nocomperr",	L"nocomperr",       	FS_ECOMPR_FL,	0 },
-#elif defined(EXT2_ECOMPR_FL)
-        { "nocomperr",	L"nocomperr",       	EXT2_ECOMPR_FL,	0 },
+#if defined(FS_NOATIME_FL)	/* 'A' */
+	{ "noatime",	L"noatime",		0,		FS_NOATIME_FL},
+#elif defined(EXT2_NOATIME_FL)
+	{ "noatime",	L"noatime",		0,		EXT2_NOATIME_FL},
 #endif
-
-#if defined(FS_COMPR_FL)			/* 'c' */
-        { "nocompress",	L"nocompress",       	FS_COMPR_FL,	0 },
-#elif defined(EXT2_COMPR_FL)			/* 'c' */
-        { "nocompress",	L"nocompress",       	EXT2_COMPR_FL,	0 },
-#endif
-
-#if defined(FS_NOATIME_FL)			/* 'A' */
-        { "noatime",	L"noatime",		0,		FS_NOATIME_FL},
-#elif defined(EXT2_NOATIME_FL)			/* 'A' */
-        { "noatime",	L"noatime",		0,		EXT2_NOATIME_FL},
-#endif
-
-#if defined(FS_DIRTY_FL)
-        { "nocompdirty",L"nocompdirty",		FS_DIRTY_FL,		0},
-#elif defined(EXT2_DIRTY_FL)
-        { "nocompdirty",L"nocompdirty",		EXT2_DIRTY_FL,		0},
-#endif
-
-#if defined(FS_COMPRBLK_FL)
-#if defined(FS_NOCOMPR_FL)
-        { "nocomprblk",	L"nocomprblk",		FS_COMPRBLK_FL, FS_NOCOMPR_FL},
-#else
-        { "nocomprblk",	L"nocomprblk",		FS_COMPRBLK_FL,	0},
-#endif
-#elif defined(EXT2_COMPRBLK_FL)
-#if defined(EXT2_NOCOMPR_FL)
-        { "nocomprblk",	L"nocomprblk",		EXT2_COMPRBLK_FL, EXT2_NOCOMPR_FL},
-#else
-        { "nocomprblk",	L"nocomprblk",		EXT2_COMPRBLK_FL,	0},
-#endif
-#endif
-#if defined(FS_DIRSYNC_FL)
-        { "nodirsync",	L"nodirsync",		FS_DIRSYNC_FL,	0},
+#if defined(FS_DIRSYNC_FL)	/* 'D' */
+	{ "nodirsync",	L"nodirsync",		FS_DIRSYNC_FL,		0},
 #elif defined(EXT2_DIRSYNC_FL)
-        { "nodirsync",	L"nodirsync",		EXT2_DIRSYNC_FL,	0},
+	{ "nodirsync",	L"nodirsync",		EXT2_DIRSYNC_FL,	0},
 #endif
-#if defined(FS_INDEX_FL)
-        { "nohashidx",	L"nohashidx",		FS_INDEX_FL,		0},
-#elif defined(EXT2_INDEX_FL)
-        { "nohashidx",	L"nohashidx",		EXT2_INDEX_FL,		0},
-#endif
-#if defined(FS_IMAGIC_FL)
-        { "noimagic",	L"noimagic",		FS_IMAGIC_FL,		0},
-#elif defined(EXT2_IMAGIC_FL)
-        { "noimagic",	L"noimagic",		EXT2_IMAGIC_FL,		0},
-#endif
-#if defined(FS_JOURNAL_DATA_FL)
-        { "nojournal",	L"nojournal",		FS_JOURNAL_DATA_FL,	0},
+#if defined(FS_JOURNAL_DATA_FL)	/* 'j' */
+	{ "nojournal-data",L"nojournal-data",	FS_JOURNAL_DATA_FL,	0},
+	{ "nojournal",	L"nojournal",		FS_JOURNAL_DATA_FL,	0},
 #elif defined(EXT3_JOURNAL_DATA_FL)
-        { "nojournal",	L"nojournal",		EXT3_JOURNAL_DATA_FL,	0},
+	{ "nojournal-data",L"nojournal-data",	EXT3_JOURNAL_DATA_FL,	0},
+	{ "nojournal",	L"nojournal",		EXT3_JOURNAL_DATA_FL,	0},
 #endif
-#if defined(FS_SECRM_FL)
-        { "nosecuredeletion",L"nosecuredeletion",FS_SECRM_FL,		0},
+#if defined(FS_SECRM_FL)	/* 's' */
+	{ "nosecdel",	L"nosecdel",		FS_SECRM_FL,		0},
+	{ "nosecuredeletion",L"nosecuredeletion",FS_SECRM_FL,		0},
 #elif defined(EXT2_SECRM_FL)
-        { "nosecuredeletion",L"nosecuredeletion",EXT2_SECRM_FL,		0},
+	{ "nosecdel",	L"nosecdel",		EXT2_SECRM_FL,		0},
+	{ "nosecuredeletion",L"nosecuredeletion",EXT2_SECRM_FL,		0},
 #endif
-#if defined(FS_SYNC_FL)
-        { "nosync",	L"nosync",		FS_SYNC_FL,		0},
+#if defined(FS_SYNC_FL)		/* 'S' */
+	{ "nosync",	L"nosync",		FS_SYNC_FL,		0},
 #elif defined(EXT2_SYNC_FL)
-        { "nosync",	L"nosync",		EXT2_SYNC_FL,		0},
+	{ "nosync",	L"nosync",		EXT2_SYNC_FL,		0},
 #endif
-#if defined(FS_NOTAIL_FL)
-        { "notail",	L"notail",		0,		FS_NOTAIL_FL},
+#if defined(FS_NOTAIL_FL)	/* 't' */
+	{ "notail",	L"notail",		0,		FS_NOTAIL_FL},
 #elif defined(EXT2_NOTAIL_FL)
-        { "notail",	L"notail",		0,		EXT2_NOTAIL_FL},
+	{ "notail",	L"notail",		0,		EXT2_NOTAIL_FL},
 #endif
-#if defined(FS_TOPDIR_FL)
-        { "notopdir",	L"notopdir",		FS_TOPDIR_FL,		0},
+#if defined(FS_TOPDIR_FL)	/* 'T' */
+	{ "notopdir",	L"notopdir",		FS_TOPDIR_FL,		0},
 #elif defined(EXT2_TOPDIR_FL)
-        { "notopdir",	L"notopdir",		EXT2_TOPDIR_FL,		0},
+	{ "notopdir",	L"notopdir",		EXT2_TOPDIR_FL,		0},
 #endif
-#ifdef FS_ENCRYPT_FL
-        { "noencrypt",	L"noencrypt",		FS_ENCRYPT_FL,	0},
+#ifdef FS_NOCOW_FL	/* 'C' */
+	{ "nocow",	L"nocow",		0,	FS_NOCOW_FL},
 #endif
-#ifdef FS_HUGE_FILE_FL
-        { "nohugefile",	L"nohugefile",		FS_HUGE_FILE_FL,	0},
+#ifdef FS_PROJINHERIT_FL	/* 'P' */
+	{ "noprojinherit",L"noprojinherit",	FS_PROJINHERIT_FL,	0},
 #endif
-#ifdef FS_EXTENT_FL
-        { "noextent",	L"noextent",		FS_EXTENT_FL,	0},
-#endif
-#ifdef FS_EA_INODE_FL
-        { "noeainode",	L"noeainode",		FS_EA_INODE_FL,	0},
-#endif
-#ifdef FS_EOFBLOCKS_FL
-        { "noeofblocks",L"noeofblocks",		FS_EOFBLOCKS_FL,	0},
-#endif
-#ifdef FS_NOCOW_FL
-        { "nocow",	L"nocow",		FS_NOCOW_FL,	0},
-#endif
-#ifdef FS_INLINE_DATA_FL
-        { "noinlinedata",L"noinlinedata",	FS_INLINE_DATA_FL,	0},
-#endif
-#ifdef FS_PROJINHERIT_FL
-        { "noprojinherit",L"noprojinherit",	FS_PROJINHERIT_FL,	0},
-#endif
-#if defined(FS_RESERVED_FL)
-        { "noreserved",	L"noreserved",		FS_RESERVED_FL,	0},
-#elif defined(EXT2_RESERVED_FL)
-        { "noreserved",	L"noreserved",		EXT2_RESERVED_FL,	0},
-#endif
-	{ NULL,		NULL,			0,		0 }
+	{ NULL,		NULL,			0,		0}
 };
 
 /*
@@ -1840,12 +2096,12 @@ ae_fflagstostr(unsigned long bitset, unsigned long bitclear)
 	char *string, *dp;
 	const char *sp;
 	unsigned long bits;
-	struct flag *flag;
+	const struct flag *flag;
 	size_t	length;
 
 	bits = bitset | bitclear;
 	length = 0;
-	for (flag = flags; flag->name != NULL; flag++)
+	for (flag = fileflags; flag->name != NULL; flag++)
 		if (bits & (flag->set | flag->clear)) {
 			length += strlen(flag->name) + 1;
 			bits &= ~(flag->set | flag->clear);
@@ -1853,12 +2109,12 @@ ae_fflagstostr(unsigned long bitset, unsigned long bitclear)
 
 	if (length == 0)
 		return (NULL);
-	string = (char *)malloc(length);
+	string = malloc(length);
 	if (string == NULL)
 		return (NULL);
 
 	dp = string;
-	for (flag = flags; flag->name != NULL; flag++) {
+	for (flag = fileflags; flag->name != NULL; flag++) {
 		if (bitset & flag->set || bitclear & flag->clear) {
 			sp = flag->name + 2;
 		} else if (bitset & flag->clear  ||  bitclear & flag->set) {
@@ -1889,10 +2145,10 @@ ae_fflagstostr(unsigned long bitset, unsigned long bitclear)
  *	provided string.
  */
 static const char *
-ae_strtofflags(const char *s, unsigned long *setp, unsigned long *clrp)
+ae_strtofflags(const char *s, size_t l, unsigned long *setp, unsigned long *clrp)
 {
 	const char *start, *end;
-	struct flag *flag;
+	const struct flag *flag;
 	unsigned long set, clear;
 	const char *failed;
 
@@ -1900,17 +2156,21 @@ ae_strtofflags(const char *s, unsigned long *setp, unsigned long *clrp)
 	start = s;
 	failed = NULL;
 	/* Find start of first token. */
-	while (*start == '\t'  ||  *start == ' '  ||  *start == ',')
+	while (l > 0 && (*start == '\t'  ||  *start == ' '  ||  *start == ',')) {
 		start++;
-	while (*start != '\0') {
+		l--;
+	}
+	while (l > 0) {
 		size_t length;
 		/* Locate end of token. */
 		end = start;
-		while (*end != '\0'  &&  *end != '\t'  &&
-		    *end != ' '  &&  *end != ',')
+		while (l > 0 && *end != '\t'  &&
+		    *end != ' '  &&  *end != ',') {
 			end++;
+			l--;
+		}
 		length = end - start;
-		for (flag = flags; flag->name != NULL; flag++) {
+		for (flag = fileflags; flag->name != NULL; flag++) {
 			size_t flag_length = strlen(flag->name);
 			if (length == flag_length
 			    && memcmp(start, flag->name, length) == 0) {
@@ -1932,8 +2192,10 @@ ae_strtofflags(const char *s, unsigned long *setp, unsigned long *clrp)
 
 		/* Find start of next token. */
 		start = end;
-		while (*start == '\t'  ||  *start == ' '  ||  *start == ',')
+		while (l > 0 && (*start == '\t'  ||  *start == ' '  ||  *start == ',')) {
 			start++;
+			l--;
+		}
 
 	}
 
@@ -1960,7 +2222,7 @@ static const wchar_t *
 ae_wcstofflags(const wchar_t *s, unsigned long *setp, unsigned long *clrp)
 {
 	const wchar_t *start, *end;
-	struct flag *flag;
+	const struct flag *flag;
 	unsigned long set, clear;
 	const wchar_t *failed;
 
@@ -1978,7 +2240,7 @@ ae_wcstofflags(const wchar_t *s, unsigned long *setp, unsigned long *clrp)
 		    *end != L' '  &&  *end != L',')
 			end++;
 		length = end - start;
-		for (flag = flags; flag->wname != NULL; flag++) {
+		for (flag = fileflags; flag->wname != NULL; flag++) {
 			size_t flag_length = wcslen(flag->wname);
 			if (length == flag_length
 			    && wmemcmp(start, flag->wname, length) == 0) {

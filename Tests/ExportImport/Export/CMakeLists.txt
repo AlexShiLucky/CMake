@@ -1,5 +1,13 @@
-cmake_minimum_required (VERSION 2.7.20090711)
+set(CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES "1942b4fa-b2c5-4546-9385-83f254070067")
+cmake_minimum_required(VERSION 3.10)
+if(POLICY CMP0129)
+  cmake_policy(SET CMP0129 NEW)
+endif()
 project(Export C CXX)
+
+set(CMAKE_AIX_SHARED_LIBRARY_ARCHIVE 1)
+
+find_package(Foo REQUIRED CONFIG NO_DEFAULT_PATH)
 
 # Pretend that RelWithDebInfo should link to debug libraries to test
 # the DEBUG_CONFIGURATIONS property.
@@ -14,14 +22,24 @@ add_library(testExe2libImp SHARED testExe2libImp.c)
 set_property(TARGET testExe2libImp PROPERTY LIBRARY_OUTPUT_DIRECTORY impl)
 add_library(testExe2lib SHARED testExe2lib.c)
 target_link_libraries(testExe2lib testExe2libImp)
-set_property(TARGET testExe2lib PROPERTY LINK_INTERFACE_LIBRARIES "")
 add_executable(testExe2 testExe2.c)
 set_property(TARGET testExe2 PROPERTY ENABLE_EXPORTS 1)
-set_property(TARGET testExe2 PROPERTY LINK_INTERFACE_LIBRARIES testExe2lib)
+set_property(TARGET testExe2 PROPERTY INTERFACE_LINK_LIBRARIES testExe2lib)
+
+add_library(compileOnly INTERFACE)
+target_compile_definitions(compileOnly INTERFACE FROM_compileOnly)
+target_link_options(compileOnly INTERFACE -fthis-flag-does-not-exist)
+
+add_library(noUses INTERFACE)
+target_link_libraries(noUses INTERFACE this::target_does_not_exist)
 
 add_library(testLib1 STATIC testLib1.c)
 add_library(testLib2 STATIC testLib2.c)
-target_link_libraries(testLib2 testLib1)
+target_link_libraries(testLib2
+  PRIVATE
+    testLib1
+    "$<COMPILE_ONLY:compileOnly>")
+
 
 # Test install(FILES) with generator expressions referencing testLib1.
 add_custom_command(TARGET testLib1 POST_BUILD
@@ -48,7 +66,6 @@ set_property(TARGET testLib3Imp PROPERTY LIBRARY_OUTPUT_DIRECTORY impl)
 target_link_libraries(testLib3Imp testLib3ImpDep)
 add_library(testLib3 SHARED testLib3.c)
 target_link_libraries(testLib3 testLib3Imp)
-set_property(TARGET testLib3 PROPERTY LINK_INTERFACE_LIBRARIES "")
 set_property(TARGET testLib3 PROPERTY VERSION 1.2)
 set_property(TARGET testLib3 PROPERTY SOVERSION 3)
 
@@ -83,13 +100,51 @@ set_property(TARGET testLib7 PROPERTY OUTPUT_NAME testLib7-$<CONFIG>)
 add_library(testLib8 OBJECT testLib8A.c testLib8B.c sub/testLib8C.c)
 
 if(NOT CMAKE_GENERATOR STREQUAL "Xcode" OR NOT CMAKE_OSX_ARCHITECTURES MATCHES "[;$]")
-  set(maybe_testLib8 testLib8)
+  set(maybe_OBJECTS_DESTINATION OBJECTS DESTINATION $<1:lib>)
 else()
-  set(maybe_testLib8 "")
+  set(maybe_OBJECTS_DESTINATION "")
 endif()
 
+add_library(testLib9ObjPub OBJECT testLib9ObjPub.c)
+target_compile_definitions(testLib9ObjPub INTERFACE testLib9ObjPub_USED)
+add_library(testLib9ObjPriv OBJECT testLib9ObjPriv.c)
+target_compile_definitions(testLib9ObjPriv INTERFACE testLib9ObjPriv_USED)
+add_library(testLib9ObjIface OBJECT testLib9ObjIface.c)
+target_compile_definitions(testLib9ObjIface INTERFACE testLib9ObjIface_USED)
+add_library(testLib9 STATIC testLib9.c)
+target_link_libraries(testLib9 INTERFACE testLib9ObjIface PUBLIC testLib9ObjPub PRIVATE testLib9ObjPriv)
+target_link_libraries(testLib9 PUBLIC Foo::Foo)
+
+add_library(testLib10 STATIC testLib10.c)
+set_target_properties(testLib10 PROPERTIES
+  TRANSITIVE_COMPILE_PROPERTIES "CUSTOM_C"
+  TRANSITIVE_LINK_PROPERTIES    "CUSTOM_L"
+  INTERFACE_CUSTOM_C "TESTLIB10_INTERFACE_CUSTOM_C"
+  INTERFACE_CUSTOM_L "TESTLIB10_INTERFACE_CUSTOM_L"
+  )
+target_compile_definitions(testLib10 INTERFACE
+  "$<TARGET_PROPERTY:CUSTOM_C>"
+  "$<TARGET_PROPERTY:CUSTOM_L>"
+  )
+add_library(testLib11 STATIC testLib11.c)
+target_link_libraries(testLib11 PRIVATE testLib10)
+set_target_properties(testLib11 PROPERTIES
+  INTERFACE_CUSTOM_C "TESTLIB11_INTERFACE_CUSTOM_C"
+  INTERFACE_CUSTOM_L "TESTLIB11_INTERFACE_CUSTOM_L"
+  TRANSITIVE_COMPILE_PROPERTIES "CUSTOM_D"
+  TRANSITIVE_LINK_PROPERTIES    "CUSTOM_M"
+  INTERFACE_CUSTOM_D "TESTLIB11_INTERFACE_CUSTOM_D"
+  INTERFACE_CUSTOM_M "TESTLIB11_INTERFACE_CUSTOM_M"
+  )
+target_compile_definitions(testLib11 INTERFACE
+  "$<TARGET_PROPERTY:CUSTOM_C>"
+  "$<TARGET_PROPERTY:CUSTOM_D>"
+  "$<TARGET_PROPERTY:CUSTOM_L>"
+  "$<TARGET_PROPERTY:CUSTOM_M>"
+  )
+
 # Test using the target_link_libraries command to set the
-# LINK_INTERFACE_LIBRARIES* properties.  We construct two libraries
+# INTERFACE_LINK_LIBRARIES properties.  We construct two libraries
 # providing the same two symbols.  In each library one of the symbols
 # will work and the other one will fail to link.  The import part of
 # this test will try to use the symbol corresponding to the
@@ -102,7 +157,7 @@ set_property(TARGET testLib4libdbg PROPERTY COMPILE_DEFINITIONS LIB_DBG)
 set_property(TARGET testLib4libopt PROPERTY COMPILE_DEFINITIONS LIB_OPT)
 target_link_libraries(testLib4
   LINK_INTERFACE_LIBRARIES
-  testLib4lib debug testLib4libdbg optimized testLib4libopt
+  testLib4lib debug $<TARGET_NAME:testLib4libdbg> optimized $<TARGET_NAME:testLib4libopt>
   )
 
 add_executable(testExe3 testExe3.c)
@@ -133,14 +188,49 @@ set_property(TARGET testLibCycleA PROPERTY LINK_INTERFACE_MULTIPLICITY 3)
 add_library(testLibNoSONAME SHARED testLibNoSONAME.c)
 set_property(TARGET testLibNoSONAME PROPERTY NO_SONAME 1)
 
-cmake_policy(PUSH)
-cmake_policy(SET CMP0022 NEW)
+add_library(testInterfaceIncludeUser INTERFACE)
+target_include_directories(testInterfaceIncludeUser
+  INTERFACE
+    "$<INSTALL_INTERFACE:include/testInterfaceIncludeUser>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/testInterfaceIncludeUser>"
+)
+set_property(TARGET testInterfaceIncludeUser PROPERTY IMPORTED_NO_SYSTEM 1)
+
+add_library(testInterfaceIncludeUser2 INTERFACE)
+target_include_directories(testInterfaceIncludeUser2
+  INTERFACE
+    "$<INSTALL_INTERFACE:include/testInterfaceIncludeUser>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/testInterfaceIncludeUser>"
+)
+set_property(TARGET testInterfaceIncludeUser2 PROPERTY EXPORT_NO_SYSTEM 1)
+
+install(
+  FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/testInterfaceIncludeUser/testInterfaceInclude.h"
+  DESTINATION include/testInterfaceIncludeUser
+)
+
+# Test control over direct linking.
+include(../../InterfaceLinkLibrariesDirect/testStaticLibPlugin.cmake)
+include(../../InterfaceLinkLibrariesDirect/testSharedLibWithHelper.cmake)
+include(../../InterfaceLinkLibrariesDirect/testExeWithPluginHelper.cmake)
+if(NOT maybe_OBJECTS_DESTINATION)
+  target_compile_definitions(testSharedLibHelperObj INTERFACE testSharedLibHelperObj_NO_OBJECT)
+  target_compile_definitions(testExePluginHelperObj INTERFACE testExePluginHelperObj_NO_OBJECT)
+endif()
+
 # Test exporting dependent libraries into different exports
 add_library(testLibRequired testLibRequired.c)
 add_library(testLibDepends testLibDepends.c)
 target_link_libraries(testLibDepends LINK_PUBLIC testLibRequired)
 add_library(testStaticLibRequiredPrivate testStaticLibRequiredPrivate.c)
 target_link_libraries(testLibDepends PRIVATE testStaticLibRequiredPrivate)
+
+cmake_policy(PUSH)
+cmake_policy(SET CMP0079 NEW)
+add_library(TopDirLib STATIC testTopDirLib.c)
+add_subdirectory(SubDirLinkA)
+add_subdirectory(SubDirLinkB)
 cmake_policy(POP)
 
 macro(add_include_lib _libName)
@@ -221,6 +311,10 @@ set_property(TARGET testLibRequired APPEND PROPERTY
 )
 include(GenerateExportHeader)
 
+# Test deprecation of imported library
+add_library(testLibDeprecation STATIC testLib1.c)
+set_property(TARGET testLibDeprecation PROPERTY DEPRECATION "Deprecated version. Please use latest version")
+
 add_subdirectory(renamed)
 
 add_library(testSharedLibRequired SHARED testSharedLibRequired.cpp)
@@ -262,6 +356,7 @@ set_property(TARGET testSharedLibRequired
 set_property(TARGET testSharedLibRequired APPEND PROPERTY
   INTERFACE_COMPILE_OPTIONS
     $<$<CXX_COMPILER_ID:GNU>:-DCUSTOM_COMPILE_OPTION>
+    $<$<CXX_COMPILER_ID:LCC>:-DCUSTOM_COMPILE_OPTION>
 )
 
 add_library(testSharedLibRequiredUser SHARED testSharedLibRequiredUser.cpp)
@@ -278,8 +373,6 @@ install(FILES
     DESTINATION include/testSharedLibRequiredUser
 )
 
-cmake_policy(PUSH)
-cmake_policy(SET CMP0022 NEW)
 add_library(testSharedLibRequiredUser2 SHARED testSharedLibRequiredUser2.cpp)
 generate_export_header(testSharedLibRequiredUser2)
 set_property(TARGET testSharedLibRequiredUser2 APPEND PROPERTY
@@ -292,8 +385,9 @@ install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/testsharedlibrequireduser2_export.h"
     DESTINATION include/testSharedLibRequiredUser2
 )
-cmake_policy(POP)
 
+cmake_policy(PUSH)
+cmake_policy(SET CMP0041 NEW)
 add_library(testSharedLibDepends SHARED testSharedLibDepends.cpp)
 set_property(TARGET testSharedLibDepends APPEND PROPERTY
   INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}"
@@ -310,32 +404,22 @@ install(FILES
     DESTINATION include/testSharedLibDepends
 )
 set_property(TARGET testSharedLibDepends APPEND PROPERTY
-  INTERFACE_INCLUDE_DIRECTORIES "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/testSharedLibDepends>"
+  INTERFACE_INCLUDE_DIRECTORIES "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/$<1:include>/testSharedLibDepends>"
                                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR};${CMAKE_CURRENT_SOURCE_DIR}>"
 )
+cmake_policy(POP)
 
-# LINK_PRIVATE because the LINK_INTERFACE_LIBRARIES is specified above.
 target_link_libraries(testSharedLibDepends LINK_PRIVATE testSharedLibRequired)
 target_link_libraries(testSharedLibDepends LINK_PUBLIC renamed_on_export)
-target_link_libraries(testSharedLibDepends LINK_INTERFACE_LIBRARIES
+target_link_libraries(testSharedLibDepends INTERFACE
   $<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:$<TARGET_NAME:testSharedLibRequired>>)
 
-cmake_policy(PUSH)
-cmake_policy(SET CMP0022 OLD)
-add_library(cmp0022OLD SHARED cmp0022_vs6_1.cpp)
-generate_export_header(cmp0022OLD BASE_NAME cmp0022)
-target_include_directories(cmp0022OLD PUBLIC
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR};${CMAKE_CURRENT_SOURCE_DIR}>"
-  "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/cmp0022>"
-)
-cmake_policy(SET CMP0022 NEW)
 add_library(cmp0022NEW SHARED cmp0022_vs6_1.cpp)
-set_property(TARGET cmp0022NEW PROPERTY DEFINE_SYMBOL cmp0022OLD_EXPORTS)
+generate_export_header(cmp0022NEW BASE_NAME cmp0022)
 target_include_directories(cmp0022NEW PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR};${CMAKE_CURRENT_SOURCE_DIR}>"
   "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include/cmp0022>"
 )
-cmake_policy(POP)
 install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/cmp0022.h"
   "${CMAKE_CURRENT_BINARY_DIR}/cmp0022_export.h"
@@ -344,11 +428,16 @@ install(FILES
 
 set_property(TARGET testLib2 APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS USING_TESTLIB2)
 set_property(TARGET testLib3 APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS USING_TESTLIB3)
+set_target_properties(testLib3 PROPERTIES
+  EXPORT_PROPERTIES "EXPORTED_PROPERTY1"
+  EXPORTED_PROPERTY1 "EXPORTING_TESTLIB3")
+set_target_properties(testLib4 PROPERTIES
+  EXPORTED_PROPERTY2 "EXPORTING_TESTLIB4_1"
+  EXPORTED_PROPERTY3 "EXPORTING_TESTLIB4_2")
+set_property(TARGET testLib4 PROPERTY
+  EXPORT_PROPERTIES EXPORTED_PROPERTY2 EXPORTED_PROPERTY3)
 
 set_property(TARGET cmp0022NEW APPEND PROPERTY INTERFACE_LINK_LIBRARIES testLib2)
-# set_property(TARGET cmp0022NEW APPEND PROPERTY LINK_INTERFACE_LIBRARIES testLibIncludeRequired2) # TODO: Test for error
-set_property(TARGET cmp0022OLD APPEND PROPERTY INTERFACE_LINK_LIBRARIES testLib2)
-set_property(TARGET cmp0022OLD APPEND PROPERTY LINK_INTERFACE_LIBRARIES testLib3)
 
 add_library(noIncludesInterface empty.cpp)
 
@@ -359,6 +448,13 @@ target_include_directories(systemlib
     $<INSTALL_INTERFACE:include/systemlib>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 )
+
+add_library(testMod1 MODULE empty.cpp)
+add_library(testMod2 MODULE empty.cpp)
+set_property(TARGET testMod2 PROPERTY BUNDLE 1)
+
+add_library(testSharedObjectAIX SHARED testSharedObjectAIX.c)
+set_property(TARGET testSharedObjectAIX PROPERTY AIX_SHARED_LIBRARY_ARCHIVE 0)
 
 install(TARGETS testLibRequired
         EXPORT RequiredExp DESTINATION lib
@@ -481,20 +577,38 @@ install(FILES
 # Install and export from install tree.
 install(
   TARGETS
+  compileOnly
+  noUses
   testExe1 testLib1 testLib2 testExe2 testLib3 testLib4 testExe3 testExe4
   testExe2lib testLib4lib testLib4libdbg testLib4libopt
-  testLib6 testLib7 ${maybe_testLib8}
+  testLib6 testLib7 testLib8
+  testLib9
+  testLib10 testLib11
+  testLibDeprecation
   testLibCycleA testLibCycleB
   testLibNoSONAME
-  cmp0022NEW cmp0022OLD
+  testStaticLibWithPlugin testStaticLibPluginExtra testStaticLibPlugin
+  testSharedLibWithHelper testSharedLibHelperObj
+  testExeWithPluginHelper testExePluginHelperObj
+  testMod1 testMod2
+  cmp0022NEW
+  TopDirLib SubDirLinkA
   systemlib
+  testInterfaceIncludeUser
+  testInterfaceIncludeUser2
+  testSharedObjectAIX
   EXPORT exp
-  RUNTIME DESTINATION $<1:bin>
-  LIBRARY DESTINATION $<1:lib> NAMELINK_SKIP
-  ARCHIVE DESTINATION $<1:lib>
-  OBJECTS DESTINATION $<1:lib>
+  RUNTIME DESTINATION $<1:bin>$<0:/wrong>
+  LIBRARY DESTINATION $<1:lib>$<0:/wrong> NAMELINK_SKIP
+  ARCHIVE DESTINATION $<1:lib>$<0:/wrong>
+  ${maybe_OBJECTS_DESTINATION}
   FRAMEWORK DESTINATION Frameworks
   BUNDLE DESTINATION Applications
+  )
+install(
+  TARGETS
+  testLib9ObjPub testLib9ObjPriv testLib9ObjIface
+  EXPORT exp
   )
 if (APPLE)
   file(COPY testLib4.h DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/testLib4.framework/Headers)
@@ -525,7 +639,7 @@ install(
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   )
-install(EXPORT exp NAMESPACE exp_ DESTINATION lib/exp)
+install(EXPORT exp NAMESPACE exp_ DESTINATION lib/exp EXPORT_PACKAGE_DEPENDENCIES)
 
 # Install testLib5.dll outside the export.
 if(WIN32)
@@ -539,17 +653,28 @@ export(TARGETS testExe1 testLib1 testLib2 testLib3
   testExe2libImp testLib3Imp testLib3ImpDep subdirlib
   testSharedLibRequired testSharedLibRequiredUser testSharedLibRequiredUser2
   testSharedLibDepends renamed_on_export
-  cmp0022NEW cmp0022OLD
-  systemlib
+  cmp0022NEW
+  TopDirLib SubDirLinkA
+  systemlib noUses
+  testInterfaceIncludeUser
+  testInterfaceIncludeUser2
   NAMESPACE bld_
   FILE ExportBuildTree.cmake
   )
 export(TARGETS testExe2 testLib4 testLib5 testLib6 testLib7 testExe3 testExe4 testExe2lib
-  ${maybe_testLib8}
+  testLib8
+  testLib9 testLib9ObjPub testLib9ObjPriv testLib9ObjIface
+  testLib10 testLib11
+  testLibDeprecation
   testLib4lib testLib4libdbg testLib4libopt
   testLibCycleA testLibCycleB
   testLibNoSONAME
+  testStaticLibWithPlugin testStaticLibPluginExtra testStaticLibPlugin
+  testSharedLibWithHelper testSharedLibHelperObj
+  testExeWithPluginHelper testExePluginHelperObj
+  testMod1 testMod2
   testLibPerConfigDest
+  testSharedObjectAIX
   NAMESPACE bld_
   APPEND FILE ExportBuildTree.cmake
   )
@@ -570,3 +695,73 @@ install(
   )
 install(DIRECTORY $<1:include/abs>$<0:/wrong> DESTINATION $<1:include>$<0:/wrong>)
 install(EXPORT expAbs NAMESPACE expAbs_ DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/expAbs)
+
+
+#------------------------------------------------------------------------------
+# test export of INTERFACE_LINK_OPTIONS
+add_library(testLinkOptions INTERFACE)
+target_link_options(testLinkOptions INTERFACE INTERFACE_FLAG)
+
+install(TARGETS testLinkOptions
+        EXPORT RequiredExp DESTINATION lib)
+export(TARGETS testLinkOptions NAMESPACE bld_ APPEND FILE ExportBuildTree.cmake)
+
+
+#------------------------------------------------------------------------------
+# test export of INTERFACE_LINK_DIRECTORIES
+add_library(testLinkDirectories INTERFACE)
+target_link_directories(testLinkDirectories INTERFACE
+  $<BUILD_INTERFACE:/interface/build>
+  $<INSTALL_INTERFACE:interface/install>)
+
+install(TARGETS testLinkDirectories
+        EXPORT RequiredExp DESTINATION lib)
+export(TARGETS testLinkDirectories NAMESPACE bld_ APPEND FILE ExportBuildTree.cmake)
+
+
+#------------------------------------------------------------------------------
+# test export of INTERFACE_LINK_DEPENDS
+if(CMAKE_GENERATOR MATCHES "Make|Ninja|FASTBuild")
+  add_library(testLinkDepends INTERFACE)
+  set_property(TARGET testLinkDepends PROPERTY INTERFACE_LINK_DEPENDS
+    $<BUILD_INTERFACE:BUILD_LINK_DEPENDS>
+    $<INSTALL_INTERFACE:INSTALL_LINK_DEPENDS>)
+
+  install(TARGETS testLinkDepends
+    EXPORT RequiredExp DESTINATION lib)
+  export(TARGETS testLinkDepends NAMESPACE bld_ APPEND FILE ExportBuildTree.cmake)
+endif()
+
+#------------------------------------------------------------------------------
+# test export of CUDA language
+if(CMake_TEST_CUDA)
+  enable_language(CUDA)
+  add_library(cudaInterfaceLib INTERFACE)
+  target_compile_features(cudaInterfaceLib INTERFACE $<BUILD_INTERFACE:cuda_std_11> $<INSTALL_INTERFACE:cuda_std_14>)
+
+  install(TARGETS cudaInterfaceLib
+    EXPORT RequiredExp DESTINATION lib)
+  export(TARGETS cudaInterfaceLib NAMESPACE bld_ APPEND FILE ExportBuildTree.cmake)
+endif()
+
+# Test the presence of targets named the same as languages.
+# IMPORTED_LINK_INTERFACE_LANGUAGES entries should not be targets.
+add_library(C INTERFACE)
+add_library(CXX INTERFACE)
+
+#------------------------------------------------------------------------------
+# test export of targets built from sources named using $<CONFIG> generator-expression
+# FIXME: Enable test on Xcode generator when it supports per-config sources.
+if(NOT XCODE)
+  file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/Generated_$<CONFIG>.cpp" CONTENT "// content")
+  add_library(testStaticFromGeneratedSource STATIC)
+  target_sources(testStaticFromGeneratedSource PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Generated_$<CONFIG>.cpp")
+
+  add_library(testLibFromGeneratedSource SHARED empty.cpp)
+  target_link_libraries(testLibFromGeneratedSource PRIVATE testStaticFromGeneratedSource)
+
+  install(TARGETS testLibFromGeneratedSource EXPORT testLibFromGeneratedSource_Export)
+  install(EXPORT testLibFromGeneratedSource_Export DESTINATION lib)
+endif()
+
+add_subdirectory(install-RUNTIME_DEPENDENCY_SET)

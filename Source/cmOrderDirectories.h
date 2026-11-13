@@ -1,16 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmOrderDirectories_h
-#define cmOrderDirectories_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmsys/RegularExpression.hxx"
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "cmsys/RegularExpression.hxx"
 
 class cmGeneratorTarget;
 class cmGlobalGenerator;
@@ -23,10 +24,12 @@ class cmOrderDirectories
 {
 public:
   cmOrderDirectories(cmGlobalGenerator* gg, cmGeneratorTarget const* target,
-                     const char* purpose);
+                     char const* purpose);
   ~cmOrderDirectories();
+  cmOrderDirectories(cmOrderDirectories const&) = delete;
+  cmOrderDirectories& operator=(cmOrderDirectories const&) = delete;
   void AddRuntimeLibrary(std::string const& fullPath,
-                         const char* soname = CM_NULLPTR);
+                         char const* soname = nullptr);
   void AddLinkLibrary(std::string const& fullPath);
   void AddUserDirectories(std::vector<std::string> const& extra);
   void AddLanguageDirectories(std::vector<std::string> const& dirs);
@@ -43,15 +46,16 @@ private:
 
   std::vector<std::string> OrderedDirectories;
 
-  std::vector<cmOrderDirectoriesConstraint*> ConstraintEntries;
-  std::vector<cmOrderDirectoriesConstraint*> ImplicitDirEntries;
+  std::vector<std::unique_ptr<cmOrderDirectoriesConstraint>> ConstraintEntries;
+  std::vector<std::unique_ptr<cmOrderDirectoriesConstraint>>
+    ImplicitDirEntries;
   std::vector<std::string> UserDirectories;
   std::vector<std::string> LanguageDirectories;
   cmsys::RegularExpression RemoveLibraryExtension;
   std::vector<std::string> LinkExtensions;
   std::set<std::string> ImplicitDirectories;
-  std::set<std::string> EmmittedConstraintSOName;
-  std::set<std::string> EmmittedConstraintLibrary;
+  std::set<std::string> EmittedConstraintSOName;
+  std::set<std::string> EmittedConstraintLibrary;
   std::vector<std::string> OriginalDirectories;
   std::map<std::string, int> DirectoryIndex;
   std::vector<int> DirectoryVisited;
@@ -73,7 +77,7 @@ private:
   // the index of the directory that must come first.  The second
   // element is the index of the runtime library that added the
   // constraint.
-  typedef std::pair<int, int> ConflictPair;
+  using ConflictPair = std::pair<int, int>;
   struct ConflictList : public std::vector<ConflictPair>
   {
   };
@@ -90,5 +94,3 @@ private:
   friend class cmOrderDirectoriesConstraint;
   friend class cmOrderDirectoriesConstraintLibrary;
 };
-
-#endif

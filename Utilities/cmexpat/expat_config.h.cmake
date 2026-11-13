@@ -1,10 +1,16 @@
-/* expat_config.h.in.  Generated from configure.in by autoheader.  */
+/* expat_config.h.cmake.  Based upon generated expat_config.h.in.  */
+
+#ifndef EXPAT_CONFIG_H
+#  define EXPAT_CONFIG_H 1
 
 /* 1234 = LIL_ENDIAN, 4321 = BIGENDIAN */
 #cmakedefine BYTEORDER @BYTEORDER@
 
-/* Define to 1 if you have the `bcopy' function. */
-#cmakedefine HAVE_BCOPY
+/* Define to 1 if you have the `arc4random' function. */
+#cmakedefine HAVE_ARC4RANDOM
+
+/* Define to 1 if you have the `arc4random_buf' function. */
+#cmakedefine HAVE_ARC4RANDOM_BUF
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #cmakedefine HAVE_DLFCN_H
@@ -15,11 +21,14 @@
 /* Define to 1 if you have the `getpagesize' function. */
 #cmakedefine HAVE_GETPAGESIZE
 
+/* Define to 1 if you have the `getrandom' function. */
+#cmakedefine HAVE_GETRANDOM
+
+/* Define to 1 if you have the `getentropy' function. */
+#cmakedefine HAVE_GETENTROPY
+
 /* Define to 1 if you have the <inttypes.h> header file. */
 #cmakedefine HAVE_INTTYPES_H
-
-/* Define to 1 if you have the `memmove' function. */
-#cmakedefine HAVE_MEMMOVE
 
 /* Define to 1 if you have the <memory.h> header file. */
 #cmakedefine HAVE_MEMORY_H
@@ -39,6 +48,9 @@
 /* Define to 1 if you have the <string.h> header file. */
 #cmakedefine HAVE_STRING_H
 
+/* Define to 1 if you have `syscall' and `SYS_getrandom'. */
+#cmakedefine HAVE_SYSCALL_GETRANDOM
+
 /* Define to 1 if you have the <sys/stat.h> header file. */
 #cmakedefine HAVE_SYS_STAT_H
 
@@ -49,28 +61,34 @@
 #cmakedefine HAVE_UNISTD_H
 
 /* Define to 1 if you have the ANSI C header files. */
+#  ifndef STDC_HEADERS
 #cmakedefine STDC_HEADERS
+#  endif
 
 /* whether byteorder is bigendian */
 #cmakedefine WORDS_BIGENDIAN
 
 /* Define to specify how much context to retain around the current parse
-   point. */
-#define XML_CONTEXT_BYTES 1024
+   point, 0 to disable. */
+#  define XML_CONTEXT_BYTES 1024
+
+#  if ! defined(_WIN32)
+/* Define to include code reading entropy from `/dev/urandom'. */
+#cmakedefine XML_DEV_URANDOM
+#  endif
 
 /* Define to make parameter entity parsing functionality available. */
 /* #undef XML_DTD */
+
+/* Define as 1/0 to enable/disable support for general entities. */
+#  define XML_GE 0
 
 /* Define to make XML Namespaces functionality available. */
 /* #undef XML_NS */
 
 /* Define to __FUNCTION__ or "" if `__func__' does not conform to ANSI C. */
-#ifdef _MSC_VER
-# define __func__ __FUNCTION__
-#endif
+#  ifdef _MSC_VER
+#    define __func__ __FUNCTION__
+#  endif
 
-/* Define to `long' if <sys/types.h> does not define. */
-#cmakedefine off_t @OFF_T@
-
-/* Define to `unsigned' if <sys/types.h> does not define. */
-#cmakedefine size_t @SIZE_T@
+#endif // ndef EXPAT_CONFIG_H

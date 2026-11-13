@@ -4,13 +4,22 @@
 # are working the executable should relink with the new
 # value.  The subdir Project contains the CMakelists.txt
 # and source files for the test project.
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 3.10)
 project(BuildDepends)
 
 # This entire test takes place during the initial
 # configure step.  It should not run again when the
 # project is built.
 set(CMAKE_SUPPRESS_REGENERATION 1)
+
+if(CMAKE_GENERATOR MATCHES "Visual Studio" AND CMAKE_VS_PLATFORM_TOOLSET MATCHES "^(v90|v100|v110|v120|v140)$")
+  # These toolsets update 'link_depends_no_shared_lib.lib' during rebuild in Release mode.
+  set(config Debug)
+else()
+  # Some toolsets update 'link_depends_no_shared_lib.pdb' during rebuild in Debug mode.
+  set(config Release)
+endif()
+set(CMAKE_TRY_COMPILE_CONFIGURATION "${config}")
 
 # Xcode needs some help with the fancy dependencies in this test.
 if(XCODE AND XCODE_VERSION VERSION_LESS 5)
@@ -34,7 +43,7 @@ if(WIN32 AND "${CMAKE_CXX_COMPILER_ID}" MATCHES "Intel")
   set(_cmake_options "-DCMAKE_EXE_LINKER_FLAGS=")
 endif()
 
-if("${CMAKE_GENERATOR}" MATCHES "Make|Ninja")
+if("${CMAKE_GENERATOR}" MATCHES "Make|Ninja|FASTBuild")
   set(TEST_LINK_DEPENDS ${BuildDepends_BINARY_DIR}/Project/linkdep.txt)
   file(WRITE ${TEST_LINK_DEPENDS} "1")
 endif()
@@ -42,9 +51,13 @@ list(APPEND _cmake_options "-DTEST_LINK_DEPENDS=${TEST_LINK_DEPENDS}")
 
 list(APPEND _cmake_options "-DCMAKE_FORCE_DEPFILES=1")
 
-if(NOT CMAKE_GENERATOR MATCHES "Visual Studio ([^89]|[89][0-9])")
+if(NOT CMAKE_GENERATOR MATCHES "Visual Studio")
   set(TEST_MULTI3 1)
   list(APPEND _cmake_options "-DTEST_MULTI3=1")
+endif()
+
+if (APPLE)
+  list(APPEND _cmake_options "-DCMake_TEST_XCODE_VERSION=${CMake_TEST_XCODE_VERSION}")
 endif()
 
 file(MAKE_DIRECTORY ${BuildDepends_BINARY_DIR}/Project)
@@ -62,6 +75,12 @@ file(WRITE ${BuildDepends_BINARY_DIR}/Project/zot_macro_dir.hxx
   "static const char* zot_macro_dir = \"zot_macro_dir\";\n")
 file(WRITE ${BuildDepends_BINARY_DIR}/Project/zot_macro_tgt.hxx
   "static const char* zot_macro_tgt = \"zot_macro_tgt\";\n")
+file(WRITE ${BuildDepends_BINARY_DIR}/Project/zot_pch.hxx
+  "#ifndef ZOT_PCH_HXX\n"
+  "#define ZOT_PCH_HXX\n"
+  "static const char* zot_pch = \"zot_pch\";\n"
+  "#endif\n"
+  )
 
 file(WRITE ${BuildDepends_BINARY_DIR}/Project/link_depends_no_shared_lib.h
   "#define link_depends_no_shared_lib_value 1\n")
@@ -107,10 +126,10 @@ endif()
 # find and save the ninjadep executable
 set(ninjadep ${BuildDepends_BINARY_DIR}/Project/ninjadep${CMAKE_EXECUTABLE_SUFFIX})
 if(EXISTS
-    "${BuildDepends_BINARY_DIR}/Project/Debug/ninjadep${CMAKE_EXECUTABLE_SUFFIX}" )
-  message("found debug")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/ninjadep${CMAKE_EXECUTABLE_SUFFIX}" )
+  message("found ${config}/ninjadep${CMAKE_EXECUTABLE_SUFFIX}")
   set(ninjadep
-    "${BuildDepends_BINARY_DIR}/Project/Debug/ninjadep${CMAKE_EXECUTABLE_SUFFIX}")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/ninjadep${CMAKE_EXECUTABLE_SUFFIX}")
 endif()
 message("Running ${ninjadep}  ")
 execute_process(COMMAND ${ninjadep} OUTPUT_VARIABLE out RESULT_VARIABLE runResult)
@@ -126,17 +145,17 @@ endif()
 
 set(bar ${BuildDepends_BINARY_DIR}/Project/bar${CMAKE_EXECUTABLE_SUFFIX})
 if(EXISTS
-    "${BuildDepends_BINARY_DIR}/Project/Debug/bar${CMAKE_EXECUTABLE_SUFFIX}" )
-  message("found debug")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/bar${CMAKE_EXECUTABLE_SUFFIX}" )
+  message("found ${config}/bar${CMAKE_EXECUTABLE_SUFFIX}")
   set(bar
-    "${BuildDepends_BINARY_DIR}/Project/Debug/bar${CMAKE_EXECUTABLE_SUFFIX}")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/bar${CMAKE_EXECUTABLE_SUFFIX}")
 endif()
 set(zot ${BuildDepends_BINARY_DIR}/Project/zot${CMAKE_EXECUTABLE_SUFFIX})
 if(EXISTS
-    "${BuildDepends_BINARY_DIR}/Project/Debug/zot${CMAKE_EXECUTABLE_SUFFIX}" )
-  message("found debug")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/zot${CMAKE_EXECUTABLE_SUFFIX}" )
+  message("found ${config}/zot${CMAKE_EXECUTABLE_SUFFIX}")
   set(zot
-    "${BuildDepends_BINARY_DIR}/Project/Debug/zot${CMAKE_EXECUTABLE_SUFFIX}")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/zot${CMAKE_EXECUTABLE_SUFFIX}")
 endif()
 
 message("Running ${bar}  ")
@@ -155,7 +174,7 @@ execute_process(COMMAND ${zot} OUTPUT_VARIABLE out RESULT_VARIABLE runResult)
 string(REGEX REPLACE "[\r\n]" " " out "${out}")
 message("Run result: ${runResult} Output: \"${out}\"")
 
-set(VALUE_UNCHANGED "[zot] [zot_custom] [zot_macro_dir] [zot_macro_tgt] ")
+set(VALUE_UNCHANGED "[zot] [zot_custom] [zot_macro_dir] [zot_macro_tgt] [zot_pch] ")
 if("${out}" STREQUAL "${VALUE_UNCHANGED}")
   message("Worked!")
 else()
@@ -245,6 +264,12 @@ file(WRITE ${BuildDepends_BINARY_DIR}/Project/zot_macro_dir.hxx
   "static const char* zot_macro_dir = \"zot_macro_dir changed\";\n")
 file(WRITE ${BuildDepends_BINARY_DIR}/Project/zot_macro_tgt.hxx
   "static const char* zot_macro_tgt = \"zot_macro_tgt changed\";\n")
+file(WRITE ${BuildDepends_BINARY_DIR}/Project/zot_pch.hxx
+  "#ifndef ZOT_PCH_HXX\n"
+  "#define ZOT_PCH_HXX\n"
+  "static const char* zot_pch = \"zot_pch changed\";\n"
+  "#endif\n"
+  )
 
 file(WRITE ${BuildDepends_BINARY_DIR}/Project/link_depends_no_shared_lib.h
   "#define link_depends_no_shared_lib_value 0\n")
@@ -289,12 +314,12 @@ if(NOT RESULT)
   message(SEND_ERROR "Could not build test project (2)!")
 endif()
 if(EXISTS
-    "${BuildDepends_BINARY_DIR}/Project/Debug/bar${CMAKE_EXECUTABLE_SUFFIX}" )
-  message("found debug")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/bar${CMAKE_EXECUTABLE_SUFFIX}" )
+  message("found ${config}/bar${CMAKE_EXECUTABLE_SUFFIX}")
 endif()
 if(EXISTS
-    "${BuildDepends_BINARY_DIR}/Project/Debug/zot${CMAKE_EXECUTABLE_SUFFIX}" )
-  message("found debug")
+    "${BuildDepends_BINARY_DIR}/Project/${config}/zot${CMAKE_EXECUTABLE_SUFFIX}" )
+  message("found ${config}/zot${CMAKE_EXECUTABLE_SUFFIX}")
 endif()
 
 message("Running ${ninjadep}  ")
@@ -326,7 +351,7 @@ string(REGEX REPLACE "[\r\n]" " " out "${out}")
 message("Run result: ${runResult} Output: \"${out}\"")
 
 set(VALUE_CHANGED
-  "[zot changed] [zot_custom changed] [zot_macro_dir changed] [zot_macro_tgt changed] "
+  "[zot changed] [zot_custom changed] [zot_macro_dir changed] [zot_macro_tgt changed] [zot_pch changed] "
   )
 if("${out}" STREQUAL "${VALUE_CHANGED}")
   message("Worked!")
@@ -341,6 +366,39 @@ if(TEST_LINK_DEPENDS)
   else()
     message(SEND_ERROR "LINK_DEPENDS failed.  Executable
   ${linkdep}
+is not newer than dependency
+  ${TEST_LINK_DEPENDS}
+")
+  endif()
+
+  set(linkdep2 ${BuildDepends_BINARY_DIR}/Project/linkdep2${CMAKE_EXECUTABLE_SUFFIX})
+  if(${linkdep2} IS_NEWER_THAN ${TEST_LINK_DEPENDS})
+    message("INTERFACE_LINK_DEPENDS worked")
+  else()
+    message(SEND_ERROR "INTERFACE_LINK_DEPENDS failed.  Executable
+  ${linkdep2}
+is not newer than dependency
+  ${TEST_LINK_DEPENDS}
+")
+  endif()
+
+  set(linkdep3 ${BuildDepends_BINARY_DIR}/Project/linkdep3${CMAKE_EXECUTABLE_SUFFIX})
+  if(${linkdep3} IS_NEWER_THAN ${TEST_LINK_DEPENDS})
+    message("$<LINK_LANGUAGE> in LINK_DEPENDS worked")
+  else()
+    message(SEND_ERROR "$<LINK_LANGUAGE> in LINK_DEPENDS failed.  Executable
+  ${linkdep3}
+is not newer than dependency
+  ${TEST_LINK_DEPENDS}
+")
+  endif()
+
+  set(linkdep4 ${BuildDepends_BINARY_DIR}/Project/linkdep4${CMAKE_EXECUTABLE_SUFFIX})
+  if(${linkdep4} IS_NEWER_THAN ${TEST_LINK_DEPENDS})
+    message("$<LINK_LANGUAGE> in INTERFACE_LINK_DEPENDS worked")
+  else()
+    message(SEND_ERROR "$<LINK_LANGUAGE> in INTERFACE_LINK_DEPENDS failed.  Executable
+  ${linkdep4}
 is not newer than dependency
   ${TEST_LINK_DEPENDS}
 ")

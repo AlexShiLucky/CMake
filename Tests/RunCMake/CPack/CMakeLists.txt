@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10)
 
 set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "")
 
@@ -15,3 +15,7 @@ include(tests/${RunCMake_TEST_FILE_PREFIX}/test.cmake)
 
 set(CPACK_GENERATOR "${GENERATOR_TYPE}")
 include(CPack)
+
+if(COMMAND run_after_include_cpack)
+  run_after_include_cpack()
+endif()

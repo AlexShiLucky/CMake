@@ -1,82 +1,114 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestHandlerCommand_h
-#define cmCTestHandlerCommand_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmCTestCommand.h"
-
-#include <stddef.h>
+#include <functional>
+#include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
-class cmCTestGenericHandler;
-class cmExecutionStatus;
+#include <cm/string_view>
+#include <cmext/string_view>
 
-/** \class cmCTestHandler
- * \brief Run a ctest script
- *
- * cmCTestHandlerCommand defineds the command to test the project.
- */
+#include "cmArgumentParser.h"
+#include "cmCTestCommand.h"
+
+class cmExecutionStatus;
+class cmCTestGenericHandler;
+
 class cmCTestHandlerCommand : public cmCTestCommand
 {
 public:
-  cmCTestHandlerCommand();
+  using cmCTestCommand::cmCTestCommand;
 
-  /**
-   * The name of the command as specified in CMakeList.txt.
-   */
-  virtual std::string GetName() const = 0;
-
-  /**
-   * This is called when the command is first encountered in
-   * the CMakeLists.txt file.
-   */
-  bool InitialPass(std::vector<std::string> const& args,
-                   cmExecutionStatus& status) CM_OVERRIDE;
-
-  enum
+  enum class PresetCheckResult
   {
-    ct_NONE,
-    ct_RETURN_VALUE,
-    ct_CAPTURE_CMAKE_ERROR,
-    ct_BUILD,
-    ct_SOURCE,
-    ct_SUBMIT_INDEX,
-    ct_LAST
+    Found,
+    NotFound,
+    ReadError,
   };
 
 protected:
-  virtual cmCTestGenericHandler* InitializeHandler() = 0;
-
-  virtual void ProcessAdditionalValues(cmCTestGenericHandler* handler);
-
-  // Command argument handling.
-  virtual bool CheckArgumentKeyword(std::string const& arg);
-  virtual bool CheckArgumentValue(std::string const& arg);
-  enum
+  struct BasicArguments : ArgumentParser::ParseResult
   {
-    ArgumentDoingNone,
-    ArgumentDoingError,
-    ArgumentDoingKeyword,
-    ArgumentDoingLast1
+    std::string CaptureCMakeError;
+    std::vector<cm::string_view> ParsedKeywords;
   };
-  int ArgumentDoing;
-  unsigned int ArgumentIndex;
 
-  bool AppendXML;
-  bool Quiet;
+  template <typename Args>
+  static auto MakeBasicParser() -> cmArgumentParser<Args>
+  {
+    static_assert(std::is_base_of<BasicArguments, Args>::value, "");
+    return cmArgumentParser<Args>{}
+      .Bind("CAPTURE_CMAKE_ERROR"_s, &BasicArguments::CaptureCMakeError)
+      .BindParsedKeywords(&BasicArguments::ParsedKeywords);
+  }
 
-  std::string ReturnVariable;
-  std::vector<const char*> Arguments;
-  std::vector<const char*> Values;
-  size_t Last;
+  struct HandlerArguments : BasicArguments
+  {
+    bool Append = false;
+    bool Quiet = false;
+    std::string ReturnValue;
+    std::string Build;
+    std::string Source;
+    std::string SubmitIndex;
+  };
+
+  template <typename Args>
+  static auto MakeHandlerParser() -> cmArgumentParser<Args>
+  {
+    static_assert(std::is_base_of<HandlerArguments, Args>::value, "");
+    return cmArgumentParser<Args>{ MakeBasicParser<Args>() }
+      .Bind("APPEND"_s, &HandlerArguments::Append)
+      .Bind("QUIET"_s, &HandlerArguments::Quiet)
+      .Bind("RETURN_VALUE"_s, &HandlerArguments::ReturnValue)
+      .Bind("SOURCE"_s, &HandlerArguments::Source)
+      .Bind("BUILD"_s, &HandlerArguments::Build)
+      .Bind("SUBMIT_INDEX"_s, &HandlerArguments::SubmitIndex);
+  }
+
+protected:
+  template <typename Args, typename Handler>
+  bool Invoke(cmArgumentParser<Args> const& parser,
+              std::vector<std::string> const& arguments,
+              cmExecutionStatus& status, Handler handler) const
+  {
+    std::vector<std::string> unparsed;
+    Args args = parser.Parse(arguments, &unparsed);
+    return this->InvokeImpl(args, unparsed, status,
+                            [&]() -> bool { return handler(args); });
+  };
+
+  bool ExecuteHandlerCommand(HandlerArguments& args,
+                             cmExecutionStatus& status) const;
+
+  static PresetCheckResult BuildPresetExists(std::string const& name,
+                                             std::string const& sourceDir,
+                                             std::string const& presetsFile,
+                                             std::string& errorMessage);
+  static PresetCheckResult TestPresetExists(std::string const& name,
+                                            std::string const& sourceDir,
+                                            std::string const& presetsFile,
+                                            std::string& errorMessage);
+
+private:
+  bool InvokeImpl(BasicArguments& args,
+                  std::vector<std::string> const& unparsed,
+                  cmExecutionStatus& status,
+                  std::function<bool()> handler) const;
+
+  virtual std::string GetName() const = 0;
+
+  virtual void CheckArguments(HandlerArguments& arguments,
+                              cmExecutionStatus& status) const;
+
+  virtual std::unique_ptr<cmCTestGenericHandler> InitializeHandler(
+    HandlerArguments& arguments, cmExecutionStatus& status) const;
+
+  virtual void ProcessAdditionalValues(cmCTestGenericHandler*,
+                                       HandlerArguments const& arguments,
+                                       cmExecutionStatus& status) const;
 };
-
-#define CTEST_COMMAND_APPEND_OPTION_DOCS                                      \
-  "The APPEND option marks results for append to those previously "           \
-  "submitted to a dashboard server since the last ctest_start.  "             \
-  "Append semantics are defined by the dashboard server in use."
-
-#endif

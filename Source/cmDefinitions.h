@@ -1,15 +1,18 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmDefinitions_h
-#define cmDefinitions_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include <cm/string_view>
+
 #include "cmLinkedTree.h"
-#include "cm_unordered_map.hxx"
+#include "cmString.hxx"
+#include "cmValue.h"
 
 /** \class cmDefinitions
  * \brief Store a scope of variable definitions for CMake language.
@@ -20,61 +23,52 @@
  */
 class cmDefinitions
 {
-  typedef cmLinkedTree<cmDefinitions>::iterator StackIter;
+  using StackIter = cmLinkedTree<cmDefinitions>::iterator;
 
 public:
-  static const char* Get(const std::string& key, StackIter begin,
-                         StackIter end);
+  // -- Static member functions
 
-  static void Raise(const std::string& key, StackIter begin, StackIter end);
+  static cmValue Get(std::string const& key, StackIter begin, StackIter end);
 
-  static bool HasKey(const std::string& key, StackIter begin, StackIter end);
+  static void Raise(std::string const& key, StackIter begin, StackIter end);
 
-  /** Set (or unset if null) a value associated with a key.  */
-  void Set(const std::string& key, const char* value);
+  static bool HasKey(std::string const& key, StackIter begin, StackIter end);
 
-  std::vector<std::string> UnusedKeys() const;
+  enum class UnsetKeys
+  {
+    Exclude,
+    Include,
+  };
 
-  static std::vector<std::string> ClosureKeys(StackIter begin, StackIter end);
+  static std::vector<std::string> ClosureKeys(
+    StackIter begin, StackIter end, UnsetKeys unsetKeys = UnsetKeys::Exclude);
 
   static cmDefinitions MakeClosure(StackIter begin, StackIter end);
 
-private:
-  // String with existence boolean.
-  struct Def : public std::string
-  {
-  private:
-    typedef std::string std_string;
+  // -- Member functions
 
+  /** Set a value associated with a key.  */
+  void Set(std::string const& key, cm::string_view value);
+
+  /** Unset a definition.  */
+  void Unset(std::string const& key);
+
+private:
+  /** String with existence boolean.  */
+  struct Def
+  {
   public:
-    Def()
-      : std_string()
-      , Exists(false)
-      , Used(false)
+    Def() = default;
+    Def(cm::string_view value)
+      : Value(value)
     {
     }
-    Def(const char* v)
-      : std_string(v ? v : "")
-      , Exists(v ? true : false)
-      , Used(false)
-    {
-    }
-    Def(const std_string& v)
-      : std_string(v)
-      , Exists(true)
-      , Used(false)
-    {
-    }
-    bool Exists;
-    bool Used;
+    cm::String Value;
   };
   static Def NoDef;
 
-  typedef CM_UNORDERED_MAP<std::string, Def> MapType;
-  MapType Map;
+  std::unordered_map<cm::String, Def> Map;
 
-  static Def const& GetInternal(const std::string& key, StackIter begin,
+  static Def const& GetInternal(std::string const& key, StackIter begin,
                                 StackIter end, bool raise);
 };
-
-#endif

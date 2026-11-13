@@ -1,7 +1,6 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmParseJacocoCoverage_h
-#define cmParseJacocoCoverage_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
@@ -36,7 +35,7 @@ private:
   // remove files with no coverage
   void RemoveUnCoveredFiles();
   // Read a single mcov file
-  bool ReadJacocoXML(const char* f);
+  bool ReadJacocoXML(char const* f);
   // split a string based on ,
   bool SplitString(std::vector<std::string>& args, std::string const& line);
   bool FindJavaFile(std::string const& routine, std::string& filepath);
@@ -49,5 +48,3 @@ private:
   cmCTestCoverageHandlerContainer& Coverage;
   cmCTest* CTest;
 };
-
-#endif

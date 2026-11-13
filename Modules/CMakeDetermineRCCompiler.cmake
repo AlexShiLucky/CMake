@@ -1,5 +1,5 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 # determine the compiler to use for RC programs
@@ -13,11 +13,11 @@ if(NOT CMAKE_RC_COMPILER)
   if(NOT $ENV{RC} STREQUAL "")
     get_filename_component(CMAKE_RC_COMPILER_INIT $ENV{RC} PROGRAM PROGRAM_ARGS CMAKE_RC_FLAGS_ENV_INIT)
     if(CMAKE_RC_FLAGS_ENV_INIT)
-      set(CMAKE_RC_COMPILER_ARG1 "${CMAKE_RC_FLAGS_ENV_INIT}" CACHE STRING "First argument to RC compiler")
+      set(CMAKE_RC_COMPILER_ARG1 "${CMAKE_RC_FLAGS_ENV_INIT}" CACHE STRING "Arguments to RC compiler")
     endif()
     if(EXISTS ${CMAKE_RC_COMPILER_INIT})
     else()
-      message(FATAL_ERROR "Could not find compiler set in environment variable RC:\n$ENV{RC}.")
+      message(FATAL_ERROR "Could not find the compiler specified in the environment variable RC:\n$ENV{RC}.")
     endif()
   endif()
 
@@ -30,16 +30,19 @@ if(NOT CMAKE_RC_COMPILER)
 
   # finally list compilers to try
   if(CMAKE_RC_COMPILER_INIT)
-    set(CMAKE_RC_COMPILER_LIST ${CMAKE_RC_COMPILER_INIT})
-  else()
-    set(CMAKE_RC_COMPILER_LIST rc)
+    set(_CMAKE_RC_COMPILER_LIST     ${CMAKE_RC_COMPILER_INIT})
+    set(_CMAKE_RC_COMPILER_FALLBACK ${CMAKE_RC_COMPILER_INIT})
+  elseif(NOT _CMAKE_RC_COMPILER_LIST)
+    set(_CMAKE_RC_COMPILER_LIST rc)
   endif()
 
   # Find the compiler.
-  find_program(CMAKE_RC_COMPILER NAMES ${CMAKE_RC_COMPILER_LIST} DOC "RC compiler")
-  if(CMAKE_RC_COMPILER_INIT AND NOT CMAKE_RC_COMPILER)
-    set(CMAKE_RC_COMPILER "${CMAKE_RC_COMPILER_INIT}" CACHE FILEPATH "RC compiler" FORCE)
+  find_program(CMAKE_RC_COMPILER NAMES ${_CMAKE_RC_COMPILER_LIST} DOC "RC compiler")
+  if(_CMAKE_RC_COMPILER_FALLBACK AND NOT CMAKE_RC_COMPILER)
+    set(CMAKE_RC_COMPILER "${_CMAKE_RC_COMPILER_FALLBACK}" CACHE FILEPATH "RC compiler" FORCE)
   endif()
+  unset(_CMAKE_RC_COMPILER_FALLBACK)
+  unset(_CMAKE_RC_COMPILER_LIST)
 endif()
 
 mark_as_advanced(CMAKE_RC_COMPILER)

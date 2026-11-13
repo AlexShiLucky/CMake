@@ -1,6 +1,6 @@
 %{
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 /*-------------------------------------------------------------------------
   Portions of this source have been derived from makedepf90 version 2.8.8,
 
@@ -17,17 +17,17 @@ This file must be translated to C++ and modified to build everywhere.
 
 Run flex >= 2.6 like this:
 
-  flex -i --nounistd -DFLEXINT_H --prefix=cmFortran_yy --header-file=cmFortranLexer.h -ocmFortranLexer.cxx cmFortranLexer.in.l
+  flex -i --nounistd -DFLEXINT_H --noline --header-file=cmFortranLexer.h -ocmFortranLexer.cxx cmFortranLexer.in.l
 
 Modify cmFortranLexer.cxx:
-  - remove trailing whitespace: sed -i 's/\s*$//' cmFortranLexer.h cmFortranLexer.cxx
-  - remove blank lines at end of file
-  - #include "cmStandardLexer.h" at the top
-  - add cast in yy_scan_bytes for loop condition of _yybytes_len to size_t
-
+  - remove trailing whitespace:              sed -i 's/\s*$//' cmFortranLexer.h cmFortranLexer.cxx
+  - remove blank lines at end of file:       sed -i '${/^$/d;}' cmFortranLexer.h cmFortranLexer.cxx
+  - #include "cmStandardLexer.h" at the top: sed -i '1i#include "cmStandardLexer.h"' cmFortranLexer.cxx
 */
 
 /* IWYU pragma: no_forward_declare yyguts_t */
+
+#ifndef __clang_analyzer__ /* Suppress clang-analyzer warnings */
 
 #undef YY_NO_UNPUT
 
@@ -37,7 +37,7 @@ Modify cmFortranLexer.cxx:
 /* Replace the lexer input function.  */
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
-  { result = cmFortranParser_Input(yyextra, buf, max_size); }
+  do { result = cmFortranParser_Input(yyextra, buf, max_size); } while (0)
 
 /* Include the set of tokens from the parser.  */
 #include "cmFortranParserTokens.h"
@@ -45,6 +45,7 @@ Modify cmFortranLexer.cxx:
 /*--------------------------------------------------------------------------*/
 %}
 
+%option prefix="cmFortran_yy"
 
 %option reentrant
 %option noyywrap
@@ -52,6 +53,10 @@ Modify cmFortranLexer.cxx:
 
 %s free_fmt fixed_fmt
 %x str_sq str_dq
+
+ /* Continuation splitting a token, possibly across comment lines.
+    Preprocessors may replace blank lines with line markers.  */
+SPLIT_CONT &[ \t]*(!.*)?\r?\n([ \t]*(!.*|#([ \t]*(line|LINE))?[ \t]*[0-9]+.*)?\r?\n)*[ \t]*&
 
 %%
 
@@ -74,10 +79,10 @@ Modify cmFortranLexer.cxx:
   return STRING;
 }
 
-<str_dq,str_sq>&[ \t]*\n |
-<str_dq,str_sq>&[ \t]*\n[ \t]*&  /* Ignore (continued strings, free fmt) */
+<str_dq,str_sq>&[ \t]*\r?\n |
+<str_dq,str_sq>&[ \t]*\r?\n[ \t]*&  /* Ignore (continued strings, free fmt) */
 
-<fixed_fmt,str_dq,str_sq>\n[ ]{5}[^ \t\n] {
+<fixed_fmt,str_dq,str_sq>\r?\n[ ]{5}[^ \t\r\n] {
   if (cmFortranParser_GetOldStartcond(yyextra) == fixed_fmt)
     ; /* Ignore (cont. strings, fixed fmt) */
   else
@@ -100,28 +105,29 @@ Modify cmFortranLexer.cxx:
 !.*\n                   { return EOSTMT; } /* Treat comments like */
 <fixed_fmt>^[cC*dD].*\n { return EOSTMT; } /* empty lines */
 
-^[ \t]*#([ \t]*line)?[ \t]*[0-9]+[ \t]* { return CPP_LINE_DIRECTIVE; }
-^[ \t]*#[ \t]*include[ \t]*<[^>]+> {
+^[ \t]*#([ \t]*(line|LINE))?[ \t]*[0-9]+[ \t]* { return CPP_LINE_DIRECTIVE; }
+^[ \t]*#[ \t]*(line|LINE)[ \t]*                { return CPP_LINE_DIRECTIVE; }
+^[ \t]*#[ \t]*(include|INCLUDE)[ \t]*<[^>]+>   {
   yytext[yyleng-1] = 0;
   yylvalp->string = strdup(strchr(yytext, '<')+1);
   return CPP_INCLUDE_ANGLE;
 }
-^[ \t]*#[ \t]*include  { return CPP_INCLUDE; }
+^[ \t]*#[ \t]*(include|INCLUDE) { return CPP_INCLUDE; }
 \$[ \t]*include { return F90PPR_INCLUDE; }
 \?\?[ \t]*include { return COCO_INCLUDE; }
 
-^[ \t]*#[ \t]*define   { return CPP_DEFINE; }
+^[ \t]*#[ \t]*(define|DEFINE)   { return CPP_DEFINE; }
 \$[ \t]*DEFINE   { return F90PPR_DEFINE; }
 
-^[ \t]*#[ \t]*undef    { return CPP_UNDEF; }
+^[ \t]*#[ \t]*(undef|UNDEF)     { return CPP_UNDEF; }
 \$[ \t]*UNDEF   { return F90PPR_UNDEF; }
 
-^[ \t]*#[ \t]*ifdef    { return CPP_IFDEF; }
-^[ \t]*#[ \t]*ifndef   { return CPP_IFNDEF; }
-^[ \t]*#[ \t]*if       { return CPP_IF; }
-^[ \t]*#[ \t]*elif     { return CPP_ELIF; }
-^[ \t]*#[ \t]*else     { return CPP_ELSE; }
-^[ \t]*#[ \t]*endif    { return CPP_ENDIF; }
+^[ \t]*#[ \t]*(ifdef|IFDEF)     { return CPP_IFDEF; }
+^[ \t]*#[ \t]*(ifndef|IFNDEF)   { return CPP_IFNDEF; }
+^[ \t]*#[ \t]*(if|IF)           { return CPP_IF; }
+^[ \t]*#[ \t]*(elif|ELIF)       { return CPP_ELIF; }
+^[ \t]*#[ \t]*(else|ELSE)       { return CPP_ELSE; }
+^[ \t]*#[ \t]*(endif|ENDIF)     { return CPP_ENDIF; }
 
 $[ \t]*ifdef    { return F90PPR_IFDEF; }
 $[ \t]*ifndef   { return F90PPR_IFNDEF; }
@@ -130,16 +136,40 @@ $[ \t]*elif     { return F90PPR_ELIF; }
 $[ \t]*else     { return F90PPR_ELSE; }
 $[ \t]*endif    { return F90PPR_ENDIF; }
 
+ /* Rescan a token split by continuation as if written on one line.  */
+[a-zA-Z_][a-zA-Z_0-9]*({SPLIT_CONT}[a-zA-Z_0-9]+)+ {
+  char const* in = yytext;
+  char const* end = yytext + yyleng;
+  int len = 0;
+  while (in < end) {
+    if (*in == '&') {
+      /* Skip to the '&' resuming the token, past comments and markers.  */
+      do {
+        in = (char const*)memchr(in, '\n', end - in) + 1;
+        in += strspn(in, " \t");
+      } while (*in != '&');
+    } else {
+      yytext[len++] = *in;
+    }
+    ++in;
+  }
+  /* unput eats yytext from the end, so the shorter token stays intact.  */
+  while (len > 0) {
+    unput(yytext[--len]);
+  }
+}
+
  /* Line continuations, possible involving comments.  */
-&([ \t\n]*|!.*)*
-&([ \t\n]*|!.*)*&
+&([ \t\r\n]*|!.*)*
+&([ \t\r\n]*|!.*)*&
 
 , { return COMMA; }
 
+:{SPLIT_CONT}: |
 :: { return DCOLON; }
 : { return COLON; }
 
-<fixed_fmt>\n[ ]{5}[^ ]  { return GARBAGE; }
+<fixed_fmt>\r?\n[ ]{5}[^ ]  { return GARBAGE; }
 
 =|=>                     { return ASSIGNMENT_OP; }
 
@@ -147,7 +177,7 @@ $[ \t]*endif    { return F90PPR_ENDIF; }
 [Ii][Nn][Cc][Ll][Uu][Dd][Ee] { return INCLUDE; }
 [Ii][Nn][Tt][Ee][Rr][Ff][Aa][Cc][Ee] { return INTERFACE; }
 [Mm][Oo][Dd][Uu][Ll][Ee] { return MODULE; }
-[Ss][Uu][bb][Mm][Oo][Dd][Uu][Ll][Ee] { return SUBMODULE; }
+[Ss][Uu][Bb][Mm][Oo][Dd][Uu][Ll][Ee] { return SUBMODULE; }
 [Uu][Ss][Ee] { return USE; }
 
 [a-zA-Z_][a-zA-Z_0-9]* {
@@ -158,13 +188,13 @@ $[ \t]*endif    { return F90PPR_ENDIF; }
 \( { return LPAREN; }
 \) { return RPAREN; }
 
-[^ \t\n\r:;,!'"a-zA-Z=&()]+ { return GARBAGE; }
+[^ \t\r\n:;,!'"a-zA-Z=&()]+ { return GARBAGE; }
 
 ;|\n { return EOSTMT; }
 
 
 [ \t\r,]         /* Ignore */
-\\[ \t]*\n       /* Ignore line-endings preceded by \ */
+\\[ \t]*\r?\n       /* Ignore line-endings preceded by \ */
 
 . { return *yytext; }
 
@@ -184,3 +214,5 @@ YY_BUFFER_STATE cmFortranLexer_GetCurrentBuffer(yyscan_t yyscanner)
   struct yyguts_t * yyg = (struct yyguts_t*)yyscanner;
   return YY_CURRENT_BUFFER;
 }
+
+#endif /* __clang_analyzer__ */

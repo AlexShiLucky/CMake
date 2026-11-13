@@ -20,12 +20,7 @@
 
 #include <stdio.h>
 #include <string.h>
-
-#if defined(_MSC_VER) && _MSC_VER < 1600
-# include "stdint-msvc2008.h"
-#else
-# include <stdint.h>
-#endif
+#include <stdint.h>
 
 #define UV__INET_ADDRSTRLEN         16
 #define UV__INET6_ADDRSTRLEN        46
@@ -59,8 +54,7 @@ static int inet_ntop4(const unsigned char *src, char *dst, size_t size) {
   if (l <= 0 || (size_t) l >= size) {
     return UV_ENOSPC;
   }
-  strncpy(dst, tmp, size);
-  dst[size - 1] = '\0';
+  uv__strscpy(dst, tmp, size);
   return 0;
 }
 
@@ -83,7 +77,7 @@ static int inet_ntop6(const unsigned char *src, char *dst, size_t size) {
    *  Copy the input (bytewise) array into a wordwise array.
    *  Find the longest run of 0x00's in src[] for :: shorthanding.
    */
-  memset(words, '\0', sizeof words);
+  memset(words, '\0', sizeof(words));
   for (i = 0; i < (int) sizeof(struct in6_addr); i++)
     words[i / 2] |= (src[i] << ((1 - (i % 2)) << 3));
   best.base = -1;
@@ -130,26 +124,21 @@ static int inet_ntop6(const unsigned char *src, char *dst, size_t size) {
     if (i == 6 && best.base == 0 && (best.len == 6 ||
         (best.len == 7 && words[7] != 0x0001) ||
         (best.len == 5 && words[5] == 0xffff))) {
-      int err = inet_ntop4(src+12, tp, sizeof tmp - (tp - tmp));
+      int err = inet_ntop4(src+12, tp, sizeof(tmp) - (tp - tmp));
       if (err)
         return err;
       tp += strlen(tp);
       break;
     }
-    tp += sprintf(tp, "%x", words[i]);
+    tp += snprintf(tp, sizeof(tmp) - (tp - tmp), "%x", words[i]);
   }
   /* Was it a trailing run of 0x00's? */
   if (best.base != -1 && (best.base + best.len) == ARRAY_SIZE(words))
     *tp++ = ':';
   *tp++ = '\0';
-
-  /*
-   * Check for overflow, copy, and we're done.
-   */
-  if ((size_t)(tp - tmp) > size) {
+  if ((size_t) (tp - tmp) > size)
     return UV_ENOSPC;
-  }
-  strcpy(dst, tmp);
+  uv__strscpy(dst, tmp, size);
   return 0;
 }
 
@@ -162,19 +151,19 @@ int uv_inet_pton(int af, const char* src, void* dst) {
   case AF_INET:
     return (inet_pton4(src, dst));
   case AF_INET6: {
-    int len;
-    char tmp[UV__INET6_ADDRSTRLEN], *s, *p;
-    s = (char*) src;
+    const char *p;
     p = strchr(src, '%');
     if (p != NULL) {
-      s = tmp;
+      int len;
+      char s[UV__INET6_ADDRSTRLEN];
       len = p - src;
       if (len > UV__INET6_ADDRSTRLEN-1)
         return UV_EINVAL;
       memcpy(s, src, len);
       s[len] = '\0';
-    }
-    return inet_pton6(s, dst);
+      return inet_pton6(s, dst);
+    } else
+      return inet_pton6(src, dst);
   }
   default:
     return UV_EAFNOSUPPORT;
@@ -230,8 +219,8 @@ static int inet_pton6(const char *src, unsigned char *dst) {
   int ch, seen_xdigits;
   unsigned int val;
 
-  memset((tp = tmp), '\0', sizeof tmp);
-  endp = tp + sizeof tmp;
+  memset((tp = tmp), '\0', sizeof(tmp));
+  endp = tp + sizeof(tmp);
   colonp = NULL;
   /* Leading :: requires some special handling. */
   if (*src == ':')
@@ -304,6 +293,6 @@ static int inet_pton6(const char *src, unsigned char *dst) {
   }
   if (tp != endp)
     return UV_EINVAL;
-  memcpy(dst, tmp, sizeof tmp);
+  memcpy(dst, tmp, sizeof(tmp));
   return 0;
 }

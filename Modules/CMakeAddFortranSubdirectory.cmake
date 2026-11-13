@@ -1,48 +1,140 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# CMakeAddFortranSubdirectory
-# ---------------------------
-#
-# Use MinGW gfortran from VS if a fortran compiler is not found.
-#
-# The 'add_fortran_subdirectory' function adds a subdirectory to a
-# project that contains a fortran only sub-project.  The module will
-# check the current compiler and see if it can support fortran.  If no
-# fortran compiler is found and the compiler is MSVC, then this module
-# will find the MinGW gfortran.  It will then use an external project to
-# build with the MinGW tools.  It will also create imported targets for
-# the libraries created.  This will only work if the fortran code is
-# built into a dll, so BUILD_SHARED_LIBS is turned on in the project.
-# In addition the CMAKE_GNUtoMS option is set to on, so that the MS .lib
-# files are created.  Usage is as follows:
-#
-# ::
-#
-#   cmake_add_fortran_subdirectory(
-#    <subdir>                # name of subdirectory
-#    PROJECT <project_name>  # project name in subdir top CMakeLists.txt
-#    ARCHIVE_DIR <dir>       # dir where project places .lib files
-#    RUNTIME_DIR <dir>       # dir where project places .dll files
-#    LIBRARIES <lib>...      # names of library targets to import
-#    LINK_LIBRARIES          # link interface libraries for LIBRARIES
-#     [LINK_LIBS <lib> <dep>...]...
-#    CMAKE_COMMAND_LINE ...  # extra command line flags to pass to cmake
-#    NO_EXTERNAL_INSTALL     # skip installation of external project
-#    )
-#
-# Relative paths in ARCHIVE_DIR and RUNTIME_DIR are interpreted with
-# respect to the build directory corresponding to the source directory
-# in which the function is invoked.
-#
-# Limitations:
-#
-# NO_EXTERNAL_INSTALL is required for forward compatibility with a
-# future version that supports installation of the external project
-# binaries during "make install".
+#[=======================================================================[.rst:
+CMakeAddFortranSubdirectory
+---------------------------
 
-set(_MS_MINGW_SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR})
+This module provides a command to add a Fortran project located in a
+subdirectory.
+
+Load this module in a CMake project with:
+
+.. code-block:: cmake
+
+  include(CMakeAddFortranSubdirectory)
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
+
+.. command:: cmake_add_fortran_subdirectory
+
+  Adds a Fortran-only subproject from subdirectory to the current project:
+
+  .. code-block:: cmake
+
+    cmake_add_fortran_subdirectory(
+      <subdir>
+      PROJECT <project-name>
+      ARCHIVE_DIR <dir>
+      RUNTIME_DIR <dir>
+      LIBRARIES <libs>...
+      LINK_LIBRARIES
+        [LINK_LIBS <lib> <deps>...]...
+      [CMAKE_COMMAND_LINE <flags>...]
+      NO_EXTERNAL_INSTALL
+    )
+
+  This command checks whether the current environment supports enabling Fortran:
+
+  * If Fortran is supported in the current environment, the Fortran project
+    located in ``<subdir>`` is added as a subdirectory to the current project.
+
+  * If Fortran is not supported in the current environment, but the
+    current C or CXX compiler is ``MSVC``, this command searches common
+    locations for a MinGW ``gfortran`` compiler and stores its full path
+    in the ``MINGW_GFORTRAN`` cache variable.  One may optionally set the
+    variable explicitly to specify a full path to a preferred ``gfortran``.
+
+    If a ``gfortran`` compiler is found, the Fortran project located in
+    ``<subdir>``  is built as an external project using MinGW tools, and
+    Fortran-related imported targets are created.  This setup works only
+    if the Fortran code is built as a shared DLL library, so the
+    :variable:`BUILD_SHARED_LIBS` variable is enabled in the external project.
+    Additionally, the :variable:`CMAKE_GNUtoMS` variable is set to ``ON`` to
+    ensure that Microsoft-compatible ``.lib`` files are created.
+
+  The options are:
+
+  ``PROJECT``
+    The name of the Fortran project as defined in the top-level
+    ``CMakeLists.txt`` located in ``<subdir>``.
+
+  ``ARCHIVE_DIR``
+    Directory where the project places ``.lib`` archive files.  A relative path
+    is interpreted as relative to :variable:`CMAKE_CURRENT_BINARY_DIR`.
+
+  ``RUNTIME_DIR``
+    Directory where the project places ``.dll`` runtime files.  A relative path
+    is interpreted as relative to :variable:`CMAKE_CURRENT_BINARY_DIR`.
+
+  ``LIBRARIES``
+    Names of library targets to create or import into the current project.
+
+  ``LINK_LIBRARIES``
+    Specifies link interface libraries for ``LIBRARIES``.  This option expects a
+    list of ``LINK_LIBS <lib> <deps>...`` items, where:
+
+    * ``LINK_LIBS`` marks the start of a new pair
+    * ``<lib>`` is a library target.
+    * ``<deps>...`` represents one or more dependencies required by ``<lib>``.
+
+  ``CMAKE_COMMAND_LINE``
+    Additional command-line flags passed to :manual:`cmake(1)` command when
+    configuring the Fortran subproject.
+
+  ``NO_EXTERNAL_INSTALL``
+    Prevents installation of the external project.
+
+    .. note::
+
+      The ``NO_EXTERNAL_INSTALL`` option is required for forward compatibility
+      with a future version that supports installation of the external project
+      binaries during ``make install``.
+
+Examples
+^^^^^^^^
+
+Adding a Fortran subdirectory to a project can be done by including this module
+and calling the ``cmake_add_fortran_subdirectory()`` command.  In the following
+example, a Fortran project provides the ``hello`` library and its dependent
+``world`` library:
+
+.. code-block:: cmake
+
+  include(CMakeAddFortranSubdirectory)
+
+  cmake_add_fortran_subdirectory(
+    fortran-subdir
+    PROJECT FortranHelloWorld
+    ARCHIVE_DIR lib
+    RUNTIME_DIR bin
+    LIBRARIES hello world
+    LINK_LIBRARIES
+      LINK_LIBS hello world # hello library depends on the world library
+    NO_EXTERNAL_INSTALL
+  )
+
+  # The Fortran target can be then linked to the main project target.
+  add_executable(main main.c)
+  target_link_libraries(main PRIVATE hello)
+
+See Also
+^^^^^^^^
+
+There are multiple ways to integrate Fortran libraries.  Alternative approaches
+include:
+
+* The :command:`add_subdirectory` command to add the subdirectory directly to
+  the build.
+* The :command:`export` command can be used in the subproject to provide
+  :ref:`Imported Targets` or similar for integration with other projects.
+* The :module:`FetchContent` or :module:`ExternalProject` modules when working
+  with external dependencies.
+#]=======================================================================]
+
 include(CheckLanguage)
 include(ExternalProject)
 
@@ -51,6 +143,7 @@ function(_setup_mingw_config_and_build source_dir build_dir)
   find_program(MINGW_GFORTRAN
     NAMES gfortran
     PATHS
+      c:/mingw64/bin
       c:/MinGW/bin
       "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\MinGW;InstallLocation]/bin"
     )
@@ -68,7 +161,8 @@ function(_setup_mingw_config_and_build source_dir build_dir)
     set(_mingw_target "Target:.*mingw32")
   endif()
   execute_process(COMMAND "${MINGW_GFORTRAN}" -v
-    ERROR_VARIABLE out ERROR_STRIP_TRAILING_WHITESPACE)
+    ERROR_VARIABLE out ERROR_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _result_mingw_gfortran_v)
   if(NOT "${out}" MATCHES "${_mingw_target}")
     string(REPLACE "\n" "\n  " out "  ${out}")
     message(FATAL_ERROR
@@ -86,11 +180,11 @@ function(_setup_mingw_config_and_build source_dir build_dir)
   file(TO_NATIVE_PATH "${MINGW_PATH}" MINGW_PATH)
   string(REPLACE "\\" "\\\\" MINGW_PATH "${MINGW_PATH}")
   configure_file(
-    ${_MS_MINGW_SOURCE_DIR}/CMakeAddFortranSubdirectory/config_mingw.cmake.in
+    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CMakeAddFortranSubdirectory/config_mingw.cmake.in
     ${build_dir}/config_mingw.cmake
     @ONLY)
   configure_file(
-    ${_MS_MINGW_SOURCE_DIR}/CMakeAddFortranSubdirectory/build_mingw.cmake.in
+    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CMakeAddFortranSubdirectory/build_mingw.cmake.in
     ${build_dir}/build_mingw.cmake
     @ONLY)
 endfunction()
@@ -114,10 +208,14 @@ function(cmake_add_fortran_subdirectory subdir)
       )
   endif()
 
+  # If MSVC: if MINGW_GFORTRAN already defined, no point calling check_language,
+  # otherwise we can still detect the Intel Fortran compiler
+  if(NOT(MSVC AND MINGW_GFORTRAN))
+    check_language(Fortran)
+  endif()
   # if we are not using MSVC without fortran support
   # then just use the usual add_subdirectory to build
   # the fortran library
-  check_language(Fortran)
   if(NOT (MSVC AND (NOT CMAKE_Fortran_COMPILER)))
     add_subdirectory(${subdir})
     return()
@@ -142,23 +240,15 @@ function(cmake_add_fortran_subdirectory subdir)
   # create build and configure wrapper scripts
   _setup_mingw_config_and_build("${source_dir}" "${build_dir}")
   # create the external project
-  externalproject_add(${project_name}_build
+  ExternalProject_Add(${project_name}_build
     SOURCE_DIR ${source_dir}
     BINARY_DIR ${build_dir}
     CONFIGURE_COMMAND ${CMAKE_COMMAND}
     -P ${build_dir}/config_mingw.cmake
     BUILD_COMMAND ${CMAKE_COMMAND}
     -P ${build_dir}/build_mingw.cmake
+    BUILD_ALWAYS 1
     INSTALL_COMMAND ""
-    )
-  # make the external project always run make with each build
-  externalproject_add_step(${project_name}_build forcebuild
-    COMMAND ${CMAKE_COMMAND}
-    -E remove
-    ${CMAKE_CURRENT_BUILD_DIR}/${project_name}-prefix/src/${project_name}-stamp/${project_name}-build
-    DEPENDEES configure
-    DEPENDERS build
-    ALWAYS 1
     )
   # create imported targets for all libraries
   foreach(lib ${libraries})

@@ -1,15 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef QCMakeWidgets_h
-#define QCMakeWidgets_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <QComboBox>
 #include <QCompleter>
 #include <QLineEdit>
 
 class QToolButton;
+class QSortFilterProxyModel;
 
 // common widgets for Qt based CMake
 
@@ -18,7 +18,7 @@ class QCMakeFileEditor : public QLineEdit
 {
   Q_OBJECT
 public:
-  QCMakeFileEditor(QWidget* p, const QString& var);
+  QCMakeFileEditor(QWidget* p, QString var);
 protected slots:
   virtual void chooseFile() = 0;
 signals:
@@ -35,7 +35,7 @@ class QCMakePathEditor : public QCMakeFileEditor
 {
   Q_OBJECT
 public:
-  QCMakePathEditor(QWidget* p = CM_NULLPTR, const QString& var = QString());
+  QCMakePathEditor(QWidget* p = nullptr, QString const& var = QString());
   void chooseFile();
 };
 
@@ -44,8 +44,7 @@ class QCMakeFilePathEditor : public QCMakeFileEditor
 {
   Q_OBJECT
 public:
-  QCMakeFilePathEditor(QWidget* p = CM_NULLPTR,
-                       const QString& var = QString());
+  QCMakeFilePathEditor(QWidget* p = nullptr, QString const& var = QString());
   void chooseFile();
 };
 
@@ -55,7 +54,7 @@ class QCMakeFileCompleter : public QCompleter
   Q_OBJECT
 public:
   QCMakeFileCompleter(QObject* o, bool dirs);
-  virtual QString pathFromIndex(const QModelIndex& idx) const;
+  virtual QString pathFromIndex(QModelIndex const& idx) const;
 };
 
 // editor for strings
@@ -70,7 +69,7 @@ public:
   {
     this->addItems(strings);
   }
-  void setValue(const QString& v)
+  void setValue(QString const& v)
   {
     int i = this->findText(v);
     if (i != -1) {
@@ -79,4 +78,9 @@ public:
   }
 };
 
-#endif
+namespace QtCMake {
+bool setSearchFilter(QSortFilterProxyModel* model,
+                     QString const& searchString);
+
+void setSearchFilterColor(QLineEdit* edit, bool valid);
+}

@@ -1,30 +1,53 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmEnableLanguageCommand.h"
 
+#include "cmDiagnostics.h"
+#include "cmExecutionStatus.h"
 #include "cmMakefile.h"
+#include "cmMessageType.h"
+#include "cmPolicies.h"
+#include "cmSystemTools.h"
 
-class cmExecutionStatus;
-
-// cmEnableLanguageCommand
-bool cmEnableLanguageCommand::InitialPass(std::vector<std::string> const& args,
-                                          cmExecutionStatus&)
+bool cmEnableLanguageCommand(std::vector<std::string> const& args,
+                             cmExecutionStatus& status)
 {
-  bool optional = false;
-  std::vector<std::string> languages;
   if (args.empty()) {
-    this->SetError("called with incorrect number of arguments");
+    status.SetError("called with incorrect number of arguments");
     return false;
   }
-  for (std::vector<std::string>::const_iterator it = args.begin();
-       it != args.end(); ++it) {
-    if ((*it) == "OPTIONAL") {
-      optional = true;
-    } else {
-      languages.push_back(*it);
+
+  cmMakefile& mf = status.GetMakefile();
+  if (!mf.IsNormalDefinitionSet("PROJECT_NAME")) {
+    switch (mf.GetPolicyStatus(cmPolicies::CMP0165)) {
+      case cmPolicies::WARN:
+        mf.IssueDiagnostic(
+          cmDiagnostics::CMD_AUTHOR,
+          "project() should be called prior to this enable_language() call.");
+        break;
+      case cmPolicies::OLD:
+        break;
+      case cmPolicies::NEW:
+        mf.IssueMessage(
+          MessageType::FATAL_ERROR,
+          "project() must be called prior to this enable_language() call.");
+        cmSystemTools::SetFatalErrorOccurred();
+        return false;
+      default:
+        break;
     }
   }
 
-  this->Makefile->EnableLanguage(languages, optional);
+  bool optional = false;
+  std::vector<std::string> languages;
+  for (std::string const& it : args) {
+    if (it == "OPTIONAL") {
+      optional = true;
+    } else {
+      languages.push_back(it);
+    }
+  }
+
+  mf.EnableLanguage(languages, optional);
   return true;
 }

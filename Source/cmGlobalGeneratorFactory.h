@@ -1,16 +1,20 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGlobalGeneratorFactory_h
-#define cmGlobalGeneratorFactory_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
+#include "cmDocumentationEntry.h" // IWYU pragma: export
+#include "cmGlobalGenerator.h"    // IWYU pragma: keep
+
+// TODO The following headers are parts of the `cmGlobalGeneratorFactory`
+// public API, so could be defined as export to IWYU
 #include <string>
 #include <vector>
 
-class cmGlobalGenerator;
+#include <cm/memory>
+
 class cmake;
-struct cmDocumentationEntry;
 
 /** \class cmGlobalGeneratorFactory
  * \brief Responable for creating cmGlobalGenerator instances
@@ -20,56 +24,69 @@ struct cmDocumentationEntry;
 class cmGlobalGeneratorFactory
 {
 public:
-  virtual ~cmGlobalGeneratorFactory() {}
+  virtual ~cmGlobalGeneratorFactory() = default;
 
   /** Create a GlobalGenerator */
-  virtual cmGlobalGenerator* CreateGlobalGenerator(const std::string& n,
-                                                   cmake* cm) const = 0;
+  virtual std::unique_ptr<cmGlobalGenerator> CreateGlobalGenerator(
+    std::string const& n, cmake* cm) const = 0;
 
   /** Get the documentation entry for this factory */
-  virtual void GetDocumentation(cmDocumentationEntry& entry) const = 0;
+  virtual cmDocumentationEntry GetDocumentation() const = 0;
 
   /** Get the names of the current registered generators */
-  virtual void GetGenerators(std::vector<std::string>& names) const = 0;
+  virtual std::vector<std::string> GetGeneratorNames() const = 0;
 
   /** Determine whether or not this generator supports toolsets */
   virtual bool SupportsToolset() const = 0;
 
   /** Determine whether or not this generator supports platforms */
   virtual bool SupportsPlatform() const = 0;
+
+  /** Get the list of supported platforms name for this generator */
+  virtual std::vector<std::string> GetKnownPlatforms() const = 0;
+
+  /** If the generator supports platforms, get its default.  */
+  virtual std::string GetDefaultPlatformName() const = 0;
 };
 
-template <class T>
+template <typename T>
 class cmGlobalGeneratorSimpleFactory : public cmGlobalGeneratorFactory
 {
 public:
   /** Create a GlobalGenerator */
-  cmGlobalGenerator* CreateGlobalGenerator(const std::string& name,
-                                           cmake* cm) const CM_OVERRIDE
+  std::unique_ptr<cmGlobalGenerator> CreateGlobalGenerator(
+    std::string const& name, cmake* cm) const override
   {
     if (name != T::GetActualName()) {
-      return CM_NULLPTR;
+      return std::unique_ptr<cmGlobalGenerator>();
     }
-    return new T(cm);
+    return std::unique_ptr<cmGlobalGenerator>(cm::make_unique<T>(cm));
   }
 
   /** Get the documentation entry for this factory */
-  void GetDocumentation(cmDocumentationEntry& entry) const CM_OVERRIDE
+  cmDocumentationEntry GetDocumentation() const override
   {
-    T::GetDocumentation(entry);
+    return T::GetDocumentation();
   }
 
   /** Get the names of the current registered generators */
-  void GetGenerators(std::vector<std::string>& names) const CM_OVERRIDE
+  std::vector<std::string> GetGeneratorNames() const override
   {
-    names.push_back(T::GetActualName());
+    return { T::GetActualName() };
   }
 
   /** Determine whether or not this generator supports toolsets */
-  bool SupportsToolset() const CM_OVERRIDE { return T::SupportsToolset(); }
+  bool SupportsToolset() const override { return T::SupportsToolset(); }
 
   /** Determine whether or not this generator supports platforms */
-  bool SupportsPlatform() const CM_OVERRIDE { return T::SupportsPlatform(); }
-};
+  bool SupportsPlatform() const override { return T::SupportsPlatform(); }
 
-#endif
+  /** Get the list of supported platforms name for this generator */
+  std::vector<std::string> GetKnownPlatforms() const override
+  {
+    // default is no platform supported
+    return {};
+  }
+
+  std::string GetDefaultPlatformName() const override { return {}; }
+};

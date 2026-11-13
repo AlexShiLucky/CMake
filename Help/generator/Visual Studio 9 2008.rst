@@ -1,19 +1,9 @@
 Visual Studio 9 2008
 --------------------
 
-Generates Visual Studio 9 2008 project files.
-
-The :variable:`CMAKE_GENERATOR_PLATFORM` variable may be set
-to specify a target platform name.
-
-For compatibility with CMake versions prior to 3.1, one may specify
-a target platform name optionally at the end of this generator name:
-
-``Visual Studio 9 2008 Win64``
-  Specify target platform ``x64``.
-
-``Visual Studio 9 2008 IA64``
-  Specify target platform ``Itanium``.
-
-``Visual Studio 9 2008 <WinCE-SDK>``
-  Specify target platform matching a Windows CE SDK name.
+Removed.  This once generated Visual Studio 9 2008 project files, but
+the generator has been removed since CMake 3.30.  It is still possible
+to build with the VS 9 2008 toolset by also installing VS 10 2010 and
+VS 2017 (or above) and using the :generator:`Visual Studio 15 2017`
+generator (or above) with :variable:`CMAKE_GENERATOR_TOOLSET` set to ``v90``,
+or by using the :generator:`NMake Makefiles` generator.

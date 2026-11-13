@@ -18,6 +18,9 @@ run_cmake(BinaryDirectoryInInterface)
 set(RunCMake_TEST_OPTIONS "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/DirInInstallPrefix/prefix")
 run_cmake(DirInInstallPrefix)
 
+set(RunCMake_TEST_OPTIONS "--install-prefix=${RunCMake_BINARY_DIR}/DirInInstallPrefix/prefix")
+run_cmake(DirInInstallPrefix)
+
 configure_file(
   "${RunCMake_SOURCE_DIR}/CMakeLists.txt"
   "${RunCMake_BINARY_DIR}/copy/CMakeLists.txt"
@@ -34,14 +37,13 @@ configure_file(
   COPYONLY
 )
 set(RunCMake_TEST_OPTIONS
-  "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/copy/SourceDirectoryInInterface/prefix"
+  "--install-prefix=${RunCMake_BINARY_DIR}/copy/SourceDirectoryInInterface/prefix"
   "-DTEST_FILE=${RunCMake_BINARY_DIR}/copy/SourceDirectoryInInterface.cmake"
   )
 set(RunCMake_TEST_SOURCE_DIR "${RunCMake_BINARY_DIR}/copy")
 run_cmake(InstallInSrcDir)
 unset(RunCMake_TEST_SOURCE_DIR)
 
-set(RunCMake_TEST_OPTIONS "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/InstallInBinDir-build/prefix")
 set(RunCMake_TEST_OPTIONS
   "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/InstallInBinDir-build/prefix"
   "-DTEST_FILE=${RunCMake_SOURCE_DIR}/BinaryDirectoryInInterface.cmake"
@@ -66,40 +68,25 @@ configure_file(
   COPYONLY
 )
 
-foreach(policyStatus NEW OLD "")
-  if (TEST_PROP STREQUAL INCLUDE_DIRECTORIES)
-    if (NOT "${policyStatus}" STREQUAL "")
-      set(policyOption -DCMAKE_POLICY_DEFAULT_CMP0052=${policyStatus})
-    else()
-      unset(policyOption)
-      set(policyStatus WARN)
-    endif()
-    set(policySuffix -CMP0052-${policyStatus})
-  endif()
-  set(RunCMake_TEST_OPTIONS
-    "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/prefix" ${policyOption}
-    "-DTEST_FILE=${RunCMake_SOURCE_DIR}/BinaryDirectoryInInterface.cmake"
-    )
-  # Set the RunCMake_TEST_SOURCE_DIR here to the copy too. This is needed to run
-  # the test suite in-source properly.  Otherwise the install directory would be
-  # a subdirectory or the source directory, which is allowed and tested separately
-  # below.
-  set(RunCMake_TEST_SOURCE_DIR "${RunCMake_BINARY_DIR}/prefix/src")
-  set(RunCMake_TEST_BINARY_DIR "${RunCMake_BINARY_DIR}/prefix/BinInInstallPrefix${policySuffix}-build")
-  run_cmake(BinInInstallPrefix${policySuffix})
-  unset(RunCMake_TEST_BINARY_DIR)
+set(RunCMake_TEST_OPTIONS
+  "--install-prefix ${RunCMake_BINARY_DIR}/prefix" ${policyOption}
+  "-DTEST_FILE=${RunCMake_SOURCE_DIR}/BinaryDirectoryInInterface.cmake"
+  )
+# Set the RunCMake_TEST_SOURCE_DIR here to the copy too. This is needed to run
+# the test suite in-source properly.  Otherwise the install directory would be
+# a subdirectory or the source directory, which is allowed and tested separately
+# below.
+set(RunCMake_TEST_SOURCE_DIR "${RunCMake_BINARY_DIR}/prefix/src")
+set(RunCMake_TEST_BINARY_DIR "${RunCMake_BINARY_DIR}/prefix/BinInInstallPrefix-build")
+run_cmake(BinInInstallPrefix)
+unset(RunCMake_TEST_BINARY_DIR)
 
-  set(RunCMake_TEST_OPTIONS
-    "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/prefix" ${policyOption}
-    "-DTEST_FILE=${RunCMake_BINARY_DIR}/prefix/src/SourceDirectoryInInterface.cmake"
-    )
-  run_cmake(SrcInInstallPrefix${policySuffix})
-  unset(RunCMake_TEST_SOURCE_DIR)
-
-  if (NOT TEST_PROP STREQUAL INCLUDE_DIRECTORIES)
-    break()
-  endif()
-endforeach()
+set(RunCMake_TEST_OPTIONS
+  "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/prefix" ${policyOption}
+  "-DTEST_FILE=${RunCMake_BINARY_DIR}/prefix/src/SourceDirectoryInInterface.cmake"
+  )
+run_cmake(SrcInInstallPrefix)
+unset(RunCMake_TEST_SOURCE_DIR)
 
 set(RunCMake_TEST_OPTIONS "-DCMAKE_INSTALL_PREFIX=${RunCMake_BINARY_DIR}/InstallPrefixInInterface-build/prefix")
 run_cmake(InstallPrefixInInterface)

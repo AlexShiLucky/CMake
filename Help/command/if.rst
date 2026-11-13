@@ -3,242 +3,561 @@ if
 
 Conditionally execute a group of commands.
 
+Synopsis
+^^^^^^^^
+
 .. code-block:: cmake
 
- if(expression)
-   # then section.
-   COMMAND1(ARGS ...)
-   COMMAND2(ARGS ...)
-   #...
- elseif(expression2)
-   # elseif section.
-   COMMAND1(ARGS ...)
-   COMMAND2(ARGS ...)
-   #...
- else(expression)
-   # else section.
-   COMMAND1(ARGS ...)
-   COMMAND2(ARGS ...)
-   #...
- endif(expression)
+  if(<condition>)
+    <commands>
+  elseif(<condition>) # optional block, can be repeated
+    <commands>
+  else()              # optional block
+    <commands>
+  endif()
 
-Evaluates the given expression.  If the result is true, the commands
-in the THEN section are invoked.  Otherwise, the commands in the else
-section are invoked.  The elseif and else sections are optional.  You
-may have multiple elseif clauses.  Note that the expression in the
-else and endif clause is optional.  Long expressions can be used and
-there is a traditional order of precedence.  Parenthetical expressions
-are evaluated first followed by unary tests such as ``EXISTS``,
-``COMMAND``, and ``DEFINED``.  Then any binary tests such as
-``EQUAL``, ``LESS``, ``LESS_EQUAL, ``GREATER``, ``GREATER_EQUAL``,
-``STREQUAL``, ``STRLESS``, ``STRLESS_EQUAL``, ``STRGREATER``,
-``STRGREATER_EQUAL``, ``VERSION_EQUAL``, ``VERSION_LESS``,
-``VERSION_LESS_EQUAL``, ``VERSION_GREATER``, ``VERSION_GREATER_EQUAL``,
-and ``MATCHES`` will be evaluated.  Then boolean ``NOT`` operators and
-finally boolean ``AND`` and then ``OR`` operators will be evaluated.
+Evaluates the ``condition`` argument of the ``if`` clause according to the
+`Condition syntax`_ described below. If the result is true, then the
+``commands`` in the ``if`` block are executed.
+Otherwise, optional ``elseif`` blocks are processed in the same way.
+Finally, if no ``condition`` is true, ``commands`` in the optional ``else``
+block are executed.
 
-Possible expressions are:
+Per legacy, the :command:`else` and :command:`endif` commands admit
+an optional ``<condition>`` argument.
+If used, it must be a verbatim
+repeat of the argument of the opening
+``if`` command.
 
-``if(<constant>)``
- True if the constant is ``1``, ``ON``, ``YES``, ``TRUE``, ``Y``,
- or a non-zero number.  False if the constant is ``0``, ``OFF``,
- ``NO``, ``FALSE``, ``N``, ``IGNORE``, ``NOTFOUND``, the empty string,
- or ends in the suffix ``-NOTFOUND``.  Named boolean constants are
- case-insensitive.  If the argument is not one of these specific
- constants, it is treated as a variable or string and the following
- signature is used.
+.. _`Condition Syntax`:
 
-``if(<variable|string>)``
- True if given a variable that is defined to a value that is not a false
- constant.  False otherwise.  (Note macro arguments are not variables.)
+Condition Syntax
+^^^^^^^^^^^^^^^^
 
-``if(NOT <expression>)``
- True if the expression is not true.
+The following syntax applies to the ``condition`` argument of
+the ``if``, ``elseif`` and :command:`while` clauses.
 
-``if(<expr1> AND <expr2>)``
- True if both expressions would be considered true individually.
+Compound conditions are evaluated in the following order of precedence:
 
-``if(<expr1> OR <expr2>)``
- True if either expression would be considered true individually.
+1. `Parentheses`_.
 
-``if(COMMAND command-name)``
- True if the given name is a command, macro or function that can be
- invoked.
+2. Unary tests such as:
 
-``if(POLICY policy-id)``
- True if the given name is an existing policy (of the form ``CMP<NNNN>``).
+  * The `Existence Checks`_ :cref:`COMMAND`, :cref:`DEFINED`,
+    :cref:`DIAGNOSTIC`, :cref:`EXISTS`, :cref:`POLICY`, :cref:`RULE`,
+    :cref:`TARGET`, and :cref:`TEST`.
+  * The `File Operations`_ :cref:`IS_READABLE`, :cref:`IS_WRITABLE`,
+    :cref:`IS_EXECUTABLE`, :cref:`IS_DIRECTORY`, :cref:`IS_SYMLINK`, and
+    :cref:`IS_ABSOLUTE`.
 
-``if(TARGET target-name)``
- True if the given name is an existing logical target name created
- by a call to the :command:`add_executable`, :command:`add_library`,
- or :command:`add_custom_target` command that has already been invoked
- (in any directory).
+3. Binary tests such as those described in `Comparisons`_,
+   `Version Comparisons`_, and `Path Comparisons`_, as well as :cref:`IN_LIST`
+   and :cref:`IS_NEWER_THAN`.
 
-``if(TEST test-name)``
- True if the given name is an existing test name created by the
- :command:`add_test` command.
+4. Unary logical operator :cref:`NOT`.
 
-``if(EXISTS path-to-file-or-directory)``
- True if the named file or directory exists.  Behavior is well-defined
- only for full paths.
+5. Binary logical operators :cref:`AND` and :cref:`OR`, from left to right,
+   without any short-circuit.
 
-``if(file1 IS_NEWER_THAN file2)``
- True if ``file1`` is newer than ``file2`` or if one of the two files doesn't
- exist.  Behavior is well-defined only for full paths.  If the file
- time stamps are exactly the same, an ``IS_NEWER_THAN`` comparison returns
- true, so that any dependent build operations will occur in the event
- of a tie.  This includes the case of passing the same file name for
- both file1 and file2.
+Basic Expressions
+"""""""""""""""""
 
-``if(IS_DIRECTORY path-to-directory)``
- True if the given name is a directory.  Behavior is well-defined only
- for full paths.
+.. signature:: if(<constant>)
+  :target: constant
 
-``if(IS_SYMLINK file-name)``
- True if the given name is a symbolic link.  Behavior is well-defined
- only for full paths.
+  True if the constant is ``1``, ``ON``, ``YES``, ``TRUE``, ``Y``,
+  or a non-zero number (including floating point numbers).
+  False if the constant is ``0``, ``OFF``,
+  ``NO``, ``FALSE``, ``N``, ``IGNORE``, ``NOTFOUND``, the empty string,
+  or ends in the suffix ``-NOTFOUND``.  Named boolean constants are
+  case-insensitive.  If the argument is not one of these specific
+  constants, it is treated as a variable or string (see `Variable Expansion`_
+  further below) and one of the following two forms applies.
 
-``if(IS_ABSOLUTE path)``
- True if the given path is an absolute path.
+.. signature:: if(<variable>)
+  :target: variable
 
-``if(<variable|string> MATCHES regex)``
- True if the given string or variable's value matches the given regular
- expression.  See :ref:`Regex Specification` for regex format.
- ``()`` groups are captured in :variable:`CMAKE_MATCH_<n>` variables.
+  True if given a variable that is defined to a value that is not a false
+  constant.  False otherwise, including if the variable is undefined.
+  Note that macro arguments are not variables.
+  :ref:`Environment Variables <CMake Language Environment Variables>` also
+  cannot be tested this way, e.g. ``if(ENV{some_var})`` will always evaluate
+  to false.
 
-``if(<variable|string> LESS <variable|string>)``
- True if the given string or variable's value is a valid number and less
- than that on the right.
+.. signature:: if(<string>)
+  :target: string
 
-``if(<variable|string> GREATER <variable|string>)``
- True if the given string or variable's value is a valid number and greater
- than that on the right.
+  A quoted string always evaluates to false unless:
 
-``if(<variable|string> EQUAL <variable|string>)``
- True if the given string or variable's value is a valid number and equal
- to that on the right.
+  * The string's value is one of the true constants, or
+  * in CMake versions prior to 4.0, policy :policy:`CMP0054` is not set
+    to ``NEW`` and the string's value happens to be a variable name that
+    is affected by :policy:`CMP0054`'s behavior.
 
-``if(<variable|string> LESS_EQUAL <variable|string>)``
- True if the given string or variable's value is a valid number and less
- than or equal to that on the right.
+.. signature:: if()
+  :target: empty
 
-``if(<variable|string> GREATER_EQUAL <variable|string>)``
- True if the given string or variable's value is a valid number and greater
- than or equal to that on the right.
+  False if no argument is provided.
 
-``if(<variable|string> STRLESS <variable|string>)``
- True if the given string or variable's value is lexicographically less
- than the string or variable on the right.
+Logic Operators
+"""""""""""""""
 
-``if(<variable|string> STRGREATER <variable|string>)``
- True if the given string or variable's value is lexicographically greater
- than the string or variable on the right.
+.. signature:: if(NOT <condition>)
 
-``if(<variable|string> STREQUAL <variable|string>)``
- True if the given string or variable's value is lexicographically equal
- to the string or variable on the right.
+  True if the condition is not true.
 
-``if(<variable|string> STRLESS_EQUAL <variable|string>)``
- True if the given string or variable's value is lexicographically less
- than or equal to the string or variable on the right.
+.. signature:: if(<cond1> AND <cond2>)
+  :target: AND
 
-``if(<variable|string> STRGREATER_EQUAL <variable|string>)``
- True if the given string or variable's value is lexicographically greater
- than or equal to the string or variable on the right.
+  True if both conditions would be considered true individually.
 
-``if(<variable|string> VERSION_LESS <variable|string>)``
- Component-wise integer version number comparison (version format is
- ``major[.minor[.patch[.tweak]]]``).
+.. signature:: if(<cond1> OR <cond2>)
+  :target: OR
 
-``if(<variable|string> VERSION_GREATER <variable|string>)``
- Component-wise integer version number comparison (version format is
- ``major[.minor[.patch[.tweak]]]``).
+  True if either condition would be considered true individually.
 
-``if(<variable|string> VERSION_EQUAL <variable|string>)``
- Component-wise integer version number comparison (version format is
- ``major[.minor[.patch[.tweak]]]``).
+.. signature:: if((condition) AND (condition OR (condition)))
+  :target: parentheses
 
-``if(<variable|string> VERSION_LESS_EQUAL <variable|string>)``
- Component-wise integer version number comparison (version format is
- ``major[.minor[.patch[.tweak]]]``).
+  The conditions inside the parenthesis are evaluated first and then
+  the remaining condition is evaluated as in the other examples.
+  Where there are nested parenthesis the innermost are evaluated as part
+  of evaluating the condition that contains them.
 
-``if(<variable|string> VERSION_GREATER_EQUAL <variable|string>)``
- Component-wise integer version number comparison (version format is
- ``major[.minor[.patch[.tweak]]]``).
+Existence Checks
+""""""""""""""""
 
-``if(<variable|string> IN_LIST <variable>)``
- True if the given element is contained in the named list variable.
+.. signature:: if(COMMAND <command-name>)
 
-``if(DEFINED <variable>)``
- True if the given variable is defined.  It does not matter if the
- variable is true or false just if it has been set.  (Note macro
- arguments are not variables.)
+  True if the given name is a command, macro or function that can be
+  invoked.
 
-``if((expression) AND (expression OR (expression)))``
- The expressions inside the parenthesis are evaluated first and then
- the remaining expression is evaluated as in the previous examples.
- Where there are nested parenthesis the innermost are evaluated as part
- of evaluating the expression that contains them.
+.. signature:: if(DIAGNOSTIC <category>)
+
+  .. versionadded:: 4.4
+
+  True if the given name is an existing diagnostic category.
+
+.. signature:: if(POLICY <policy-id>)
+
+  True if the given name is an existing policy (of the form ``CMP<NNNN>``).
+
+.. signature:: if(RULE <rule-name>)
+
+  .. versionadded:: 4.5
+
+  True if the given name is an existing rule created by a call to the
+  :command:`add_custom_rule` command and is visible in the current directory.
+
+.. signature:: if(TARGET <target-name>)
+
+  True if the given name is an existing logical target name created
+  by a call to the :command:`add_executable`, :command:`add_library`,
+  or :command:`add_custom_target` command that has already been invoked
+  (in any directory).
+
+.. signature:: if(TEST <test-name>)
+
+  .. versionadded:: 3.3
+
+  True if the given name is an existing test name created by the
+  :command:`add_test` command.
+
+.. signature:: if(DEFINED <name>|CACHE{<name>}|ENV{<name>})
+
+  True if a variable, cache variable or environment variable
+  with given ``<name>`` is defined. The value of the variable
+  does not matter. Note the following caveats:
+
+  * Macro arguments are not variables.
+  * It is not possible to test directly whether a ``<name>`` is a non-cache
+    variable.  The expression ``if(DEFINED someName)`` will evaluate to true
+    if either a cache or non-cache variable ``someName`` exists.  In
+    comparison, the expression ``if(DEFINED CACHE{someName})`` will only
+    evaluate to true if a cache variable ``someName`` exists.  Both expressions
+    need to be tested if you need to know whether a non-cache variable exists:
+    ``if(DEFINED someName AND NOT DEFINED CACHE{someName})``.
+
+  .. versionadded:: 3.14
+   Added support for ``CACHE{<name>}`` variables.
+
+.. signature:: if(<variable|string> IN_LIST <variable>)
+  :target: IN_LIST
+
+  .. versionadded:: 3.3
+
+  True if the given element is contained in the named list variable.
+
+File Operations
+"""""""""""""""
+
+.. signature:: if(EXISTS <path-to-file-or-directory>)
+
+  True if the named file or directory exists and is readable.  Behavior
+  is well-defined only for explicit full paths (a leading ``~/`` is not
+  expanded as a home directory and is considered a relative path).
+  Resolves symbolic links, i.e. if the named file or directory is a
+  symbolic link, returns true if the target of the symbolic link exists.
+
+  False if the given path is an empty string.
+
+  .. note::
+    Prefer :command:`if(IS_READABLE)` to check file readability. ``if(EXISTS)``
+    may be changed in the future to only check file existence.
+
+.. signature:: if(IS_READABLE <path-to-file-or-directory>)
+
+  .. versionadded:: 3.29
+
+  True if the named file or directory is readable.  Behavior
+  is well-defined only for explicit full paths (a leading ``~/`` is not
+  expanded as a home directory and is considered a relative path).
+  Resolves symbolic links, i.e. if the named file or directory is a
+  symbolic link, returns true if the target of the symbolic link is readable.
+
+  False if the given path is an empty string.
+
+.. signature:: if(IS_WRITABLE <path-to-file-or-directory>)
+
+  .. versionadded:: 3.29
+
+  True if the named file or directory is writable.  Behavior
+  is well-defined only for explicit full paths (a leading ``~/`` is not
+  expanded as a home directory and is considered a relative path).
+  Resolves symbolic links, i.e. if the named file or directory is a
+  symbolic link, returns true if the target of the symbolic link is writable.
+
+  False if the given path is an empty string.
+
+.. signature:: if(IS_EXECUTABLE <path-to-file-or-directory>)
+
+  .. versionadded:: 3.29
+
+  True if the named file or directory is executable.  Behavior
+  is well-defined only for explicit full paths (a leading ``~/`` is not
+  expanded as a home directory and is considered a relative path).
+  Resolves symbolic links, i.e. if the named file or directory is a
+  symbolic link, returns true if the target of the symbolic link is executable.
+
+  False if the given path is an empty string.
+
+.. signature:: if(<file1> IS_NEWER_THAN <file2>)
+  :target: IS_NEWER_THAN
+
+  True if ``file1`` is newer than ``file2`` or if one of the two files doesn't
+  exist.  Behavior is well-defined only for full paths.  If the file
+  time stamps are exactly the same, an ``IS_NEWER_THAN`` comparison returns
+  true, so that any dependent build operations will occur in the event
+  of a tie.  This includes the case of passing the same file name for
+  both ``file1`` and ``file2``.
+
+.. signature:: if(IS_DIRECTORY <path>)
+
+  True if ``path`` is a directory.  Behavior is well-defined only
+  for full paths.
+
+  False if the given path is an empty string.
+
+.. signature:: if(IS_SYMLINK <path>)
+
+  True if the given path is a symbolic link.  Behavior is well-defined
+  only for full paths.
+
+.. signature:: if(IS_ABSOLUTE <path>)
+
+  True if the given path is an absolute path.  Note the following special
+  cases:
+
+  * An empty ``path`` evaluates to false.
+  * On Windows hosts, any ``path`` that begins with a drive letter and colon
+    (e.g. ``C:``), a forward slash or a backslash will evaluate to true.
+    This means a path like ``C:no\base\dir`` will evaluate to true, even
+    though the non-drive part of the path is relative.
+  * On non-Windows hosts, any ``path`` that begins with a tilde (``~``)
+    evaluates to true.
+
+Comparisons
+"""""""""""
+
+.. signature:: if(<variable|string> MATCHES <regex>)
+  :target: MATCHES
+
+  True if the given string or variable's value matches the given regular
+  expression.  See the :ref:`CMake Language Regex Specification` for regex
+  format.  ``()`` groups are captured in :variable:`CMAKE_MATCH_<n>` variables.
+
+.. signature:: if(<variable|string> LESS <variable|string>)
+  :target: LESS
+
+  True if the given string or variable's value parses as a real number
+  (like a C ``double``) and less than that on the right.
+
+.. signature:: if(<variable|string> GREATER <variable|string>)
+  :target: GREATER
+
+  True if the given string or variable's value parses as a real number
+  (like a C ``double``) and greater than that on the right.
+
+.. signature:: if(<variable|string> EQUAL <variable|string>)
+  :target: EQUAL
+
+  True if the given string or variable's value parses as a real number
+  (like a C ``double``) and equal to that on the right.
+
+.. signature:: if(<variable|string> LESS_EQUAL <variable|string>)
+  :target: LESS_EQUAL
+
+  .. versionadded:: 3.7
+
+  True if the given string or variable's value parses as a real number
+  (like a C ``double``) and less than or equal to that on the right.
+
+.. signature:: if(<variable|string> GREATER_EQUAL <variable|string>)
+  :target: GREATER_EQUAL
+
+  .. versionadded:: 3.7
+
+  True if the given string or variable's value parses as a real number
+  (like a C ``double``) and greater than or equal to that on the right.
+
+.. signature:: if(<variable|string> STRLESS <variable|string>)
+  :target: STRLESS
+
+  True if the given string or variable's value is lexicographically less
+  than the string or variable on the right.
+
+.. signature:: if(<variable|string> STRGREATER <variable|string>)
+  :target: STRGREATER
+
+  True if the given string or variable's value is lexicographically greater
+  than the string or variable on the right.
+
+.. signature:: if(<variable|string> STREQUAL <variable|string>)
+  :target: STREQUAL
+
+  True if the given string or variable's value is lexicographically equal
+  to the string or variable on the right.
+
+.. signature:: if(<variable|string> STRLESS_EQUAL <variable|string>)
+  :target: STRLESS_EQUAL
+
+  .. versionadded:: 3.7
+
+  True if the given string or variable's value is lexicographically less
+  than or equal to the string or variable on the right.
+
+.. signature:: if(<variable|string> STRGREATER_EQUAL <variable|string>)
+  :target: STRGREATER_EQUAL
+
+  .. versionadded:: 3.7
+
+  True if the given string or variable's value is lexicographically greater
+  than or equal to the string or variable on the right.
+
+Version Comparisons
+"""""""""""""""""""
+
+.. signature:: if(<variable|string> VERSION_LESS <variable|string>)
+  :target: VERSION_LESS
+
+  Component-wise integer version number comparison (version format is
+  ``major[.minor[.patch[.tweak]]]``, omitted components are treated as zero).
+  Any non-integer version component or non-integer trailing part of a version
+  component effectively truncates the string at that point.
+
+.. signature:: if(<variable|string> VERSION_GREATER <variable|string>)
+  :target: VERSION_GREATER
+
+  Component-wise integer version number comparison (version format is
+  ``major[.minor[.patch[.tweak]]]``, omitted components are treated as zero).
+  Any non-integer version component or non-integer trailing part of a version
+  component effectively truncates the string at that point.
+
+.. signature:: if(<variable|string> VERSION_EQUAL <variable|string>)
+  :target: VERSION_EQUAL
+
+  Component-wise integer version number comparison (version format is
+  ``major[.minor[.patch[.tweak]]]``, omitted components are treated as zero).
+  Any non-integer version component or non-integer trailing part of a version
+  component effectively truncates the string at that point.
+
+.. signature:: if(<variable|string> VERSION_LESS_EQUAL <variable|string>)
+  :target: VERSION_LESS_EQUAL
+
+  .. versionadded:: 3.7
+
+  Component-wise integer version number comparison (version format is
+  ``major[.minor[.patch[.tweak]]]``, omitted components are treated as zero).
+  Any non-integer version component or non-integer trailing part of a version
+  component effectively truncates the string at that point.
+
+.. signature:: if(<variable|string> VERSION_GREATER_EQUAL <variable|string>)
+  :target: VERSION_GREATER_EQUAL
+
+  .. versionadded:: 3.7
+
+  Component-wise integer version number comparison (version format is
+  ``major[.minor[.patch[.tweak]]]``, omitted components are treated as zero).
+  Any non-integer version component or non-integer trailing part of a version
+  component effectively truncates the string at that point.
+
+Path Comparisons
+""""""""""""""""
+
+.. signature:: if(<variable|string> PATH_EQUAL <variable|string>)
+  :target: PATH_EQUAL
+
+  .. versionadded:: 3.24
+
+  Lexicographically compares two CMake paths component-by-component without
+  accessing the filesystem. Only if every component of both paths match will
+  the two paths compare equal.  Multiple path separators are effectively
+  collapsed into a single separator, but note that backslashes are not
+  converted to forward slashes.
+  No other :ref:`path normalization <Normalization>` is performed.
+  Trailing slashes are preserved, thus ``/a/b`` and ``/a/b/`` are not equal.
+
+  Component-wise comparison is superior to string-based comparison due to the
+  handling of multiple path separators.  In the following example, the
+  expression evaluates to true using ``PATH_EQUAL``, but false with
+  ``STREQUAL``:
+
+  .. code-block:: cmake
+
+    # comparison is TRUE
+    if ("/a//b/c" PATH_EQUAL "/a/b/c")
+       ...
+    endif()
+
+    # comparison is FALSE
+    if ("/a//b/c" STREQUAL "/a/b/c")
+       ...
+    endif()
+
+  See :command:`cmake_path(COMPARE)` for more details.
+
+.. signature:: if(<variable|string> PATH_IS_PREFIX <variable|string>)
+  :target: PATH_IS_PREFIX
+
+  .. versionadded:: 4.5
+
+  True if the path on the left is a prefix of the path on the right.
+
+  .. code-block:: cmake
+
+    # comparison is TRUE
+    if ("/a/b" PATH_IS_PREFIX "/a/b/c")
+       ...
+    endif()
+
+    # comparison is FALSE: '/a/bc' is a sibling, not a child
+    if ("/a/b" PATH_IS_PREFIX "/a/bc")
+       ...
+    endif()
+
+  Component-wise comparison is superior to a regular expression match
+  against the start of the path.  The ``if (<path> MATCHES "^<prefix>")``
+  idiom mishandles regex metacharacters in ``<prefix>`` and accepts
+  siblings.
+
+  The test is lexical, not a containment check.  No
+  :ref:`path normalization <Normalization>` is performed, so a ``..``
+  escape still tests true: ``"/a/b" PATH_IS_PREFIX "/a/b/../../etc"``.
+  Normalize with :command:`cmake_path(NORMAL_PATH)` first if that must be
+  rejected.
+
+  An empty prefix is not a prefix of any path.  See policy
+  :policy:`CMP0223`.
+
+  Equivalent to :command:`cmake_path(IS_PREFIX)` and
+  ``$<PATH:IS_PREFIX>`` without their ``NORMALIZE`` option.  See
+  :command:`cmake_path(IS_PREFIX)` for more details.
+
+Variable Expansion
+^^^^^^^^^^^^^^^^^^
 
 The if command was written very early in CMake's history, predating
 the ``${}`` variable evaluation syntax, and for convenience evaluates
 variables named by its arguments as shown in the above signatures.
 Note that normal variable evaluation with ``${}`` applies before the if
-command even receives the arguments.  Therefore code like::
+command even receives the arguments.  Therefore code like
+
+.. code-block:: cmake
 
  set(var1 OFF)
  set(var2 "var1")
  if(${var2})
 
-appears to the if command as::
+appears to the if command as
 
- if(var1)
+.. code-block:: cmake
+
+  if(var1)
 
 and is evaluated according to the ``if(<variable>)`` case documented
 above.  The result is ``OFF`` which is false.  However, if we remove the
-``${}`` from the example then the command sees::
+``${}`` from the example then the command sees
 
- if(var2)
+.. code-block:: cmake
 
-which is true because ``var2`` is defined to "var1" which is not a false
+  if(var2)
+
+which is true because ``var2`` is defined to ``var1`` which is not a false
 constant.
 
 Automatic evaluation applies in the other cases whenever the
-above-documented signature accepts ``<variable|string>``:
+above-documented condition syntax accepts ``<variable|string>``:
 
-* The left hand argument to ``MATCHES`` is first checked to see if it is
-  a defined variable, if so the variable's value is used, otherwise the
+* The left hand argument to :cref:`MATCHES` is first checked to see if it is
+  a defined variable.  If so, the variable's value is used, otherwise the
   original value is used.
 
-* If the left hand argument to ``MATCHES`` is missing it returns false
+* If the left hand argument to :cref:`MATCHES` is missing it returns false
   without error
 
-* Both left and right hand arguments to ``LESS``, ``GREATER``, ``EQUAL``,
-  ``LESS_EQUAL``, and ``GREATER_EQUAL``, are independently tested to see if
-  they are defined variables, if so their defined values are used otherwise
-  the original value is used.
+* Both left and right hand arguments to :cref:`LESS`, :cref:`GREATER`,
+  :cref:`EQUAL`, :cref:`LESS_EQUAL`, and :cref:`GREATER_EQUAL` are
+  independently tested to see if they are defined variables.  If so, their
+  defined values are used; otherwise the original value is used.
 
-* Both left and right hand arguments to ``STRLESS``, ``STRGREATER``,
-  ``STREQUAL``, ``STRLESS_EQUAL``, and ``STRGREATER_EQUAL`` are independently
-  tested to see if they are defined variables, if so their defined values are
-  used otherwise the original value is used.
+* Both left and right hand arguments to :cref:`STRLESS`, :cref:`STRGREATER`,
+  :cref:`STREQUAL`, :cref:`STRLESS_EQUAL`, and :cref:`STRGREATER_EQUAL` are
+  independently tested to see if they are defined variables.  If so, their
+  defined values are used; otherwise the original value is used.
 
-* Both left and right hand arguments to ``VERSION_LESS``,
-  ``VERSION_GREATER``, ``VERSION_EQUAL``, ``VERSION_LESS_EQUAL``, and
-  ``VERSION_GREATER_EQUAL`` are independently tested to see if they are defined
-  variables, if so their defined values are used otherwise the original value
-  is used.
+* Both left and right hand arguments to :cref:`VERSION_LESS`,
+  :cref:`VERSION_GREATER`, :cref:`VERSION_EQUAL`, :cref:`VERSION_LESS_EQUAL`,
+  and :cref:`VERSION_GREATER_EQUAL` are independently tested to see if they are
+  defined variables.  If so, their defined values are used; otherwise the
+  original value is used.
 
-* The right hand argument to ``NOT`` is tested to see if it is a boolean
-  constant, if so the value is used, otherwise it is assumed to be a
+* The left hand argument to :cref:`IN_LIST` is tested to see if it is a defined
+  variable.  If so, the variable's value is used; otherwise the original
+  value is used.
+
+* The right hand argument to :cref:`NOT` is tested to see if it is a boolean
+  constant.  If so, the value is used; otherwise it is assumed to be a
   variable and it is dereferenced.
 
-* The left and right hand arguments to ``AND`` and ``OR`` are independently
-  tested to see if they are boolean constants, if so they are used as
-  such, otherwise they are assumed to be variables and are dereferenced.
+* The left and right hand arguments to :cref:`AND` and :cref:`OR` are
+  independently tested to see if they are boolean constants.  If so, they are
+  used as such, otherwise they are assumed to be variables and are dereferenced.
 
-To prevent ambiguity, potential variable or keyword names can be
-specified in a :ref:`Quoted Argument` or a :ref:`Bracket Argument`.
-A quoted or bracketed variable or keyword will be interpreted as a
-string and not dereferenced or interpreted.
-See policy :policy:`CMP0054`.
+.. versionchanged:: 3.1
+  To prevent ambiguity, potential variable or keyword names can be
+  specified in a :ref:`Quoted Argument` or a :ref:`Bracket Argument`.
+  A quoted or bracketed variable or keyword will be interpreted as a
+  string and not dereferenced or interpreted.
+  See policy :policy:`CMP0054`.
+
+There is no automatic evaluation for environment or cache
+:ref:`Variable References`.  Their values must be referenced as
+``$ENV{<name>}`` or ``$CACHE{<name>}`` wherever the above-documented
+condition syntax accepts ``<variable|string>``.
+
+See also
+^^^^^^^^
+
+* :command:`else`
+* :command:`elseif`
+* :command:`endif`

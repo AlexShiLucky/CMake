@@ -1,21 +1,17 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# SquishTestScript
-# ----------------
-#
-#
-#
-#
-#
-# This script launches a GUI test using Squish.  You should not call the
-# script directly; instead, you should access it via the SQUISH_ADD_TEST
-# macro that is defined in FindSquish.cmake.
-#
-# This script starts the Squish server, launches the test on the client,
-# and finally stops the squish server.  If any of these steps fail
-# (including if the tests do not pass) then a fatal error is raised.
+#[=======================================================================[.rst:
+SquishTestScript
+----------------
+
+.. note::
+
+  This module is not intended to be included directly in a CMake project.  It is
+  an internal CMake test script used to launch GUI tests with Squish.  For usage
+  details, refer to the :command:`squish_add_test` command documentation in the
+  ``FindSquish`` module.
+#]=======================================================================]
 
 # print out the variable that we are using
 message(STATUS "squish_aut='${squish_aut}'")
@@ -30,11 +26,10 @@ message(STATUS "squish_test_case='${squish_test_case}'")
 message(STATUS "squish_wrapper='${squish_wrapper}'")
 message(STATUS "squish_env_vars='${squish_env_vars}'")
 message(STATUS "squish_module_dir='${squish_module_dir}'")
-message(STATUS "squish_settingsgroup='${squish_settingsgroup}'")
 message(STATUS "squish_pre_command='${squish_pre_command}'")
 message(STATUS "squish_post_command='${squish_post_command}'")
 
-# parse enviornment variables
+# parse environment variables
 foreach(i ${squish_env_vars})
   message(STATUS "parsing env var key/value pair ${i}")
   string(REGEX MATCH "([^=]*)=(.*)" squish_env_name ${i})
@@ -50,16 +45,16 @@ endif ()
 
 if(squish_pre_command)
   message(STATUS "Executing pre command: ${squish_pre_command}")
-  execute_process(COMMAND "${squish_pre_command}")
+  execute_process(COMMAND "${squish_pre_command}" RESULT_VARIABLE _result_pre_command)
 endif()
 
 # run the test
 if("${squish_version}" STREQUAL "4")
   if (WIN32)
-    execute_process(COMMAND ${squish_module_dir}/Squish4RunTestCase.bat ${squish_server_executable} ${squish_client_executable} ${squish_test_suite} ${squish_test_case} ${squish_aut} ${squish_aut_dir} ${squish_settingsgroup}
+    execute_process(COMMAND ${squish_module_dir}/Squish4RunTestCase.bat ${squish_server_executable} ${squish_client_executable} ${squish_test_suite} ${squish_test_case} ${squish_aut} ${squish_aut_dir}
                     RESULT_VARIABLE test_rv )
   elseif(UNIX)
-    execute_process(COMMAND ${squish_module_dir}/Squish4RunTestCase.sh ${squish_server_executable} ${squish_client_executable} ${squish_test_suite} ${squish_test_case} ${squish_aut} ${squish_aut_dir} ${squish_settingsgroup}
+    execute_process(COMMAND ${squish_module_dir}/Squish4RunTestCase.sh ${squish_server_executable} ${squish_client_executable} ${squish_test_suite} ${squish_test_case} ${squish_aut} ${squish_aut_dir}
                     RESULT_VARIABLE test_rv )
   endif ()
 
@@ -76,7 +71,7 @@ endif()
 
 if(squish_post_command)
   message(STATUS "Executing post command: ${squish_post_command}")
-  execute_process(COMMAND "${squish_post_command}")
+  execute_process(COMMAND "${squish_post_command}" RESULT_VARIABLE _result_post_command)
 endif()
 
 # check for an error with running the test

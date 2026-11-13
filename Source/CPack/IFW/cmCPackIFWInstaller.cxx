@@ -1,6 +1,10 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCPackIFWInstaller.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <utility>
 
 #include "cmCPackIFWCommon.h"
 #include "cmCPackIFWGenerator.h"
@@ -8,194 +12,234 @@
 #include "cmCPackIFWRepository.h"
 #include "cmCPackLog.h" // IWYU pragma: keep
 #include "cmGeneratedFileStream.h"
+#include "cmList.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
+#include "cmValue.h"
 #include "cmXMLParser.h"
 #include "cmXMLWriter.h"
 
-#include <sstream>
-#include <stddef.h>
-#include <utility>
-
-cmCPackIFWInstaller::cmCPackIFWInstaller()
-{
-}
+cmCPackIFWInstaller::cmCPackIFWInstaller() = default;
 
 void cmCPackIFWInstaller::printSkippedOptionWarning(
-  const std::string& optionName, const std::string& optionValue)
+  std::string const& optionName, std::string const& optionValue)
 {
   cmCPackIFWLogger(
-    WARNING, "Option "
-      << optionName << " is set to \"" << optionValue
-      << "\" but will be skipped because the specified file does not exist."
-      << std::endl);
+    WARNING, "Option ", optionName, " contains the value \"", optionValue,
+    "\" but will be skipped because the specified file does not exist.\n");
 }
 
 void cmCPackIFWInstaller::ConfigureFromOptions()
 {
   // Name;
-  if (const char* optIFW_PACKAGE_NAME =
+  if (cmValue optIFW_PACKAGE_NAME =
         this->GetOption("CPACK_IFW_PACKAGE_NAME")) {
-    this->Name = optIFW_PACKAGE_NAME;
-  } else if (const char* optPACKAGE_NAME =
-               this->GetOption("CPACK_PACKAGE_NAME")) {
-    this->Name = optPACKAGE_NAME;
+    this->Name = *optIFW_PACKAGE_NAME;
+  } else if (cmValue optPACKAGE_NAME = this->GetOption("CPACK_PACKAGE_NAME")) {
+    this->Name = *optPACKAGE_NAME;
   } else {
     this->Name = "Your package";
   }
 
   // Title;
-  if (const char* optIFW_PACKAGE_TITLE =
+  if (cmValue optIFW_PACKAGE_TITLE =
         this->GetOption("CPACK_IFW_PACKAGE_TITLE")) {
-    this->Title = optIFW_PACKAGE_TITLE;
-  } else if (const char* optPACKAGE_DESCRIPTION_SUMMARY =
+    this->Title = *optIFW_PACKAGE_TITLE;
+  } else if (cmValue optPACKAGE_DESCRIPTION_SUMMARY =
                this->GetOption("CPACK_PACKAGE_DESCRIPTION_SUMMARY")) {
-    this->Title = optPACKAGE_DESCRIPTION_SUMMARY;
+    this->Title = *optPACKAGE_DESCRIPTION_SUMMARY;
   } else {
     this->Title = "Your package description";
   }
 
   // Version;
-  if (const char* option = this->GetOption("CPACK_PACKAGE_VERSION")) {
-    this->Version = option;
+  if (cmValue option = this->GetOption("CPACK_PACKAGE_VERSION")) {
+    this->Version = *option;
   } else {
     this->Version = "1.0.0";
   }
 
   // Publisher
-  if (const char* optIFW_PACKAGE_PUBLISHER =
+  if (cmValue optIFW_PACKAGE_PUBLISHER =
         this->GetOption("CPACK_IFW_PACKAGE_PUBLISHER")) {
-    this->Publisher = optIFW_PACKAGE_PUBLISHER;
-  } else if (const char* optPACKAGE_VENDOR =
-               GetOption("CPACK_PACKAGE_VENDOR")) {
-    this->Publisher = optPACKAGE_VENDOR;
+    this->Publisher = *optIFW_PACKAGE_PUBLISHER;
+  } else if (cmValue optPACKAGE_VENDOR =
+               this->GetOption("CPACK_PACKAGE_VENDOR")) {
+    this->Publisher = *optPACKAGE_VENDOR;
   }
 
   // ProductUrl
-  if (const char* option = this->GetOption("CPACK_IFW_PRODUCT_URL")) {
-    this->ProductUrl = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PRODUCT_URL")) {
+    this->ProductUrl = *option;
   }
 
   // ApplicationIcon
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_ICON")) {
-    if (cmSystemTools::FileExists(option)) {
-      this->InstallerApplicationIcon = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_ICON")) {
+    if (cmSystemTools::FileExists(*option)) {
+      this->InstallerApplicationIcon = *option;
     } else {
-      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_ICON", option);
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_ICON", *option);
     }
   }
 
   // WindowIcon
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_WINDOW_ICON")) {
-    if (cmSystemTools::FileExists(option)) {
-      this->InstallerWindowIcon = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_WINDOW_ICON")) {
+    if (cmSystemTools::FileExists(*option)) {
+      this->InstallerWindowIcon = *option;
     } else {
-      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_WINDOW_ICON", option);
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_WINDOW_ICON",
+                                      *option);
     }
   }
 
+  // RemoveTargetDir
+  if (this->IsSetToOff("CPACK_IFW_PACKAGE_REMOVE_TARGET_DIR")) {
+    this->RemoveTargetDir = "false";
+  } else if (this->IsOn("CPACK_IFW_PACKAGE_REMOVE_TARGET_DIR")) {
+    this->RemoveTargetDir = "true";
+  } else {
+    this->RemoveTargetDir.clear();
+  }
+
   // Logo
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_LOGO")) {
-    if (cmSystemTools::FileExists(option)) {
-      this->Logo = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_LOGO")) {
+    if (cmSystemTools::FileExists(*option)) {
+      this->Logo = *option;
     } else {
-      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_LOGO", option);
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_LOGO", *option);
     }
   }
 
   // Watermark
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_WATERMARK")) {
-    if (cmSystemTools::FileExists(option)) {
-      this->Watermark = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_WATERMARK")) {
+    if (cmSystemTools::FileExists(*option)) {
+      this->Watermark = *option;
     } else {
-      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_WATERMARK", option);
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_WATERMARK", *option);
     }
   }
 
   // Banner
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_BANNER")) {
-    if (cmSystemTools::FileExists(option)) {
-      this->Banner = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_BANNER")) {
+    if (cmSystemTools::FileExists(*option)) {
+      this->Banner = *option;
     } else {
-      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_BANNER", option);
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_BANNER", *option);
     }
   }
 
   // Background
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_BACKGROUND")) {
-    if (cmSystemTools::FileExists(option)) {
-      this->Background = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_BACKGROUND")) {
+    if (cmSystemTools::FileExists(*option)) {
+      this->Background = *option;
     } else {
-      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_BACKGROUND", option);
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_BACKGROUND", *option);
     }
   }
 
   // WizardStyle
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_WIZARD_STYLE")) {
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_WIZARD_STYLE")) {
     // Setting the user value in any case
-    this->WizardStyle = option;
+    this->WizardStyle = *option;
     // Check known values
     if (this->WizardStyle != "Modern" && this->WizardStyle != "Aero" &&
         this->WizardStyle != "Mac" && this->WizardStyle != "Classic") {
       cmCPackIFWLogger(
-        WARNING, "Option CPACK_IFW_PACKAGE_WIZARD_STYLE has unknown value \""
-          << option << "\". Expected values are: Modern, Aero, Mac, Classic."
-          << std::endl);
+        WARNING, "Option CPACK_IFW_PACKAGE_WIZARD_STYLE has unknown value \"",
+        option, "\". Expected values are: Modern, Aero, Mac, Classic.\n");
+    }
+  }
+
+  // StyleSheet
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_STYLE_SHEET")) {
+    if (cmSystemTools::FileExists(*option)) {
+      this->StyleSheet = *option;
+    } else {
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_STYLE_SHEET",
+                                      *option);
     }
   }
 
   // WizardDefaultWidth
-  if (const char* option =
+  if (cmValue option =
         this->GetOption("CPACK_IFW_PACKAGE_WIZARD_DEFAULT_WIDTH")) {
-    this->WizardDefaultWidth = option;
+    this->WizardDefaultWidth = *option;
   }
 
   // WizardDefaultHeight
-  if (const char* option =
+  if (cmValue option =
         this->GetOption("CPACK_IFW_PACKAGE_WIZARD_DEFAULT_HEIGHT")) {
-    this->WizardDefaultHeight = option;
+    this->WizardDefaultHeight = *option;
+  }
+
+  // WizardShowPageList
+  if (cmValue option =
+        this->GetOption("CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST")) {
+    if (!this->IsVersionLess("4.0")) {
+      if (this->IsSetToOff("CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST")) {
+        this->WizardShowPageList = "false";
+      } else if (this->IsOn("CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST")) {
+        this->WizardShowPageList = "true";
+      } else {
+        this->WizardShowPageList.clear();
+      }
+    } else {
+      std::string currentVersionMsg;
+      if (this->Generator) {
+        currentVersionMsg =
+          "QtIFW version " + this->Generator->FrameworkVersion;
+      } else {
+        currentVersionMsg = "an older QtIFW version";
+      }
+      cmCPackIFWLogger(
+        WARNING, "Option CPACK_IFW_PACKAGE_WIZARD_SHOW_PAGE_LIST is set to \"",
+        option,
+        "\", but it is only supported with QtIFW version 4.0 or later. "
+        "It is being ignored because you are using ",
+        currentVersionMsg, '\n');
+    }
   }
 
   // TitleColor
-  if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_TITLE_COLOR")) {
-    this->TitleColor = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_TITLE_COLOR")) {
+    this->TitleColor = *option;
   }
 
   // Start menu
-  if (const char* optIFW_START_MENU_DIR =
+  if (cmValue optIFW_START_MENU_DIR =
         this->GetOption("CPACK_IFW_PACKAGE_START_MENU_DIRECTORY")) {
-    this->StartMenuDir = optIFW_START_MENU_DIR;
+    this->StartMenuDir = *optIFW_START_MENU_DIR;
   } else {
-    this->StartMenuDir = Name;
+    this->StartMenuDir = this->Name;
   }
 
   // Default target directory for installation
-  if (const char* optIFW_TARGET_DIRECTORY =
+  if (cmValue optIFW_TARGET_DIRECTORY =
         this->GetOption("CPACK_IFW_TARGET_DIRECTORY")) {
-    this->TargetDir = optIFW_TARGET_DIRECTORY;
-  } else if (const char* optPACKAGE_INSTALL_DIRECTORY =
+    this->TargetDir = *optIFW_TARGET_DIRECTORY;
+  } else if (cmValue optPACKAGE_INSTALL_DIRECTORY =
                this->GetOption("CPACK_PACKAGE_INSTALL_DIRECTORY")) {
-    this->TargetDir = "@ApplicationsDir@/";
-    this->TargetDir += optPACKAGE_INSTALL_DIRECTORY;
+    this->TargetDir =
+      cmStrCat("@ApplicationsDir@/", optPACKAGE_INSTALL_DIRECTORY);
   } else {
     this->TargetDir = "@RootDir@/usr/local";
   }
 
   // Default target directory for installation with administrator rights
-  if (const char* option =
-        this->GetOption("CPACK_IFW_ADMIN_TARGET_DIRECTORY")) {
-    this->AdminTargetDir = option;
+  if (cmValue option = this->GetOption("CPACK_IFW_ADMIN_TARGET_DIRECTORY")) {
+    this->AdminTargetDir = *option;
   }
 
   // Maintenance tool
-  if (const char* optIFW_MAINTENANCE_TOOL =
+  if (cmValue optIFW_MAINTENANCE_TOOL =
         this->GetOption("CPACK_IFW_PACKAGE_MAINTENANCE_TOOL_NAME")) {
-    this->MaintenanceToolName = optIFW_MAINTENANCE_TOOL;
+    this->MaintenanceToolName = *optIFW_MAINTENANCE_TOOL;
   }
 
   // Maintenance tool ini file
-  if (const char* optIFW_MAINTENANCE_TOOL_INI =
+  if (cmValue optIFW_MAINTENANCE_TOOL_INI =
         this->GetOption("CPACK_IFW_PACKAGE_MAINTENANCE_TOOL_INI_FILE")) {
-    this->MaintenanceToolIniFile = optIFW_MAINTENANCE_TOOL_INI;
+    this->MaintenanceToolIniFile = *optIFW_MAINTENANCE_TOOL_INI;
   }
 
   // Allow non-ASCII characters
@@ -204,6 +248,16 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
       this->AllowNonAsciiCharacters = "true";
     } else {
       this->AllowNonAsciiCharacters = "false";
+    }
+  }
+
+  // DisableCommandLineInterface
+  if (this->GetOption("CPACK_IFW_PACKAGE_DISABLE_COMMAND_LINE_INTERFACE")) {
+    if (this->IsOn("CPACK_IFW_PACKAGE_DISABLE_COMMAND_LINE_INTERFACE")) {
+      this->DisableCommandLineInterface = "true";
+    } else if (this->IsSetToOff(
+                 "CPACK_IFW_PACKAGE_DISABLE_COMMAND_LINE_INTERFACE")) {
+      this->DisableCommandLineInterface = "false";
     }
   }
 
@@ -217,18 +271,89 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
   }
 
   // Control script
-  if (const char* optIFW_CONTROL_SCRIPT =
+  if (cmValue optIFW_CONTROL_SCRIPT =
         this->GetOption("CPACK_IFW_PACKAGE_CONTROL_SCRIPT")) {
-    this->ControlScript = optIFW_CONTROL_SCRIPT;
+    if (!cmSystemTools::FileExists(*optIFW_CONTROL_SCRIPT)) {
+      this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_CONTROL_SCRIPT",
+                                      *optIFW_CONTROL_SCRIPT);
+    } else {
+      this->ControlScript = *optIFW_CONTROL_SCRIPT;
+    }
   }
 
   // Resources
-  if (const char* optIFW_PACKAGE_RESOURCES =
+  if (cmValue optIFW_PACKAGE_RESOURCES =
         this->GetOption("CPACK_IFW_PACKAGE_RESOURCES")) {
     this->Resources.clear();
-    cmSystemTools::ExpandListArgument(optIFW_PACKAGE_RESOURCES,
-                                      this->Resources);
+    cmExpandList(optIFW_PACKAGE_RESOURCES, this->Resources);
+    for (auto const& file : this->Resources) {
+      if (!cmSystemTools::FileExists(file)) {
+        // The warning will say skipped, but there will later be a hard error
+        // when the binarycreator tool tries to read the missing file.
+        this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_RESOURCES", file);
+      }
+    }
   }
+
+  // ProductImages
+  if (cmValue productImages =
+        this->GetOption("CPACK_IFW_PACKAGE_PRODUCT_IMAGES")) {
+    this->ProductImages.clear();
+    cmExpandList(productImages, this->ProductImages);
+
+    auto erase_missing_file_pred = [this](std::string const& file) -> bool {
+      if (!cmSystemTools::FileExists(file)) {
+        this->printSkippedOptionWarning("CPACK_IFW_PACKAGE_PRODUCT_IMAGES",
+                                        file);
+        return true;
+      }
+      return false;
+    };
+
+    this->ProductImages.erase(std::remove_if(this->ProductImages.begin(),
+                                             this->ProductImages.end(),
+                                             erase_missing_file_pred),
+                              this->ProductImages.end());
+  }
+
+  if (!this->ProductImages.empty()) {
+    if (cmValue productUrls =
+          this->GetOption("CPACK_IFW_PACKAGE_PRODUCT_IMAGE_URLS")) {
+      this->ProductImageUrls.clear();
+      cmExpandList(productUrls, this->ProductImageUrls);
+      if (this->ProductImageUrls.size() != this->ProductImages.size()) {
+        cmCPackIFWLogger(
+          WARNING,
+          "Option \"CPACK_IFW_PACKAGE_PRODUCT_IMAGE_URLS\" will be skipped "
+          "because it contains ",
+          this->ProductImageUrls.size(),
+          " elements while \"CPACK_IFW_PACKAGE_PRODUCT_IMAGES\" contains ",
+          this->ProductImages.size(), " elements.\n");
+        this->ProductImageUrls.clear();
+      }
+    }
+  }
+
+  // Run program, run program arguments, and run program description
+  if (cmValue program = this->GetOption("CPACK_IFW_PACKAGE_RUN_PROGRAM")) {
+    this->RunProgram = *program;
+  }
+  if (cmValue arguments =
+        this->GetOption("CPACK_IFW_PACKAGE_RUN_PROGRAM_ARGUMENTS")) {
+    this->RunProgramArguments.clear();
+    cmExpandList(arguments, this->RunProgramArguments);
+  }
+  if (cmValue description =
+        this->GetOption("CPACK_IFW_PACKAGE_RUN_PROGRAM_DESCRIPTION")) {
+    this->RunProgramDescription = *description;
+  }
+
+#ifdef __APPLE__
+  // Code signing identity for signing the generated app bundle
+  if (cmValue id = this->GetOption("CPACK_IFW_PACKAGE_SIGNING_IDENTITY")) {
+    this->SigningIdentity = *id;
+  }
+#endif
 }
 
 /** \class cmCPackIFWResourcesParser
@@ -237,9 +362,8 @@ void cmCPackIFWInstaller::ConfigureFromOptions()
 class cmCPackIFWResourcesParser : public cmXMLParser
 {
 public:
-  cmCPackIFWResourcesParser(cmCPackIFWInstaller* i)
+  explicit cmCPackIFWResourcesParser(cmCPackIFWInstaller* i)
     : installer(i)
-    , file(false)
   {
     this->path = i->Directory + "/resources";
   }
@@ -258,33 +382,34 @@ public:
   }
 
   cmCPackIFWInstaller* installer;
-  bool file, hasFiles, hasErrors;
+  bool file = false;
+  bool hasFiles = false;
+  bool hasErrors = false;
   std::string path, basePath;
 
 protected:
-  void StartElement(const std::string& name, const char** /*atts*/) CM_OVERRIDE
+  void StartElement(std::string const& name, char const** /*atts*/) override
   {
     this->file = name == "file";
-    if (file) {
+    if (this->file) {
       this->hasFiles = true;
     }
   }
 
-  void CharacterDataHandler(const char* data, int length) CM_OVERRIDE
+  void CharacterDataHandler(char const* data, int length) override
   {
     if (this->file) {
       std::string content(data, data + length);
-      content = cmSystemTools::TrimWhitespace(content);
-      std::string source = this->basePath + "/" + content;
-      std::string destination = this->path + "/" + content;
-      if (!cmSystemTools::CopyFileIfDifferent(source.data(),
-                                              destination.data())) {
+      content = cmTrimWhitespace(content);
+      std::string source = cmStrCat(this->basePath, '/', content);
+      std::string destination = cmStrCat(this->path, '/', content);
+      if (!cmSystemTools::CopyFileIfDifferent(source, destination)) {
         this->hasErrors = true;
       }
     }
   }
 
-  void EndElement(const std::string& /*name*/) CM_OVERRIDE {}
+  void EndElement(std::string const& /*name*/) override {}
 };
 
 void cmCPackIFWInstaller::GenerateInstallerFile()
@@ -295,12 +420,12 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
   }
 
   // Output stream
-  cmGeneratedFileStream fout((this->Directory + "/config/config.xml").data());
+  cmGeneratedFileStream fout(this->Directory + "/config/config.xml");
   cmXMLWriter xout(fout);
 
   xout.StartDocument();
 
-  WriteGeneratedByToStrim(xout);
+  this->WriteGeneratedByToStrim(xout);
 
   xout.StartElement("Installer");
 
@@ -316,30 +441,12 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
     xout.Element("ProductUrl", this->ProductUrl);
   }
 
-  // ApplicationIcon
-  if (!this->InstallerApplicationIcon.empty()) {
-    std::string name =
-      cmSystemTools::GetFilenameName(this->InstallerApplicationIcon);
-    std::string path = this->Directory + "/config/" + name;
-    name = cmSystemTools::GetFilenameWithoutExtension(name);
-    cmsys::SystemTools::CopyFileIfDifferent(this->InstallerApplicationIcon,
-                                            path);
-    xout.Element("InstallerApplicationIcon", name);
-  }
-
-  // WindowIcon
-  if (!this->InstallerWindowIcon.empty()) {
-    std::string name =
-      cmSystemTools::GetFilenameName(this->InstallerWindowIcon);
-    std::string path = this->Directory + "/config/" + name;
-    cmsys::SystemTools::CopyFileIfDifferent(this->InstallerWindowIcon, path);
-    xout.Element("InstallerWindowIcon", name);
-  }
-
   // Logo
   if (!this->Logo.empty()) {
-    std::string name = cmSystemTools::GetFilenameName(this->Logo);
-    std::string path = this->Directory + "/config/" + name;
+    std::string srcName = cmSystemTools::GetFilenameName(this->Logo);
+    std::string suffix = cmSystemTools::GetFilenameLastExtension(srcName);
+    std::string name = "cm_logo" + suffix;
+    std::string path = cmStrCat(this->Directory, "/config/", name);
     cmsys::SystemTools::CopyFileIfDifferent(this->Logo, path);
     xout.Element("Logo", name);
   }
@@ -347,7 +454,7 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
   // Banner
   if (!this->Banner.empty()) {
     std::string name = cmSystemTools::GetFilenameName(this->Banner);
-    std::string path = this->Directory + "/config/" + name;
+    std::string path = cmStrCat(this->Directory, "/config/", name);
     cmsys::SystemTools::CopyFileIfDifferent(this->Banner, path);
     xout.Element("Banner", name);
   }
@@ -355,7 +462,7 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
   // Watermark
   if (!this->Watermark.empty()) {
     std::string name = cmSystemTools::GetFilenameName(this->Watermark);
-    std::string path = this->Directory + "/config/" + name;
+    std::string path = cmStrCat(this->Directory, "/config/", name);
     cmsys::SystemTools::CopyFileIfDifferent(this->Watermark, path);
     xout.Element("Watermark", name);
   }
@@ -363,34 +470,86 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
   // Background
   if (!this->Background.empty()) {
     std::string name = cmSystemTools::GetFilenameName(this->Background);
-    std::string path = this->Directory + "/config/" + name;
+    std::string path = cmStrCat(this->Directory, "/config/", name);
     cmsys::SystemTools::CopyFileIfDifferent(this->Background, path);
     xout.Element("Background", name);
   }
 
-  // WizardStyle
-  if (!this->WizardStyle.empty()) {
-    xout.Element("WizardStyle", this->WizardStyle);
+  // Attributes introduced in QtIFW 1.4.0
+  if (!this->IsVersionLess("1.4")) {
+    // ApplicationIcon
+    if (!this->InstallerApplicationIcon.empty()) {
+      std::string srcName =
+        cmSystemTools::GetFilenameName(this->InstallerApplicationIcon);
+      std::string suffix = cmSystemTools::GetFilenameLastExtension(srcName);
+      std::string name = "cm_appicon" + suffix;
+      std::string path = cmStrCat(this->Directory, "/config/", name);
+      cmsys::SystemTools::CopyFileIfDifferent(this->InstallerApplicationIcon,
+                                              path);
+      // The actual file is looked up by attaching a '.icns' (macOS),
+      // '.ico' (Windows). No functionality on Unix.
+      name = cmSystemTools::GetFilenameWithoutExtension(name);
+      xout.Element("InstallerApplicationIcon", name);
+    }
+
+    // WindowIcon
+    if (!this->InstallerWindowIcon.empty()) {
+      std::string srcName =
+        cmSystemTools::GetFilenameName(this->InstallerWindowIcon);
+      std::string suffix = cmSystemTools::GetFilenameLastExtension(srcName);
+      std::string name = "cm_winicon" + suffix;
+      std::string path = cmStrCat(this->Directory, "/config/", name);
+      cmsys::SystemTools::CopyFileIfDifferent(this->InstallerWindowIcon, path);
+      xout.Element("InstallerWindowIcon", name);
+    }
   }
 
-  // WizardDefaultWidth
-  if (!this->WizardDefaultWidth.empty()) {
-    xout.Element("WizardDefaultWidth", this->WizardDefaultWidth);
-  }
-
-  // WizardDefaultHeight
-  if (!this->WizardDefaultHeight.empty()) {
-    xout.Element("WizardDefaultHeight", this->WizardDefaultHeight);
-  }
-
-  // TitleColor
-  if (!this->TitleColor.empty()) {
-    xout.Element("TitleColor", this->TitleColor);
-  }
-
-  // Start menu
+  // Attributes introduced in QtIFW 2.0.0
   if (!this->IsVersionLess("2.0")) {
-    xout.Element("StartMenuDir", this->StartMenuDir);
+    // WizardDefaultWidth
+    if (!this->WizardDefaultWidth.empty()) {
+      xout.Element("WizardDefaultWidth", this->WizardDefaultWidth);
+    }
+
+    // WizardDefaultHeight
+    if (!this->WizardDefaultHeight.empty()) {
+      xout.Element("WizardDefaultHeight", this->WizardDefaultHeight);
+    }
+
+    // Start menu directory
+    if (!this->StartMenuDir.empty()) {
+      xout.Element("StartMenuDir", this->StartMenuDir);
+    }
+
+    // Maintenance tool
+    if (!this->MaintenanceToolName.empty()) {
+      xout.Element("MaintenanceToolName", this->MaintenanceToolName);
+    }
+
+    // Maintenance tool ini file
+    if (!this->MaintenanceToolIniFile.empty()) {
+      xout.Element("MaintenanceToolIniFile", this->MaintenanceToolIniFile);
+    }
+
+    if (!this->AllowNonAsciiCharacters.empty()) {
+      xout.Element("AllowNonAsciiCharacters", this->AllowNonAsciiCharacters);
+    }
+    if (!this->AllowSpaceInPath.empty()) {
+      xout.Element("AllowSpaceInPath", this->AllowSpaceInPath);
+    }
+
+    // Control script (copy to config dir)
+    if (!this->ControlScript.empty()) {
+      std::string name = cmSystemTools::GetFilenameName(this->ControlScript);
+      std::string path = cmStrCat(this->Directory, "/config/", name);
+      cmsys::SystemTools::CopyFileIfDifferent(this->ControlScript, path);
+      xout.Element("ControlScript", name);
+    }
+  } else {
+    // CPack IFW default policy
+    xout.Comment("CPack IFW default policy for QtIFW less 2.0");
+    xout.Element("AllowNonAsciiCharacters", "true");
+    xout.Element("AllowSpaceInPath", "true");
   }
 
   // Target dir
@@ -406,44 +565,87 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
   // Remote repositories
   if (!this->RemoteRepositories.empty()) {
     xout.StartElement("RemoteRepositories");
-    for (RepositoriesVector::iterator rit = this->RemoteRepositories.begin();
-         rit != this->RemoteRepositories.end(); ++rit) {
-      (*rit)->WriteRepositoryConfig(xout);
+    for (cmCPackIFWRepository* r : this->RemoteRepositories) {
+      r->WriteRepositoryConfig(xout);
     }
     xout.EndElement();
   }
 
-  // Maintenance tool
-  if (!this->IsVersionLess("2.0") && !this->MaintenanceToolName.empty()) {
-    xout.Element("MaintenanceToolName", this->MaintenanceToolName);
-  }
-
-  // Maintenance tool ini file
-  if (!this->IsVersionLess("2.0") && !this->MaintenanceToolIniFile.empty()) {
-    xout.Element("MaintenanceToolIniFile", this->MaintenanceToolIniFile);
-  }
-
-  // Different allows
-  if (this->IsVersionLess("2.0")) {
-    // CPack IFW default policy
-    xout.Comment("CPack IFW default policy for QtIFW less 2.0");
-    xout.Element("AllowNonAsciiCharacters", "true");
-    xout.Element("AllowSpaceInPath", "true");
-  } else {
-    if (!this->AllowNonAsciiCharacters.empty()) {
-      xout.Element("AllowNonAsciiCharacters", this->AllowNonAsciiCharacters);
+  // Attributes introduced in QtIFW 3.0.0
+  if (!this->IsVersionLess("3.0")) {
+    // WizardStyle
+    if (!this->WizardStyle.empty()) {
+      xout.Element("WizardStyle", this->WizardStyle);
     }
-    if (!this->AllowSpaceInPath.empty()) {
-      xout.Element("AllowSpaceInPath", this->AllowSpaceInPath);
+
+    // Stylesheet (copy to config dir)
+    if (!this->StyleSheet.empty()) {
+      std::string name = cmSystemTools::GetFilenameName(this->StyleSheet);
+      std::string path = cmStrCat(this->Directory, "/config/", name);
+      cmsys::SystemTools::CopyFileIfDifferent(this->StyleSheet, path);
+      xout.Element("StyleSheet", name);
+    }
+
+    // TitleColor
+    if (!this->TitleColor.empty()) {
+      xout.Element("TitleColor", this->TitleColor);
     }
   }
 
-  // Control script (copy to config dir)
-  if (!this->IsVersionLess("2.0") && !this->ControlScript.empty()) {
-    std::string name = cmSystemTools::GetFilenameName(this->ControlScript);
-    std::string path = this->Directory + "/config/" + name;
-    cmsys::SystemTools::CopyFileIfDifferent(this->ControlScript, path);
-    xout.Element("ControlScript", name);
+  // Attributes introduced in QtIFW 4.0.0
+  if (!this->IsVersionLess("4.0")) {
+    // WizardShowPageList
+    if (!this->WizardShowPageList.empty()) {
+      xout.Element("WizardShowPageList", this->WizardShowPageList);
+    }
+
+    // DisableCommandLineInterface
+    if (!this->DisableCommandLineInterface.empty()) {
+      xout.Element("DisableCommandLineInterface",
+                   this->DisableCommandLineInterface);
+    }
+
+    // RunProgram
+    if (!this->RunProgram.empty()) {
+      xout.Element("RunProgram", this->RunProgram);
+    }
+
+    // RunProgramArguments
+    if (!this->RunProgramArguments.empty()) {
+      xout.StartElement("RunProgramArguments");
+      for (auto const& arg : this->RunProgramArguments) {
+        xout.Element("Argument", arg);
+      }
+      xout.EndElement();
+    }
+
+    // RunProgramDescription
+    if (!this->RunProgramDescription.empty()) {
+      xout.Element("RunProgramDescription", this->RunProgramDescription);
+    }
+  }
+
+  if (!this->RemoveTargetDir.empty()) {
+    xout.Element("RemoveTargetDir", this->RemoveTargetDir);
+  }
+
+  // Product images (copy to config dir)
+  if (!this->IsVersionLess("4.0") && !this->ProductImages.empty()) {
+    xout.StartElement("ProductImages");
+    bool const hasProductImageUrl = !this->ProductImageUrls.empty();
+    for (size_t i = 0; i < this->ProductImages.size(); ++i) {
+      xout.StartElement("ProductImage");
+      auto const& srcImg = this->ProductImages[i];
+      std::string name = cmSystemTools::GetFilenameName(srcImg);
+      std::string dstImg = cmStrCat(this->Directory, "/config/", name);
+      cmsys::SystemTools::CopyFileIfDifferent(srcImg, dstImg);
+      xout.Element("Image", name);
+      if (hasProductImageUrl) {
+        xout.Element("Url", this->ProductImageUrls.at(i));
+      }
+      xout.EndElement(); // </ProductImage>
+    }
+    xout.EndElement(); // </ProductImages>
   }
 
   // Resources (copy to resources dir)
@@ -453,13 +655,13 @@ void cmCPackIFWInstaller::GenerateInstallerFile()
     for (size_t i = 0; i < this->Resources.size(); i++) {
       if (parser.ParseResource(i)) {
         std::string name = cmSystemTools::GetFilenameName(this->Resources[i]);
-        std::string path = this->Directory + "/resources/" + name;
+        std::string path = cmStrCat(this->Directory, "/resources/", name);
         cmsys::SystemTools::CopyFileIfDifferent(this->Resources[i], path);
-        resources.push_back(name);
+        resources.push_back(std::move(name));
       } else {
-        cmCPackIFWLogger(WARNING, "Can't copy resources from \""
-                           << this->Resources[i]
-                           << "\". Resource will be skipped." << std::endl);
+        cmCPackIFWLogger(WARNING, "Can't copy resources from \"",
+                         this->Resources[i],
+                         "\". Resource will be skipped.\n");
       }
     }
     this->Resources = resources;
@@ -477,11 +679,12 @@ void cmCPackIFWInstaller::GeneratePackageFiles()
     package.Generator = this->Generator;
     package.Installer = this;
     // Check package group
-    if (const char* option = this->GetOption("CPACK_IFW_PACKAGE_GROUP")) {
-      package.ConfigureFromGroup(option);
-      std::string forcedOption = "CPACK_IFW_COMPONENT_GROUP_" +
-        cmsys::SystemTools::UpperCase(option) + "_FORCED_INSTALLATION";
-      if (!GetOption(forcedOption)) {
+    if (cmValue option = this->GetOption("CPACK_IFW_PACKAGE_GROUP")) {
+      package.ConfigureFromGroup(*option);
+      std::string forcedOption = cmStrCat(
+        "CPACK_IFW_COMPONENT_GROUP_", cmsys::SystemTools::UpperCase(*option),
+        "_FORCED_INSTALLATION");
+      if (!this->GetOption(forcedOption)) {
         package.ForcedInstallation = "true";
       }
     } else {
@@ -492,9 +695,8 @@ void cmCPackIFWInstaller::GeneratePackageFiles()
   }
 
   // Generate packages meta information
-  for (PackagesMap::iterator pit = this->Packages.begin();
-       pit != this->Packages.end(); ++pit) {
-    cmCPackIFWPackage* package = pit->second;
+  for (auto& p : this->Packages) {
+    cmCPackIFWPackage* package = p.second;
     package->GeneratePackageFile();
   }
 }

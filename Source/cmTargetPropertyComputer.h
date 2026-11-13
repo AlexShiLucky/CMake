@@ -1,110 +1,104 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmTargetPropertyComputer_h
-#define cmTargetPropertyComputer_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
+#include <utility>
 
-#include "cmAlgorithms.h"
-#include "cmListFileCache.h"
-#include "cmStateTypes.h"
-#include "cmSystemTools.h"
+#include "cmStringAlgorithms.h"
+#include "cmTargetTypes.h"
+#include "cmValue.h"
 
-class cmMessenger;
+class cmMakefile;
 
 class cmTargetPropertyComputer
 {
 public:
   template <typename Target>
-  static const char* GetProperty(Target const* tgt, const std::string& prop,
-                                 cmMessenger* messenger,
-                                 cmListFileBacktrace const& context)
+  static cmValue GetProperty(Target const* tgt, std::string const& prop,
+                             cmMakefile const& mf)
   {
-    if (const char* loc = GetLocation(tgt, prop, messenger, context)) {
+    if (cmValue loc = GetLocation(tgt, prop, mf)) {
       return loc;
     }
-    if (cmSystemTools::GetFatalErrorOccured()) {
-      return CM_NULLPTR;
-    }
     if (prop == "SOURCES") {
-      return GetSources(tgt, messenger, context);
+      return GetSources(tgt);
     }
-    return CM_NULLPTR;
+    return nullptr;
   }
 
-  static bool WhiteListedInterfaceProperty(const std::string& prop);
-
-  static bool PassesWhitelist(cmStateEnums::TargetType tgtType,
-                              std::string const& prop, cmMessenger* messenger,
-                              cmListFileBacktrace const& context);
+  // True if `prop` is a *computed* location property for `type` -- i.e. one of
+  // LOCATION, LOCATION_<CONFIG>, or <CONFIG>_LOCATION on a target type that
+  // synthesizes a location.  Reading one of these from a non-imported target
+  // is an error.  Excludes IMPORTED_LOCATION and XCODE_ATTRIBUTE_*.  If
+  // non-null, `config` is filled with the requested configuration ("" for
+  // plain LOCATION).
+  static bool IsComputedLocationProperty(cm::TargetType type,
+                                         std::string const& prop,
+                                         std::string* config = nullptr)
+  {
+    switch (type) {
+      case cm::TargetType::EXECUTABLE:
+      case cm::TargetType::STATIC_LIBRARY:
+      case cm::TargetType::SHARED_LIBRARY:
+      case cm::TargetType::MODULE_LIBRARY:
+      case cm::TargetType::UNKNOWN_LIBRARY:
+        break;
+      default:
+        return false;
+    }
+    if (prop == "LOCATION") {
+      if (config) {
+        config->clear();
+      }
+      return true;
+    }
+    if (cmHasLiteralPrefix(prop, "LOCATION_")) {
+      if (config) {
+        *config = prop.substr(9);
+      }
+      return true;
+    }
+    if (cmHasLiteralSuffix(prop, "_LOCATION") &&
+        !cmHasLiteralPrefix(prop, "XCODE_ATTRIBUTE_")) {
+      std::string c(prop.c_str(), prop.size() - 9);
+      if (c != "IMPORTED") {
+        if (config) {
+          *config = std::move(c);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
 
 private:
-  static bool HandleLocationPropertyPolicy(std::string const& tgtName,
-                                           cmMessenger* messenger,
-                                           cmListFileBacktrace const& context);
+  static void IssueLocationPropertyError(std::string const& tgtName,
+                                         cmMakefile const& mf);
 
   template <typename Target>
-  static const char* ComputeLocationForBuild(Target const* tgt);
-  template <typename Target>
-  static const char* ComputeLocation(Target const* tgt,
-                                     std::string const& config);
+  static std::string const& ImportedLocation(Target const* tgt,
+                                             std::string const& config);
 
   template <typename Target>
-  static const char* GetLocation(Target const* tgt, std::string const& prop,
-                                 cmMessenger* messenger,
-                                 cmListFileBacktrace const& context)
-
+  static cmValue GetLocation(Target const* tgt, std::string const& prop,
+                             cmMakefile const& mf)
   {
     // Watch for special "computed" properties that are dependent on
     // other properties or variables.  Always recompute them.
-    if (tgt->GetType() == cmStateEnums::EXECUTABLE ||
-        tgt->GetType() == cmStateEnums::STATIC_LIBRARY ||
-        tgt->GetType() == cmStateEnums::SHARED_LIBRARY ||
-        tgt->GetType() == cmStateEnums::MODULE_LIBRARY ||
-        tgt->GetType() == cmStateEnums::UNKNOWN_LIBRARY) {
-      static const std::string propLOCATION = "LOCATION";
-      if (prop == propLOCATION) {
-        if (!tgt->IsImported() &&
-            !HandleLocationPropertyPolicy(tgt->GetName(), messenger,
-                                          context)) {
-          return CM_NULLPTR;
-        }
-        return ComputeLocationForBuild(tgt);
-      }
-
-      // Support "LOCATION_<CONFIG>".
-      if (cmHasLiteralPrefix(prop, "LOCATION_")) {
-        if (!tgt->IsImported() &&
-            !HandleLocationPropertyPolicy(tgt->GetName(), messenger,
-                                          context)) {
-          return CM_NULLPTR;
-        }
-        const char* configName = prop.c_str() + 9;
-        return ComputeLocation(tgt, configName);
-      }
-
-      // Support "<CONFIG>_LOCATION".
-      if (cmHasLiteralSuffix(prop, "_LOCATION") &&
-          !cmHasLiteralPrefix(prop, "XCODE_ATTRIBUTE_")) {
-        std::string configName(prop.c_str(), prop.size() - 9);
-        if (configName != "IMPORTED") {
-          if (!tgt->IsImported() &&
-              !HandleLocationPropertyPolicy(tgt->GetName(), messenger,
-                                            context)) {
-            return CM_NULLPTR;
-          }
-          return ComputeLocation(tgt, configName);
-        }
-      }
+    std::string config;
+    if (!IsComputedLocationProperty(tgt->GetType(), prop, &config)) {
+      return nullptr;
     }
-    return CM_NULLPTR;
+    if (!tgt->IsImported()) {
+      IssueLocationPropertyError(tgt->GetName(), mf);
+      return nullptr;
+    }
+    return cmValue(ImportedLocation(tgt, config));
   }
 
   template <typename Target>
-  static const char* GetSources(Target const* tgt, cmMessenger* messenger,
-                                cmListFileBacktrace const& context);
+  static cmValue GetSources(Target const* tgt);
 };
-
-#endif

@@ -1,13 +1,14 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmProcessOutput_h
-#define cmProcessOutput_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include <stddef.h>
+#include <cstddef>
 #include <string>
 #include <vector>
+
+#include <cm/optional>
 
 /** \class cmProcessOutput
  * \brief Decode text data to internal encoding.
@@ -28,11 +29,11 @@ public:
   };
 
   /**
-  * Find encoding enum value for given encoding \a name.
-  * \param name a encoding name.
-  * \return encoding enum value or Auto if \a name was not found.
-  */
-  static Encoding FindEncoding(std::string const& name);
+   * Find encoding enum value for given encoding \a name.
+   * \param name a encoding name.
+   * \return encoding enum value or Auto if \a name was not found.
+   */
+  static cm::optional<Encoding> FindEncoding(std::string const& name);
 
   /// The code page that is used as internal encoding to which we will encode.
   static unsigned int defaultCodepage;
@@ -48,7 +49,7 @@ public:
    * 0 as \a maxSize.
    */
   cmProcessOutput(Encoding encoding = Auto, unsigned int maxSize = 1024);
-  ~cmProcessOutput();
+  ~cmProcessOutput() = default;
   /**
    * Decode \a raw string using external encoding to internal
    * encoding in \a decoded.
@@ -68,7 +69,7 @@ public:
    * \return true if successfully decoded \a data to \a decoded or false if
    * not.
    */
-  bool DecodeText(const char* data, size_t length, std::string& decoded,
+  bool DecodeText(char const* data, size_t length, std::string& decoded,
                   size_t id = 0);
   /**
    * \overload
@@ -84,5 +85,3 @@ private:
   bool DoDecodeText(std::string raw, std::string& decoded, wchar_t* lastChar);
 #endif
 };
-
-#endif

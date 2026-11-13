@@ -19,7 +19,7 @@ find_package(PkgConfig)
 
 
 if(NOT DEFINED CMAKE_SYSTEM_NAME
-    OR (CMAKE_SYSTEM_NAME MATCHES "^(Linux|kFreeBSD|GNU)$"
+    OR (CMAKE_SYSTEM_NAME MATCHES "^(Linux|GNU)$"
     AND NOT CMAKE_CROSSCOMPILING))
   if(EXISTS "/etc/debian_version") # is this a debian system ?
     if(CMAKE_LIBRARY_ARCHITECTURE MATCHES "^(i386-linux-gnu|x86_64-linux-gnu)$")
@@ -29,7 +29,7 @@ if(NOT DEFINED CMAKE_SYSTEM_NAME
       set(expected_path "/baz:${CMAKE_CURRENT_SOURCE_DIR}/pc-foo/lib/pkgconfig:${CMAKE_CURRENT_SOURCE_DIR}/pc-bar/lib/pkgconfig")
     endif()
   else()
-    # not debian, check the FIND_LIBRARY_USE_LIB32_PATHS and FIND_LIBRARY_USE_LIB64_PATHS propertie
+    # not debian, check the FIND_LIBRARY_USE_LIB32_PATHS and FIND_LIBRARY_USE_LIB64_PATHS properties
     get_property(uselibx32 GLOBAL PROPERTY FIND_LIBRARY_USE_LIBX32_PATHS)
     get_property(uselib32 GLOBAL PROPERTY FIND_LIBRARY_USE_LIB32_PATHS)
     get_property(uselib64 GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS)

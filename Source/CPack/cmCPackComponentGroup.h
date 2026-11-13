@@ -1,9 +1,8 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCPackComponentGroup_h
-#define cmCPackComponentGroup_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <string>
 #include <vector>
@@ -36,12 +35,10 @@ class cmCPackComponent
 {
 public:
   cmCPackComponent()
-    : Group(CM_NULLPTR)
-    , IsRequired(true)
+    : IsRequired(true)
     , IsHidden(false)
     , IsDisabledByDefault(false)
     , IsDownloaded(false)
-    , TotalSize(0)
   {
   }
 
@@ -52,7 +49,7 @@ public:
   std::string DisplayName;
 
   /// The component group that contains this component (if any).
-  cmCPackComponentGroup* Group;
+  cmCPackComponentGroup* Group = nullptr;
 
   /// Whether this component group must always be installed.
   bool IsRequired : 1;
@@ -97,14 +94,14 @@ public:
   /// Get the total installed size of all of the files in this
   /// component, in bytes. installDir is the directory into which the
   /// component was installed.
-  unsigned long GetInstalledSize(const std::string& installDir) const;
+  unsigned long GetInstalledSize(std::string const& installDir) const;
 
   /// Identical to GetInstalledSize, but returns the result in
   /// kilobytes.
-  unsigned long GetInstalledSizeInKbytes(const std::string& installDir) const;
+  unsigned long GetInstalledSizeInKbytes(std::string const& installDir) const;
 
 private:
-  mutable unsigned long TotalSize;
+  mutable unsigned long TotalSize = 0;
 };
 
 /** \class cmCPackComponentGroup
@@ -114,7 +111,8 @@ class cmCPackComponentGroup
 {
 public:
   cmCPackComponentGroup()
-    : ParentGroup(CM_NULLPTR)
+    : IsBold(false)
+    , IsExpandedByDefault(false)
   {
   }
 
@@ -137,10 +135,33 @@ public:
   std::vector<cmCPackComponent*> Components;
 
   /// The parent group of this component group (if any).
-  cmCPackComponentGroup* ParentGroup;
+  cmCPackComponentGroup* ParentGroup = nullptr;
 
   /// The subgroups of this group.
   std::vector<cmCPackComponentGroup*> Subgroups;
 };
 
-#endif
+/** \class cmCPackInstallCMakeProject
+ * \brief A single quadruplet from the CPACK_INSTALL_CMAKE_PROJECTS variable.
+ */
+class cmCPackInstallCMakeProject
+{
+public:
+  /// The directory of the CMake project.
+  std::string Directory;
+
+  /// The name of the CMake project.
+  std::string ProjectName;
+
+  /// The name of the component (or component set) to install.
+  std::string Component;
+
+  /// The subdirectory to install into.
+  std::string SubDirectory;
+
+  /// The list of installation types.
+  std::vector<cmCPackInstallationType*> InstallationTypes;
+
+  /// The list of components.
+  std::vector<cmCPackComponent*> Components;
+};

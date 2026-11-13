@@ -40,7 +40,7 @@ Example to format files modified by the most recent commit:
 
     Utilities/Scripts/clang-format.bash --amend
 
-Example to format all files:
+Example to format all files tracked by Git:
 
     Utilities/Scripts/clang-format.bash --tracked
 
@@ -78,8 +78,8 @@ test "$#" = 0 || die "$usage"
 
 # Find a default tool.
 tools='
+  clang-format-18
   clang-format
-  clang-format-3.8
 '
 if test "x$clang_format" = "x"; then
     for tool in $tools; do
@@ -92,7 +92,12 @@ fi
 
 # Verify that we have a tool.
 if ! type -p "$clang_format" >/dev/null; then
-    echo "Unable to locate '$clang_format'"
+    echo "Unable to locate a 'clang-format' tool."
+    exit 1
+fi
+
+if ! "$clang_format" --version | grep 'clang-format version 18' >/dev/null 2>/dev/null; then
+    echo "clang-format version 18 is required (exactly)"
     exit 1
 fi
 
@@ -111,7 +116,7 @@ $git_ls |
 
   # Select sources with our attribute.
   git check-attr --stdin format.clang-format |
-  sed -n '/: format\.clang-format: set$/ {s/:[^:]*:[^:]*$//p}'  |
+    sed -n '/: format\.clang-format: \(set\|18\)$/ {s/:[^:]*:[^:]*$//p}'  |
 
   # Update sources in-place.
   xargs -d '\n' "$clang_format" -i

@@ -1,2 +1,2 @@
-*.cmcov  -crlf  -whitespace
-*.mcov   -crlf  -whitespace
+*.cmcov  eol=crlf
+*.m      tab-indent

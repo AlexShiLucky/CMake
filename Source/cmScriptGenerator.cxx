@@ -1,39 +1,89 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmScriptGenerator.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <sstream>
+#include <utility>
+
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
-cmScriptGenerator::cmScriptGenerator(
-  const std::string& config_var,
-  std::vector<std::string> const& configurations)
-  : RuntimeConfigVariable(config_var)
-  , Configurations(configurations)
-  , ConfigurationName("")
-  , ConfigurationTypes(CM_NULLPTR)
-  , ActionsPerConfig(false)
+namespace {
+
+int RequiredBracketLength(cm::string_view s)
+{
+  for (int n = 0;; ++n) {
+    std::string const needle = "]" + std::string(n, '=');
+
+    bool ok = true;
+    std::size_t pos = s.find(needle);
+    while (pos != cm::string_view::npos) {
+      std::size_t const next = pos + needle.size();
+      if (next == s.size() || s[next] == ']') {
+        ok = false;
+        break;
+      }
+      pos = s.find(needle, pos + 1);
+    }
+
+    if (ok) {
+      return n;
+    }
+  }
+}
+
+} // namespace
+
+std::ostream& operator<<(std::ostream& os, cmScriptGeneratorQuoted const& self)
+{
+  if (self.BracketLength == -1) {
+    return os << '"' << self.Value << '"';
+  }
+  auto const sep = std::string(self.BracketLength, '=');
+  return os << '[' << sep << '[' << self.Value << ']' << sep << ']';
+}
+
+std::string cmScriptGeneratorQuoted::str() const
+{
+  std::stringstream out;
+  out << *this;
+  return out.str();
+}
+
+cmScriptGenerator::cmScriptGenerator(std::string config_var,
+                                     std::vector<std::string> configurations)
+  : RuntimeConfigVariable(std::move(config_var))
+  , Configurations(std::move(configurations))
 {
 }
 
-cmScriptGenerator::~cmScriptGenerator()
-{
-}
+cmScriptGenerator::~cmScriptGenerator() = default;
 
 void cmScriptGenerator::Generate(
-  std::ostream& os, const std::string& config,
+  std::ostream& os, std::string const& config,
   std::vector<std::string> const& configurationTypes)
 {
   this->ConfigurationName = config;
   this->ConfigurationTypes = &configurationTypes;
   this->GenerateScript(os);
-  this->ConfigurationName = "";
-  this->ConfigurationTypes = CM_NULLPTR;
+  this->ConfigurationName.clear();
+  this->ConfigurationTypes = nullptr;
 }
 
-static void cmScriptGeneratorEncodeConfig(const std::string& config,
+cmScriptGeneratorQuoted cmScriptGenerator::Quote(cm::string_view value)
+{
+  if (value.find_first_of("\"$\\") == std::string::npos) {
+    return cmScriptGeneratorQuoted(value, -1);
+  }
+  return cmScriptGeneratorQuoted(value, RequiredBracketLength(value));
+}
+
+static void cmScriptGeneratorEncodeConfig(std::string const& config,
                                           std::string& result)
 {
-  for (const char* c = config.c_str(); *c; ++c) {
+  for (char const* c = config.c_str(); *c; ++c) {
     if (*c >= 'a' && *c <= 'z') {
       result += "[";
       result += static_cast<char>(*c + 'A' - 'a');
@@ -50,11 +100,10 @@ static void cmScriptGeneratorEncodeConfig(const std::string& config,
   }
 }
 
-std::string cmScriptGenerator::CreateConfigTest(const std::string& config)
+std::string cmScriptGenerator::CreateConfigTest(std::string const& configVar,
+                                                std::string const& config)
 {
-  std::string result = "\"${";
-  result += this->RuntimeConfigVariable;
-  result += "}\" MATCHES \"^(";
+  std::string result = cmStrCat(configVar, " MATCHES \"^(");
   if (!config.empty()) {
     cmScriptGeneratorEncodeConfig(config, result);
   }
@@ -63,20 +112,30 @@ std::string cmScriptGenerator::CreateConfigTest(const std::string& config)
 }
 
 std::string cmScriptGenerator::CreateConfigTest(
-  std::vector<std::string> const& configs)
+  std::string const& configVar, std::vector<std::string> const& configs)
 {
-  std::string result = "\"${";
-  result += this->RuntimeConfigVariable;
-  result += "}\" MATCHES \"^(";
-  const char* sep = "";
-  for (std::vector<std::string>::const_iterator ci = configs.begin();
-       ci != configs.end(); ++ci) {
+  std::string result = cmStrCat(configVar, " MATCHES \"^(");
+  char const* sep = "";
+  for (std::string const& config : configs) {
     result += sep;
     sep = "|";
-    cmScriptGeneratorEncodeConfig(*ci, result);
+    cmScriptGeneratorEncodeConfig(config, result);
   }
   result += ")$\"";
   return result;
+}
+
+std::string cmScriptGenerator::CreateConfigTest(std::string const& config)
+{
+  return cmScriptGenerator::CreateConfigTest(this->RuntimeConfigVariable,
+                                             config);
+}
+
+std::string cmScriptGenerator::CreateConfigTest(
+  std::vector<std::string> const& configs)
+{
+  return cmScriptGenerator::CreateConfigTest(this->RuntimeConfigVariable,
+                                             configs);
 }
 
 void cmScriptGenerator::GenerateScript(std::ostream& os)
@@ -107,13 +166,13 @@ void cmScriptGenerator::GenerateScriptActions(std::ostream& os, Indent indent)
 }
 
 void cmScriptGenerator::GenerateScriptForConfig(std::ostream& /*unused*/,
-                                                const std::string& /*unused*/,
+                                                std::string const& /*unused*/,
                                                 Indent /*unused*/)
 {
   // No actions for this generator.
 }
 
-bool cmScriptGenerator::GeneratesForConfig(const std::string& config)
+bool cmScriptGenerator::GeneratesForConfig(std::string const& config)
 {
   // If this is not a configuration-specific rule then we install.
   if (this->Configurations.empty()) {
@@ -123,14 +182,10 @@ bool cmScriptGenerator::GeneratesForConfig(const std::string& config)
   // This is a configuration-specific rule.  Check if the config
   // matches this rule.
   std::string config_upper = cmSystemTools::UpperCase(config);
-  for (std::vector<std::string>::const_iterator i =
-         this->Configurations.begin();
-       i != this->Configurations.end(); ++i) {
-    if (cmSystemTools::UpperCase(*i) == config_upper) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(this->Configurations.begin(), this->Configurations.end(),
+                     [&config_upper](std::string const& cfg) -> bool {
+                       return cmSystemTools::UpperCase(cfg) == config_upper;
+                     });
 }
 
 void cmScriptGenerator::GenerateScriptActionsOnce(std::ostream& os,
@@ -144,7 +199,7 @@ void cmScriptGenerator::GenerateScriptActionsOnce(std::ostream& os,
     std::string config_test = this->CreateConfigTest(this->Configurations);
     os << indent << "if(" << config_test << ")\n";
     this->GenerateScriptActions(os, indent.Next());
-    os << indent << "endif(" << config_test << ")\n";
+    os << indent << "endif()\n";
   }
 }
 
@@ -163,15 +218,12 @@ void cmScriptGenerator::GenerateScriptActionsPerConfig(std::ostream& os,
     // in a block for each configuration that is built.  We restrict
     // the list of configurations to those to which this rule applies.
     bool first = true;
-    for (std::vector<std::string>::const_iterator i =
-           this->ConfigurationTypes->begin();
-         i != this->ConfigurationTypes->end(); ++i) {
-      const char* config = i->c_str();
-      if (this->GeneratesForConfig(config)) {
+    for (std::string const& cfgType : *this->ConfigurationTypes) {
+      if (this->GeneratesForConfig(cfgType)) {
         // Generate a per-configuration block.
-        std::string config_test = this->CreateConfigTest(config);
+        std::string config_test = this->CreateConfigTest(cfgType);
         os << indent << (first ? "if(" : "elseif(") << config_test << ")\n";
-        this->GenerateScriptForConfig(os, config, indent.Next());
+        this->GenerateScriptForConfig(os, cfgType, indent.Next());
         first = false;
       }
     }

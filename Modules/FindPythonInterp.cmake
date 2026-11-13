@@ -1,46 +1,123 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindPythonInterp
-# ----------------
-#
-# Find python interpreter
-#
-# This module finds if Python interpreter is installed and determines
-# where the executables are.  This code sets the following variables:
-#
-# ::
-#
-#   PYTHONINTERP_FOUND         - Was the Python executable found
-#   PYTHON_EXECUTABLE          - path to the Python interpreter
-#
-#
-#
-# ::
-#
-#   PYTHON_VERSION_STRING      - Python version found e.g. 2.5.2
-#   PYTHON_VERSION_MAJOR       - Python major version found e.g. 2
-#   PYTHON_VERSION_MINOR       - Python minor version found e.g. 5
-#   PYTHON_VERSION_PATCH       - Python patch version found e.g. 2
-#
-#
-#
-# The Python_ADDITIONAL_VERSIONS variable can be used to specify a list
-# of version numbers that should be taken into account when searching
-# for Python.  You need to set this variable before calling
-# find_package(PythonInterp).
-#
-# If calling both ``find_package(PythonInterp)`` and
-# ``find_package(PythonLibs)``, call ``find_package(PythonInterp)`` first to
-# get the currently active Python version by default with a consistent version
-# of PYTHON_LIBRARIES.
+#[=======================================================================[.rst:
+FindPythonInterp
+----------------
+
+.. versionchanged:: 3.27
+  This module is available only if policy :policy:`CMP0148` is not set to ``NEW``.
+
+.. deprecated:: 3.12
+
+  Use :module:`FindPython3`, :module:`FindPython2`, or :module:`FindPython`
+  instead.
+
+Finds the Python interpreter and determines the location of its executable:
+
+.. code-block:: cmake
+
+  find_package(PythonInterp [<version>] [...])
+
+.. note::
+
+  When using both this and the :module:`FindPythonLibs` module, call
+  ``find_package(PythonInterp)`` before ``find_package(PythonLibs)``.  This
+  ensures that the detected interpreter version is used to guide the selection
+  of compatible libraries, resulting in a consistent ``PYTHON_LIBRARIES`` value.
+
+.. note::
+
+  A call to ``find_package(PythonInterp ${V})`` for Python version ``V`` may
+  find a ``python`` executable with no version suffix.  In this case no attempt
+  is made to avoid Python executables from other versions.  Use
+  :module:`FindPython3`, :module:`FindPython2`, or :module:`FindPython` instead.
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``PythonInterp_FOUND``
+  .. versionadded:: 3.3
+
+  Boolean indicating whether the (requested version of) Python executable
+  was found.
+
+``PYTHON_VERSION_STRING``
+  Python version found (e.g., ``2.5.2``).
+``PYTHON_VERSION_MAJOR``
+  Python major version found (e.g., ``2``).
+``PYTHON_VERSION_MINOR``
+  Python minor version found (e.g., ``5``).
+``PYTHON_VERSION_PATCH``
+  Python patch version found (e.g., ``2``).
+
+Cache Variables
+^^^^^^^^^^^^^^^
+
+The following cache variables may also be set:
+
+``PYTHON_EXECUTABLE``
+  The path to the Python interpreter.
+
+Hints
+^^^^^
+
+This module accepts the following variables before calling
+``find_package(PythonInterp)``:
+
+``Python_ADDITIONAL_VERSIONS``
+  This variable can be used to specify a list of version numbers that should be
+  taken into account when searching for Python.
+
+Deprecated Variables
+^^^^^^^^^^^^^^^^^^^^
+
+The following variables are provided for backward compatibility:
+
+``PYTHONINTERP_FOUND``
+  .. deprecated:: 3.12
+    Use ``PythonInterp_FOUND``, which has the same value.
+
+  Boolean indicating whether the (requested version of) Python executable
+  was found.
+
+Examples
+^^^^^^^^
+
+Finding the Python interpreter in earlier versions of CMake:
+
+.. code-block:: cmake
+
+  find_package(PythonInterp)
+  execute_process(COMMAND ${PYTHON_EXECUTABLE} --help)
+
+Starting with CMake 3.12, the Python interpreter can be found using the
+:module:`FindPython` module.  The equivalent example using the modern approach
+is:
+
+.. code-block:: cmake
+
+  find_package(Python)
+  execute_process(COMMAND ${Python_EXECUTABLE} --help)
+#]=======================================================================]
+
+cmake_policy(GET CMP0148 _FindPythonInterp_CMP0148)
+if(_FindPythonInterp_CMP0148 STREQUAL "NEW")
+  message(FATAL_ERROR "The FindPythonInterp module has been removed by policy CMP0148.")
+endif()
+
+if(_FindPythonInterp_testing)
+  set(_FindPythonInterp_included TRUE)
+  return()
+endif()
 
 unset(_Python_NAMES)
 
 set(_PYTHON1_VERSIONS 1.6 1.5)
 set(_PYTHON2_VERSIONS 2.7 2.6 2.5 2.4 2.3 2.2 2.1 2.0)
-set(_PYTHON3_VERSIONS 3.7 3.6 3.5 3.4 3.3 3.2 3.1 3.0)
+set(_PYTHON3_VERSIONS 3.16 3.15 3.14 3.13 3.12 3.11 3.10 3.9 3.8 3.7 3.6 3.5 3.4 3.3 3.2 3.1 3.0)
 
 if(PythonInterp_FIND_VERSION)
     if(PythonInterp_FIND_VERSION_COUNT GREATER 1)
@@ -100,6 +177,9 @@ if(NOT PYTHON_EXECUTABLE)
             [HKEY_LOCAL_MACHINE\\SOFTWARE\\Python\\PythonCore\\${_CURRENT_VERSION}\\InstallPath]
             [HKEY_LOCAL_MACHINE\\SOFTWARE\\Python\\PythonCore\\${_CURRENT_VERSION}-32\\InstallPath]
             [HKEY_LOCAL_MACHINE\\SOFTWARE\\Python\\PythonCore\\${_CURRENT_VERSION}-64\\InstallPath]
+            [HKEY_CURRENT_USER\\SOFTWARE\\Python\\PythonCore\\${_CURRENT_VERSION}\\InstallPath]
+            [HKEY_CURRENT_USER\\SOFTWARE\\Python\\PythonCore\\${_CURRENT_VERSION}-32\\InstallPath]
+            [HKEY_CURRENT_USER\\SOFTWARE\\Python\\PythonCore\\${_CURRENT_VERSION}-64\\InstallPath]
         )
     endforeach()
 endif()
@@ -122,7 +202,9 @@ if(PYTHON_EXECUTABLE)
         endif()
     else()
         # sys.version predates sys.version_info, so use that
-        execute_process(COMMAND "${PYTHON_EXECUTABLE}" -c "import sys; sys.stdout.write(sys.version)"
+        # sys.version was first documented for Python 1.5, so assume version 1.4
+        # if retrieving sys.version fails.
+        execute_process(COMMAND "${PYTHON_EXECUTABLE}" -c "try: import sys; sys.stdout.write(sys.version)\nexcept: sys.stdout.write(\"1.4.0\")"
                         OUTPUT_VARIABLE _VERSION
                         RESULT_VARIABLE _PYTHON_VERSION_RESULT
                         ERROR_QUIET)
@@ -136,19 +218,17 @@ if(PYTHON_EXECUTABLE)
                 set(PYTHON_VERSION_PATCH "0")
             endif()
         else()
-            # sys.version was first documented for Python 1.5, so assume
-            # this is older.
-            set(PYTHON_VERSION_STRING "1.4")
-            set(PYTHON_VERSION_MAJOR "1")
-            set(PYTHON_VERSION_MINOR "4")
-            set(PYTHON_VERSION_PATCH "0")
+            unset(PYTHON_VERSION_STRING)
+            unset(PYTHON_VERSION_MAJOR)
+            unset(PYTHON_VERSION_MINOR)
+            unset(PYTHON_VERSION_PATCH)
         endif()
     endif()
     unset(_PYTHON_VERSION_RESULT)
     unset(_VERSION)
 endif()
 
-include(${CMAKE_CURRENT_LIST_DIR}/FindPackageHandleStandardArgs.cmake)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(PythonInterp REQUIRED_VARS PYTHON_EXECUTABLE VERSION_VAR PYTHON_VERSION_STRING)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(PythonInterp REQUIRED_VARS PYTHON_EXECUTABLE VERSION_VAR PYTHON_VERSION_STRING)
 
 mark_as_advanced(PYTHON_EXECUTABLE)

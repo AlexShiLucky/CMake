@@ -24,7 +24,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_write_disk_set_standard_lookup.c 201083 2009-12-28 02:09:57Z kientzle $");
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -46,6 +45,7 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_write_disk_set_standard_lookup.c
 #endif
 
 #include "archive.h"
+#include "archive_integer.h"
 #include "archive_private.h"
 #include "archive_read_private.h"
 #include "archive_write_disk_private.h"
@@ -114,8 +114,7 @@ lookup_gid(void *private_data, const char *gname, int64_t gid)
 		return ((gid_t)b->id);
 
 	/* Free the cache slot for a new entry. */
-	if (b->name != NULL)
-		free(b->name);
+	free(b->name);
 	b->name = strdup(gname);
 	/* Note: If strdup fails, that's okay; we just won't cache. */
 	b->hash = h;
@@ -136,7 +135,8 @@ lookup_gid(void *private_data, const char *gname, int64_t gid)
 				break;
 			if (r != ERANGE)
 				break;
-			bufsize *= 2;
+			if (archive_ckd_mul_size(&bufsize, bufsize, 2))
+				break;
 			free(allocated);
 			allocated = malloc(bufsize);
 			if (allocated == NULL)
@@ -184,8 +184,7 @@ lookup_uid(void *private_data, const char *uname, int64_t uid)
 		return ((uid_t)b->id);
 
 	/* Free the cache slot for a new entry. */
-	if (b->name != NULL)
-		free(b->name);
+	free(b->name);
 	b->name = strdup(uname);
 	/* Note: If strdup fails, that's okay; we just won't cache. */
 	b->hash = h;
@@ -206,7 +205,8 @@ lookup_uid(void *private_data, const char *uname, int64_t uid)
 				break;
 			if (r != ERANGE)
 				break;
-			bufsize *= 2;
+			if (archive_ckd_mul_size(&bufsize, bufsize, 2))
+				break;
 			free(allocated);
 			allocated = malloc(bufsize);
 			if (allocated == NULL)

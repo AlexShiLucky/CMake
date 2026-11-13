@@ -1,99 +1,104 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# CheckCSourceCompiles
-# --------------------
-#
-# Check if given C source compiles and links into an executable
-#
-# CHECK_C_SOURCE_COMPILES(<code> <var> [FAIL_REGEX <fail-regex>])
-#
-# ::
-#
-#   <code>       - source code to try to compile, must define 'main'
-#   <var>        - variable to store whether the source code compiled
-#                  Will be created as an internal cache variable.
-#   <fail-regex> - fail if test output matches this regex
-#
-# The following variables may be set before calling this macro to modify
-# the way the check is run:
-#
-# ::
-#
-#   CMAKE_REQUIRED_FLAGS = string of compile command line flags
-#   CMAKE_REQUIRED_DEFINITIONS = list of macros to define (-DFOO=bar)
-#   CMAKE_REQUIRED_INCLUDES = list of include directories
-#   CMAKE_REQUIRED_LIBRARIES = list of libraries to link
-#   CMAKE_REQUIRED_QUIET = execute quietly without messages
+#[=======================================================================[.rst:
+CheckCSourceCompiles
+--------------------
+
+This module provides a command to check whether a C source can be built.
+
+Load this module in a CMake project with:
+
+.. code-block:: cmake
+
+  include(CheckCSourceCompiles)
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
+
+.. command:: check_c_source_compiles
+
+  Checks once whether the given C source code can be built:
+
+  .. code-block:: cmake
+
+    check_c_source_compiles(<code> <variable> [FAIL_REGEX <regexes>...])
+
+  This command checks once that the source supplied in ``<code>`` can be
+  compiled (and linked into an executable).  The result of the check is
+  stored in the internal cache variable specified by ``<variable>``.
+
+  The arguments are:
+
+  ``<code>``
+    C source code to check.  This must be an entire program, as written in
+    a file containing the body block.  All symbols used in the source code
+    are expected to be declared as usual in their corresponding headers.
+
+  ``<variable>``
+    Variable name of an internal cache variable to store the result of the
+    check, with boolean true for success and boolean false for failure.
+
+  ``FAIL_REGEX <regexes>...``
+    If one or more regular expression patterns are provided, then failure is
+    determined by checking if anything in the compiler output matches any of
+    the specified regular expressions.
+
+  .. rubric:: Variables Affecting the Check
+
+  The following variables may be set before calling this command to modify
+  the way the check is run:
+
+  .. include:: /module/include/CMAKE_REQUIRED_FLAGS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_DEFINITIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_INCLUDES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_OPTIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LIBRARIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_DIRECTORIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_QUIET.rst
+
+  .. include:: /module/include/CMAKE_TRY_COMPILE_TARGET_TYPE.rst
+
+Examples
+^^^^^^^^
+
+Checking whether C source code containing SSE2 intrinsic can be compiled
+and linked:
+
+.. code-block:: cmake
+
+  include(CheckCSourceCompiles)
+
+  check_c_source_compiles([[
+    #include <emmintrin.h>
+    int main(void)
+    {
+      __m128d a = _mm_setzero_pd();
+      (void)a;
+      return 0;
+    }
+  ]] PROJECT_HAVE_SSE2_INTRINSICS)
+
+See Also
+^^^^^^^^
+
+* The :module:`CheckSourceCompiles` module for a more general command to
+  check whether source can be built.
+* The :module:`CheckSourceRuns` module to check whether source can be built
+  and run.
+#]=======================================================================]
+
+include_guard(GLOBAL)
+include(Internal/CheckSourceCompiles)
 
 macro(CHECK_C_SOURCE_COMPILES SOURCE VAR)
-  if(NOT DEFINED "${VAR}")
-    set(_FAIL_REGEX)
-    set(_key)
-    foreach(arg ${ARGN})
-      if("${arg}" MATCHES "^(FAIL_REGEX)$")
-        set(_key "${arg}")
-      elseif(_key)
-        list(APPEND _${_key} "${arg}")
-      else()
-        message(FATAL_ERROR "Unknown argument:\n  ${arg}\n")
-      endif()
-    endforeach()
-    set(MACRO_CHECK_FUNCTION_DEFINITIONS
-      "-D${VAR} ${CMAKE_REQUIRED_FLAGS}")
-    if(CMAKE_REQUIRED_LIBRARIES)
-      set(CHECK_C_SOURCE_COMPILES_ADD_LIBRARIES
-        LINK_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-    else()
-      set(CHECK_C_SOURCE_COMPILES_ADD_LIBRARIES)
-    endif()
-    if(CMAKE_REQUIRED_INCLUDES)
-      set(CHECK_C_SOURCE_COMPILES_ADD_INCLUDES
-        "-DINCLUDE_DIRECTORIES:STRING=${CMAKE_REQUIRED_INCLUDES}")
-    else()
-      set(CHECK_C_SOURCE_COMPILES_ADD_INCLUDES)
-    endif()
-    file(WRITE "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src.c"
-      "${SOURCE}\n")
-
-    if(NOT CMAKE_REQUIRED_QUIET)
-      message(STATUS "Performing Test ${VAR}")
-    endif()
-    try_compile(${VAR}
-      ${CMAKE_BINARY_DIR}
-      ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src.c
-      COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
-      ${CHECK_C_SOURCE_COMPILES_ADD_LIBRARIES}
-      CMAKE_FLAGS -DCOMPILE_DEFINITIONS:STRING=${MACRO_CHECK_FUNCTION_DEFINITIONS}
-      "${CHECK_C_SOURCE_COMPILES_ADD_INCLUDES}"
-      OUTPUT_VARIABLE OUTPUT)
-
-    foreach(_regex ${_FAIL_REGEX})
-      if("${OUTPUT}" MATCHES "${_regex}")
-        set(${VAR} 0)
-      endif()
-    endforeach()
-
-    if(${VAR})
-      set(${VAR} 1 CACHE INTERNAL "Test ${VAR}")
-      if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Performing Test ${VAR} - Success")
-      endif()
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Performing C SOURCE FILE Test ${VAR} succeeded with the following output:\n"
-        "${OUTPUT}\n"
-        "Source file was:\n${SOURCE}\n")
-    else()
-      if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Performing Test ${VAR} - Failed")
-      endif()
-      set(${VAR} "" CACHE INTERNAL "Test ${VAR}")
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
-        "Performing C SOURCE FILE Test ${VAR} failed with the following output:\n"
-        "${OUTPUT}\n"
-        "Source file was:\n${SOURCE}\n")
-    endif()
-  endif()
+  cmake_check_source_compiles(C "${SOURCE}" ${VAR} ${ARGN})
 endmacro()
-

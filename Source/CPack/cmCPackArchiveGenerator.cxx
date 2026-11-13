@@ -1,45 +1,301 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmCPackArchiveGenerator.h"
+
+#include <map>
+#include <ostream>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "cmCPackComponentGroup.h"
 #include "cmCPackGenerator.h"
 #include "cmCPackLog.h"
 #include "cmGeneratedFileStream.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
+#include "cmValue.h"
 #include "cmWorkingDirectory.h"
 
-#include <map>
-#include <ostream>
-#include <utility>
-#include <vector>
-
-cmCPackArchiveGenerator::cmCPackArchiveGenerator(cmArchiveWrite::Compress t,
-                                                 std::string const& format)
+enum class DeduplicateStatus
 {
-  this->Compress = t;
-  this->ArchiveFormat = format;
+  Skip,
+  Add,
+  Error
+};
+
+/**
+ * @class cmCPackArchiveGenerator::Deduplicator
+ * @brief A utility class for deduplicating files, folders, and symlinks.
+ *
+ * This class is responsible for identifying duplicate files, folders, and
+ * symlinks when generating an archive. It keeps track of the paths that have
+ * been processed and helps in deciding whether a new path should be added,
+ * skipped, or flagged as an error.
+ */
+class cmCPackArchiveGenerator::Deduplicator
+{
+private:
+  /**
+   * @brief Compares a file with already processed files.
+   *
+   * @param path The path of the file to compare.
+   * @param localTopLevel The top-level directory for the file.
+   * @return DeduplicateStatus indicating whether to add, skip, or flag an
+   * error for the file.
+   */
+  DeduplicateStatus CompareFile(std::string const& path,
+                                std::string const& localTopLevel)
+  {
+    auto fileItr = this->Files.find(path);
+    if (fileItr != this->Files.end()) {
+      return cmSystemTools::FilesDiffer(path, fileItr->second)
+        ? DeduplicateStatus::Error
+        : DeduplicateStatus::Skip;
+    }
+
+    this->Files[path] = cmStrCat(localTopLevel, '/', path);
+    return DeduplicateStatus::Add;
+  }
+
+  /**
+   * @brief Compares a folder with already processed folders.
+   *
+   * @param path The path of the folder to compare.
+   * @return DeduplicateStatus indicating whether to add or skip the folder.
+   */
+  DeduplicateStatus CompareFolder(std::string const& path)
+  {
+    if (this->Folders.find(path) != this->Folders.end()) {
+      return DeduplicateStatus::Skip;
+    }
+
+    this->Folders.emplace(path);
+    return DeduplicateStatus::Add;
+  }
+
+  /**
+   * @brief Compares a symlink with already processed symlinks.
+   *
+   * @param path The path of the symlink to compare.
+   * @return DeduplicateStatus indicating whether to add, skip, or flag an
+   * error for the symlink.
+   */
+  DeduplicateStatus CompareSymlink(std::string const& path)
+  {
+    auto symlinkItr = this->Symlink.find(path);
+    std::string symlinkValue;
+    auto status = cmSystemTools::ReadSymlink(path, symlinkValue);
+    if (!status.IsSuccess()) {
+      return DeduplicateStatus::Error;
+    }
+
+    if (symlinkItr != this->Symlink.end()) {
+      return symlinkValue == symlinkItr->second ? DeduplicateStatus::Skip
+                                                : DeduplicateStatus::Error;
+    }
+
+    this->Symlink[path] = symlinkValue;
+    return DeduplicateStatus::Add;
+  }
+
+public:
+  /**
+   * @brief Determines the deduplication status of a given path.
+   *
+   * This method identifies whether the given path is a file, folder, or
+   * symlink and then delegates to the appropriate comparison method.
+   *
+   * @param path The path to check for deduplication.
+   * @param localTopLevel The top-level directory for the path.
+   * @return DeduplicateStatus indicating the action to take for the given
+   * path.
+   */
+  DeduplicateStatus IsDeduplicate(std::string const& path,
+                                  std::string const& localTopLevel)
+  {
+    DeduplicateStatus status;
+    if (cmSystemTools::FileIsDirectory(path)) {
+      status = this->CompareFolder(path);
+    } else if (cmSystemTools::FileIsSymlink(path)) {
+      status = this->CompareSymlink(path);
+    } else {
+      status = this->CompareFile(path, localTopLevel);
+    }
+
+    return status;
+  }
+
+private:
+  std::unordered_map<std::string, std::string> Symlink;
+  std::unordered_set<std::string> Folders;
+  std::unordered_map<std::string, std::string> Files;
+};
+
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZGenerator()
+{
+  return cmCPackArchiveGenerator::Create7ZLzmaGenerator();
 }
 
-cmCPackArchiveGenerator::~cmCPackArchiveGenerator()
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZStoreGenerator()
 {
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressNone, "7zip",
+                                     ".7z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZDeflateGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressGZip, "7zip",
+                                     ".7z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZBzip2Generator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressBZip2, "7zip",
+                                     ".7z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZLzmaGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressLZMA, "7zip",
+                                     ".7z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZLzma2Generator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressXZ, "7zip",
+                                     ".7z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZZstdGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressZstd, "7zip",
+                                     ".7z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::Create7ZPPMdGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressPPMd, "7zip",
+                                     ".7z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateTBZ2Generator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressBZip2, "paxr",
+                                     ".tar.bz2");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateTGZGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressGZip, "paxr",
+                                     ".tar.gz");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateTXZGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressXZ, "paxr",
+                                     ".tar.xz");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateTZGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressCompress, "paxr",
+                                     ".tar.Z");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateTZSTGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressZstd, "paxr",
+                                     ".tar.zst");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateTarGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressNone, "gnutar",
+                                     ".tar");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateZIPGenerator()
+{
+  return cmCPackArchiveGenerator::CreateZipDeflateGenerator();
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateZipStoreGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressNone, "zip",
+                                     ".zip");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateZipDeflateGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressGZip, "zip",
+                                     ".zip");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateZipBzip2Generator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressBZip2, "zip",
+                                     ".zip");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateZipLzmaGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressLZMA, "zip",
+                                     ".zip");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateZipLzma2Generator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressXZ, "zip",
+                                     ".zip");
+}
+
+cmCPackGenerator* cmCPackArchiveGenerator::CreateZipZstdGenerator()
+{
+  return new cmCPackArchiveGenerator(cmArchiveWrite::CompressZstd, "zip",
+                                     ".zip");
+}
+
+cmCPackArchiveGenerator::cmCPackArchiveGenerator(
+  cmArchiveWrite::Compress compress, std::string format, std::string extension)
+  : Compress(compress)
+  , ArchiveFormat(std::move(format))
+  , OutputExtension(std::move(extension))
+{
+}
+
+cmCPackArchiveGenerator::~cmCPackArchiveGenerator() = default;
+
+std::string cmCPackArchiveGenerator::GetArchiveFileName()
+{
+  std::string packageFileName = this->toplevel + "/";
+  if (cmValue v = this->GetOptionIfSet("CPACK_ARCHIVE_FILE_NAME")) {
+    packageFileName += *v;
+  } else {
+    v = this->GetOption("CPACK_PACKAGE_FILE_NAME");
+    packageFileName += *v;
+  }
+  packageFileName += this->GetOutputExtension();
+  return packageFileName;
 }
 
 std::string cmCPackArchiveGenerator::GetArchiveComponentFileName(
-  const std::string& component, bool isGroupName)
+  std::string const& component, bool isGroupName)
 {
   std::string componentUpper(cmSystemTools::UpperCase(component));
   std::string packageFileName;
 
-  if (this->IsSet("CPACK_ARCHIVE_" + componentUpper + "_FILE_NAME")) {
+  if (cmValue v = this->GetOptionIfSet(
+        cmStrCat("CPACK_ARCHIVE_", componentUpper, "_FILE_NAME"))) {
+    packageFileName += *v;
+  } else if ((v = this->GetOptionIfSet("CPACK_ARCHIVE_FILE_NAME"))) {
     packageFileName +=
-      this->GetOption("CPACK_ARCHIVE_" + componentUpper + "_FILE_NAME");
-  } else if (this->IsSet("CPACK_ARCHIVE_FILE_NAME")) {
-    packageFileName += GetComponentPackageFileName(
-      this->GetOption("CPACK_ARCHIVE_FILE_NAME"), component, isGroupName);
+      this->GetComponentPackageFileName(*v, component, isGroupName);
   } else {
-    packageFileName += GetComponentPackageFileName(
-      this->GetOption("CPACK_PACKAGE_FILE_NAME"), component, isGroupName);
+    v = this->GetOption("CPACK_PACKAGE_FILE_NAME");
+    packageFileName +=
+      this->GetComponentPackageFileName(*v, component, isGroupName);
   }
 
   packageFileName += this->GetOutputExtension();
@@ -50,39 +306,74 @@ std::string cmCPackArchiveGenerator::GetArchiveComponentFileName(
 int cmCPackArchiveGenerator::InitializeInternal()
 {
   this->SetOptionIfNotSet("CPACK_INCLUDE_TOPLEVEL_DIRECTORY", "1");
+  cmValue newExtensionValue = this->GetOption("CPACK_ARCHIVE_FILE_EXTENSION");
+  if (!newExtensionValue.IsEmpty()) {
+    std::string newExtension = *newExtensionValue;
+    if (!cmHasPrefix(newExtension, '.')) {
+      newExtension = cmStrCat('.', std::move(newExtension));
+    }
+    cmCPackLogger(cmCPackLog::LOG_DEBUG,
+                  "Using user-provided file extension "
+                    << newExtension << " instead of the default "
+                    << this->OutputExtension << std::endl);
+    this->OutputExtension = std::move(newExtension);
+  }
   return this->Superclass::InitializeInternal();
 }
+
 int cmCPackArchiveGenerator::addOneComponentToArchive(
-  cmArchiveWrite& archive, cmCPackComponent* component)
+  cmArchiveWrite& archive, cmCPackComponent* component,
+  Deduplicator* deduplicator)
 {
   cmCPackLogger(cmCPackLog::LOG_VERBOSE,
                 "   - packaging component: " << component->Name << std::endl);
   // Add the files of this component to the archive
-  std::string localToplevel(this->GetOption("CPACK_TEMPORARY_DIRECTORY"));
-  localToplevel += "/" + component->Name;
+  std::string localToplevel(
+    cmStrCat(this->GetOption("CPACK_TEMPORARY_DIRECTORY"), '/',
+             this->GetSanitizedDirOrFileName(component->Name)));
   // Change to local toplevel
   cmWorkingDirectory workdir(localToplevel);
+  if (workdir.Failed()) {
+    cmCPackLogger(cmCPackLog::LOG_ERROR, workdir.GetError() << std::endl);
+    return 0;
+  }
   std::string filePrefix;
   if (this->IsOn("CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY")) {
-    filePrefix = this->GetOption("CPACK_PACKAGE_FILE_NAME");
-    filePrefix += "/";
+    filePrefix = cmStrCat(this->GetOption("CPACK_PACKAGE_FILE_NAME"), '/');
   }
-  const char* installPrefix =
-    this->GetOption("CPACK_PACKAGING_INSTALL_PREFIX");
-  if (installPrefix && installPrefix[0] == '/' && installPrefix[1] != 0) {
+  cmValue installPrefix = this->GetOption("CPACK_PACKAGING_INSTALL_PREFIX");
+  if (installPrefix && installPrefix->size() > 1 &&
+      (*installPrefix)[0] == '/') {
     // add to file prefix and remove the leading '/'
-    filePrefix += installPrefix + 1;
+    filePrefix += installPrefix->substr(1);
     filePrefix += "/";
   }
-  std::vector<std::string>::const_iterator fileIt;
-  for (fileIt = component->Files.begin(); fileIt != component->Files.end();
-       ++fileIt) {
-    std::string rp = filePrefix + *fileIt;
-    cmCPackLogger(cmCPackLog::LOG_DEBUG, "Adding file: " << rp << std::endl);
-    archive.Add(rp, 0, CM_NULLPTR, false);
+  for (std::string const& file : component->Files) {
+    std::string rp = filePrefix + file;
+
+    DeduplicateStatus status = DeduplicateStatus::Add;
+    if (deduplicator) {
+      status = deduplicator->IsDeduplicate(rp, localToplevel);
+    }
+
+    if (!deduplicator || status == DeduplicateStatus::Add) {
+      cmCPackLogger(cmCPackLog::LOG_DEBUG, "Adding file: " << rp << std::endl);
+      archive.Add(rp, 0, nullptr, false);
+    } else if (status == DeduplicateStatus::Error) {
+      cmCPackLogger(cmCPackLog::LOG_ERROR,
+                    "ERROR The data in files with the "
+                    "same filename is different: "
+                      << rp << std::endl);
+      return 0;
+    } else {
+      cmCPackLogger(cmCPackLog::LOG_DEBUG,
+                    "Passing file: " << rp << std::endl);
+    }
+
     if (!archive) {
-      cmCPackLogger(cmCPackLog::LOG_ERROR, "ERROR while packaging files: "
-                      << archive.GetError() << std::endl);
+      cmCPackLogger(cmCPackLog::LOG_ERROR,
+                    "ERROR while packaging files: " << archive.GetError()
+                                                    << std::endl);
       return 0;
     }
   }
@@ -96,100 +387,106 @@ int cmCPackArchiveGenerator::addOneComponentToArchive(
  */
 #define DECLARE_AND_OPEN_ARCHIVE(filename, archive)                           \
   cmGeneratedFileStream gf;                                                   \
-  gf.Open((filename).c_str(), false, true);                                   \
+  gf.Open((filename), false, true);                                           \
   if (!GenerateHeader(&gf)) {                                                 \
     cmCPackLogger(cmCPackLog::LOG_ERROR,                                      \
-                  "Problem to generate Header for archive < "                 \
+                  "Problem to generate Header for archive <"                  \
                     << (filename) << ">." << std::endl);                      \
     return 0;                                                                 \
   }                                                                           \
-  cmArchiveWrite archive(gf, this->Compress, this->ArchiveFormat);            \
-  if (!(archive)) {                                                           \
-    cmCPackLogger(cmCPackLog::LOG_ERROR, "Problem to create archive < "       \
-                    << (filename) << ">. ERROR =" << (archive).GetError()     \
-                    << std::endl);                                            \
-    return 0;                                                                 \
-  }
+  cmArchiveWrite archive(gf, this->Compress, this->ArchiveFormat,             \
+                         this->GetEncoding(), this->GetCompressionLevel(),    \
+                         this->GetThreadCount());                             \
+  if (this->UID >= 0 && this->GID >= 0) {                                     \
+    archive.SetUIDAndGID(this->UID, this->GID);                               \
+  }                                                                           \
+  do {                                                                        \
+    if (!archive.Open()) {                                                    \
+      cmCPackLogger(cmCPackLog::LOG_ERROR,                                    \
+                    "Problem to open archive <"                               \
+                      << (filename) << ">, ERROR = " << (archive).GetError()  \
+                      << std::endl);                                          \
+      return 0;                                                               \
+    }                                                                         \
+    if (!(archive)) {                                                         \
+      cmCPackLogger(cmCPackLog::LOG_ERROR,                                    \
+                    "Problem to create archive <"                             \
+                      << (filename) << ">, ERROR = " << (archive).GetError()  \
+                      << std::endl);                                          \
+      return 0;                                                               \
+    }                                                                         \
+  } while (false)
 
 int cmCPackArchiveGenerator::PackageComponents(bool ignoreGroup)
 {
-  packageFileNames.clear();
+  this->packageFileNames.clear();
   // The default behavior is to have one package by component group
   // unless CPACK_COMPONENTS_IGNORE_GROUP is specified.
   if (!ignoreGroup) {
-    std::map<std::string, cmCPackComponentGroup>::iterator compGIt;
-    for (compGIt = this->ComponentGroups.begin();
-         compGIt != this->ComponentGroups.end(); ++compGIt) {
-      cmCPackLogger(cmCPackLog::LOG_VERBOSE, "Packaging component group: "
-                      << compGIt->first << std::endl);
+    for (auto const& compG : this->ComponentGroups) {
+      cmCPackLogger(cmCPackLog::LOG_VERBOSE,
+                    "Packaging component group: " << compG.first << std::endl);
       // Begin the archive for this group
-      std::string packageFileName = std::string(toplevel) + "/" +
-        this->GetArchiveComponentFileName(compGIt->first, true);
+      std::string packageFileName =
+        cmStrCat(this->toplevel, '/',
+                 this->GetArchiveComponentFileName(compG.first, true));
+
+      Deduplicator deduplicator;
 
       // open a block in order to automatically close archive
       // at the end of the block
       {
         DECLARE_AND_OPEN_ARCHIVE(packageFileName, archive);
         // now iterate over the component of this group
-        std::vector<cmCPackComponent*>::iterator compIt;
-        for (compIt = (compGIt->second).Components.begin();
-             compIt != (compGIt->second).Components.end(); ++compIt) {
+        for (cmCPackComponent* comp : (compG.second).Components) {
           // Add the files of this component to the archive
-          addOneComponentToArchive(archive, *compIt);
+          this->addOneComponentToArchive(archive, comp, &deduplicator);
         }
       }
       // add the generated package to package file names list
-      packageFileNames.push_back(packageFileName);
+      this->packageFileNames.push_back(std::move(packageFileName));
     }
     // Handle Orphan components (components not belonging to any groups)
-    std::map<std::string, cmCPackComponent>::iterator compIt;
-    for (compIt = this->Components.begin(); compIt != this->Components.end();
-         ++compIt) {
+    for (auto& comp : this->Components) {
       // Does the component belong to a group?
-      if (compIt->second.Group == CM_NULLPTR) {
+      if (!comp.second.Group) {
         cmCPackLogger(
-          cmCPackLog::LOG_VERBOSE, "Component <"
-            << compIt->second.Name
+          cmCPackLog::LOG_VERBOSE,
+          "Component <"
+            << comp.second.Name
             << "> does not belong to any group, package it separately."
             << std::endl);
-        std::string localToplevel(
-          this->GetOption("CPACK_TEMPORARY_DIRECTORY"));
-        std::string packageFileName = std::string(toplevel);
-
-        localToplevel += "/" + compIt->first;
-        packageFileName +=
-          "/" + this->GetArchiveComponentFileName(compIt->first, false);
+        std::string packageFileName = std::string(this->toplevel);
+        packageFileName =
+          cmStrCat(std::move(packageFileName), '/',
+                   this->GetArchiveComponentFileName(comp.first, false));
 
         {
           DECLARE_AND_OPEN_ARCHIVE(packageFileName, archive);
           // Add the files of this component to the archive
-          addOneComponentToArchive(archive, &(compIt->second));
+          this->addOneComponentToArchive(archive, &(comp.second), nullptr);
         }
         // add the generated package to package file names list
-        packageFileNames.push_back(packageFileName);
+        this->packageFileNames.push_back(std::move(packageFileName));
       }
     }
   }
   // CPACK_COMPONENTS_IGNORE_GROUPS is set
   // We build 1 package per component
   else {
-    std::map<std::string, cmCPackComponent>::iterator compIt;
-    for (compIt = this->Components.begin(); compIt != this->Components.end();
-         ++compIt) {
-      std::string localToplevel(this->GetOption("CPACK_TEMPORARY_DIRECTORY"));
-      std::string packageFileName = std::string(toplevel);
-
-      localToplevel += "/" + compIt->first;
-      packageFileName +=
-        "/" + this->GetArchiveComponentFileName(compIt->first, false);
+    for (auto& comp : this->Components) {
+      std::string packageFileName = std::string(this->toplevel);
+      packageFileName =
+        cmStrCat(std::move(packageFileName), '/',
+                 this->GetArchiveComponentFileName(comp.first, false));
 
       {
         DECLARE_AND_OPEN_ARCHIVE(packageFileName, archive);
         // Add the files of this component to the archive
-        addOneComponentToArchive(archive, &(compIt->second));
+        this->addOneComponentToArchive(archive, &(comp.second), nullptr);
       }
       // add the generated package to package file names list
-      packageFileNames.push_back(packageFileName);
+      this->packageFileNames.push_back(std::move(packageFileName));
     }
   }
   return 1;
@@ -198,17 +495,8 @@ int cmCPackArchiveGenerator::PackageComponents(bool ignoreGroup)
 int cmCPackArchiveGenerator::PackageComponentsAllInOne()
 {
   // reset the package file names
-  packageFileNames.clear();
-  packageFileNames.push_back(std::string(toplevel));
-  packageFileNames[0] += "/";
-
-  if (this->IsSet("CPACK_ARCHIVE_FILE_NAME")) {
-    packageFileNames[0] += this->GetOption("CPACK_ARCHIVE_FILE_NAME");
-  } else {
-    packageFileNames[0] += this->GetOption("CPACK_PACKAGE_FILE_NAME");
-  }
-
-  packageFileNames[0] += this->GetOutputExtension();
+  this->packageFileNames.clear();
+  this->packageFileNames.emplace_back(this->GetArchiveFileName());
 
   cmCPackLogger(cmCPackLog::LOG_VERBOSE,
                 "Packaging all groups in one package..."
@@ -216,12 +504,12 @@ int cmCPackArchiveGenerator::PackageComponentsAllInOne()
                   << std::endl);
   DECLARE_AND_OPEN_ARCHIVE(packageFileNames[0], archive);
 
+  Deduplicator deduplicator;
+
   // The ALL COMPONENTS in ONE package case
-  std::map<std::string, cmCPackComponent>::iterator compIt;
-  for (compIt = this->Components.begin(); compIt != this->Components.end();
-       ++compIt) {
+  for (auto& comp : this->Components) {
     // Add the files of this component to the archive
-    addOneComponentToArchive(archive, &(compIt->second));
+    this->addOneComponentToArchive(archive, &(comp.second), &deduplicator);
   }
 
   // archive goes out of scope so it will finalized and closed.
@@ -230,36 +518,56 @@ int cmCPackArchiveGenerator::PackageComponentsAllInOne()
 
 int cmCPackArchiveGenerator::PackageFiles()
 {
-  cmCPackLogger(cmCPackLog::LOG_DEBUG, "Toplevel: " << toplevel << std::endl);
+  cmCPackLogger(cmCPackLog::LOG_DEBUG,
+                "Toplevel: " << this->toplevel << std::endl);
 
-  if (WantsComponentInstallation()) {
+  if (cmValue UIDoption = this->GetOptionIfSet("CPACK_ARCHIVE_UID")) {
+    long u;
+    if (cmStrToLong(*UIDoption, &u)) {
+      this->UID = static_cast<int>(u);
+    }
+  }
+  if (cmValue GIDoption = this->GetOptionIfSet("CPACK_ARCHIVE_GID")) {
+    long g;
+    if (cmStrToLong(*GIDoption, &g)) {
+      this->GID = static_cast<int>(g);
+    }
+  }
+
+  if (this->WantsComponentInstallation()) {
     // CASE 1 : COMPONENT ALL-IN-ONE package
     // If ALL COMPONENTS in ONE package has been requested
     // then the package file is unique and should be open here.
-    if (componentPackageMethod == ONE_PACKAGE) {
-      return PackageComponentsAllInOne();
+    if (this->componentPackageMethod == ONE_PACKAGE) {
+      return this->PackageComponentsAllInOne();
     }
     // CASE 2 : COMPONENT CLASSICAL package(s) (i.e. not all-in-one)
     // There will be 1 package for each component group
     // however one may require to ignore component group and
     // in this case you'll get 1 package for each component.
-    return PackageComponents(componentPackageMethod ==
-                             ONE_PACKAGE_PER_COMPONENT);
+    return this->PackageComponents(this->componentPackageMethod ==
+                                   ONE_PACKAGE_PER_COMPONENT);
   }
 
   // CASE 3 : NON COMPONENT package.
+  this->packageFileNames.clear();
+  this->packageFileNames.emplace_back(this->GetArchiveFileName());
+
   DECLARE_AND_OPEN_ARCHIVE(packageFileNames[0], archive);
-  std::vector<std::string>::const_iterator fileIt;
-  cmWorkingDirectory workdir(toplevel);
-  for (fileIt = files.begin(); fileIt != files.end(); ++fileIt) {
+  cmWorkingDirectory workdir(this->toplevel);
+  if (workdir.Failed()) {
+    cmCPackLogger(cmCPackLog::LOG_ERROR, workdir.GetError() << std::endl);
+    return 0;
+  }
+  for (std::string const& file : this->files) {
     // Get the relative path to the file
-    std::string rp =
-      cmSystemTools::RelativePath(toplevel.c_str(), fileIt->c_str());
-    archive.Add(rp, 0, CM_NULLPTR, false);
+    std::string rp = cmSystemTools::RelativePath(this->toplevel, file);
+    archive.Add(rp, 0, nullptr, false);
     if (!archive) {
-      cmCPackLogger(cmCPackLog::LOG_ERROR, "Problem while adding file< "
-                      << *fileIt << "> to archive <" << packageFileNames[0]
-                      << "> .ERROR =" << archive.GetError() << std::endl);
+      cmCPackLogger(cmCPackLog::LOG_ERROR,
+                    "Problem while adding file <"
+                      << file << "> to archive <" << this->packageFileNames[0]
+                      << ">, ERROR = " << archive.GetError() << std::endl);
       return 0;
     }
   }
@@ -277,5 +585,44 @@ bool cmCPackArchiveGenerator::SupportsComponentInstallation() const
   // The Component installation support should only
   // be activated if explicitly requested by the user
   // (for backward compatibility reason)
-  return IsOn("CPACK_ARCHIVE_COMPONENT_INSTALL");
+  return this->IsOn("CPACK_ARCHIVE_COMPONENT_INSTALL");
+}
+
+int cmCPackArchiveGenerator::GetThreadCount() const
+{
+  int threads = 1;
+
+  // CPACK_ARCHIVE_THREADS overrides CPACK_THREADS
+  if (cmValue v = this->GetOptionIfSet("CPACK_ARCHIVE_THREADS")) {
+    threads = std::stoi(*v);
+  } else if (cmValue v2 = this->GetOptionIfSet("CPACK_THREADS")) {
+    threads = std::stoi(*v2);
+  }
+
+  return threads;
+}
+
+int cmCPackArchiveGenerator::GetCompressionLevel() const
+{
+  int level = 0;
+
+  // CPACK_ARCHIVE_COMPRESSION_LEVEL overrides CPACK_COMPRESSION_LEVEL
+  if (cmValue v = this->GetOptionIfSet("CPACK_ARCHIVE_COMPRESSION_LEVEL")) {
+    level = std::stoi(*v);
+  } else if (cmValue v2 = this->GetOptionIfSet("CPACK_COMPRESSION_LEVEL")) {
+    level = std::stoi(*v2);
+  }
+
+  return level;
+}
+
+std::string cmCPackArchiveGenerator::GetEncoding() const
+{
+  std::string encoding = "UTF-8";
+
+  if (cmValue v = this->GetOptionIfSet("CPACK_ARCHIVE_ENCODING")) {
+    encoding = *v;
+  }
+
+  return encoding;
 }

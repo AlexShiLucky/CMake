@@ -1,22 +1,23 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmGetCMakePropertyCommand.h"
 
 #include <set>
 
-#include "cmAlgorithms.h"
+#include "cmExecutionStatus.h"
 #include "cmGlobalGenerator.h"
+#include "cmList.h"
 #include "cmMakefile.h"
+#include "cmPolicies.h"
 #include "cmState.h"
-
-class cmExecutionStatus;
+#include "cmValue.h"
 
 // cmGetCMakePropertyCommand
-bool cmGetCMakePropertyCommand::InitialPass(
-  std::vector<std::string> const& args, cmExecutionStatus&)
+bool cmGetCMakePropertyCommand(std::vector<std::string> const& args,
+                               cmExecutionStatus& status)
 {
   if (args.size() < 2) {
-    this->SetError("called with incorrect number of arguments");
+    status.SetError("called with incorrect number of arguments");
     return false;
   }
 
@@ -24,29 +25,31 @@ bool cmGetCMakePropertyCommand::InitialPass(
   std::string output = "NOTFOUND";
 
   if (args[1] == "VARIABLES") {
-    if (const char* varsProp = this->Makefile->GetProperty("VARIABLES")) {
-      output = varsProp;
+    if (cmValue varsProp = status.GetMakefile().GetProperty("VARIABLES")) {
+      output = *varsProp;
     }
-  } else if (args[1] == "MACROS") {
+  } else if (args[1] == "MACROS" &&
+             status.GetMakefile().GetPolicyStatus(cmPolicies::CMP0217) !=
+               cmPolicies::NEW) {
     output.clear();
-    if (const char* macrosProp = this->Makefile->GetProperty("MACROS")) {
-      output = macrosProp;
+    if (cmValue macrosProp = status.GetMakefile().GetProperty("MACROS")) {
+      output = *macrosProp;
     }
   } else if (args[1] == "COMPONENTS") {
-    const std::set<std::string>* components =
-      this->Makefile->GetGlobalGenerator()->GetInstallComponents();
-    output = cmJoin(*components, ";");
+    std::set<std::string> const* components =
+      status.GetMakefile().GetGlobalGenerator()->GetInstallComponents();
+    output = cmList::to_string(*components);
   } else {
-    const char* prop = CM_NULLPTR;
+    cmValue prop = nullptr;
     if (!args[1].empty()) {
-      prop = this->Makefile->GetState()->GetGlobalProperty(args[1]);
+      prop = status.GetMakefile().GetState()->GetGlobalProperty(args[1]);
     }
     if (prop) {
-      output = prop;
+      output = *prop;
     }
   }
 
-  this->Makefile->AddDefinition(variable, output.c_str());
+  status.GetMakefile().AddDefinition(variable, output);
 
   return true;
 }

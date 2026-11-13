@@ -1,39 +1,71 @@
 include(Compiler/Clang)
 __compiler_clang(CXX)
+__compiler_clang_cxx_standards(CXX)
 
-if(NOT "x${CMAKE_CXX_SIMULATE_ID}" STREQUAL "xMSVC")
+if("x${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}" STREQUAL "xGNU")
+  if((NOT DEFINED CMAKE_DEPENDS_USE_COMPILER OR CMAKE_DEPENDS_USE_COMPILER)
+      AND CMAKE_GENERATOR MATCHES "Makefiles|WMake"
+      AND CMAKE_DEPFILE_FLAGS_CXX)
+    # dependencies are computed by the compiler itself
+    set(CMAKE_CXX_DEPFILE_FORMAT gcc)
+    set(CMAKE_CXX_DEPENDS_USE_COMPILER TRUE)
+  endif()
+
+  set(CMAKE_CXX_COMPILE_OPTIONS_EXPLICIT_LANGUAGE -x c++)
   set(CMAKE_CXX_COMPILE_OPTIONS_VISIBILITY_INLINES_HIDDEN "-fvisibility-inlines-hidden")
 endif()
 
-cmake_policy(GET CMP0025 appleClangPolicy)
-if(APPLE AND NOT appleClangPolicy STREQUAL NEW)
-  return()
+if("x${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}" STREQUAL "xMSVC")
+  set(CMAKE_CXX_CLANG_TIDY_DRIVER_MODE "cl")
+  set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE_DRIVER_MODE "cl")
 endif()
 
-if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 2.1)
-  set(CMAKE_CXX98_STANDARD_COMPILE_OPTION "-std=c++98")
-  set(CMAKE_CXX98_EXTENSION_COMPILE_OPTION "-std=gnu++98")
+if((CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16.0 AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU") OR
+   (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.1 AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
+  if (CMAKE_CXX_COMPILER_CLANG_RESOURCE_DIR)
+    set(_clang_scan_deps_resource_dir
+      " -resource-dir \"${CMAKE_CXX_COMPILER_CLANG_RESOURCE_DIR}\"")
+  else()
+    set(_clang_scan_deps_resource_dir "")
+  endif ()
+  if (CMAKE_HOST_WIN32)
+    # `rename` doesn't overwrite and doesn't retry in case of "target file is
+    # busy".
+    set(_clang_scan_deps_mv "\"${CMAKE_COMMAND}\" -E rename")
+  else ()
+    set(_clang_scan_deps_mv "mv")
+  endif ()
+  if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    set(_clang "-clang:")
+    set(_srcsep "-- ")
+  else()
+    set(_clang "")
+    set(_srcsep "")
+  endif()
+  string(CONCAT CMAKE_CXX_SCANDEP_SOURCE
+    "\"${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}\""
+    " -format=p1689"
+    " --"
+    " <CMAKE_CXX_COMPILER> <DEFINES> <INCLUDES> <FLAGS>"
+    " -x c++ -c ${_clang}-o ${_clang}<OBJECT>"
+    "${_clang_scan_deps_resource_dir}"
+    " ${_clang}-MT ${_clang}<DYNDEP_FILE>"
+    " ${_clang}-MD ${_clang}-MF ${_clang}<DEP_FILE>"
+    " ${_srcsep}<SOURCE>"
+    # Write to a temporary file. If the scan fails, we do not want to update
+    # the actual output file as `ninja` (at least) assumes that failed
+    # commands either delete or leave output files alone. See Issue#25419.
+    " > <DYNDEP_FILE>.tmp"
+    # We cannot use `copy_if_different` as the rule does not have a feature
+    # analogous to `ninja`'s `restat = 1`. It would also leave behind the
+    # `.tmp` file.
+    " && ${_clang_scan_deps_mv} <DYNDEP_FILE>.tmp <DYNDEP_FILE>")
+  unset(_clang_scan_deps_resource_dir)
+  unset(_clang_scan_deps_mv)
+  set(CMAKE_CXX_MODULE_MAP_FORMAT "clang")
+  set(CMAKE_CXX_MODULE_MAP_FLAG "@<MODULE_MAP_FILE>")
+  set(CMAKE_CXX_COMPILE_BMI
+    "<CMAKE_CXX_COMPILER> <DEFINES> <INCLUDES> <FLAGS> ${_clang}-o ${_clang}<OBJECT> --precompile ${_srcsep}<SOURCE>")
+  unset(_clang)
+  unset(_srcsep)
 endif()
-
-if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.1)
-  set(CMAKE_CXX11_STANDARD_COMPILE_OPTION "-std=c++11")
-  set(CMAKE_CXX11_EXTENSION_COMPILE_OPTION "-std=gnu++11")
-elseif(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 2.1)
-  set(CMAKE_CXX11_STANDARD_COMPILE_OPTION "-std=c++0x")
-  set(CMAKE_CXX11_EXTENSION_COMPILE_OPTION "-std=gnu++0x")
-endif()
-
-if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.5)
-  set(CMAKE_CXX14_STANDARD_COMPILE_OPTION "-std=c++14")
-  set(CMAKE_CXX14_EXTENSION_COMPILE_OPTION "-std=gnu++14")
-elseif(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.4)
-  set(CMAKE_CXX14_STANDARD_COMPILE_OPTION "-std=c++1y")
-  set(CMAKE_CXX14_EXTENSION_COMPILE_OPTION "-std=gnu++1y")
-endif()
-
-if (NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.5)
-  set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++1z")
-  set(CMAKE_CXX17_EXTENSION_COMPILE_OPTION "-std=gnu++1z")
-endif()
-
-__compiler_check_default_language_standard(CXX 2.1 98)

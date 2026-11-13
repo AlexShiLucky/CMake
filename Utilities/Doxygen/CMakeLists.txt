@@ -1,13 +1,13 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 if(NOT CMake_SOURCE_DIR)
   set(CMakeDeveloperReference_STANDALONE 1)
-  cmake_minimum_required(VERSION 2.8.12.2 FATAL_ERROR)
+  cmake_minimum_required(VERSION 3.13...4.3 FATAL_ERROR)
   get_filename_component(tmp "${CMAKE_CURRENT_SOURCE_DIR}" PATH)
   get_filename_component(CMake_SOURCE_DIR "${tmp}" PATH)
   include(${CMake_SOURCE_DIR}/Modules/CTestUseLaunchers.cmake)
-  include(${CMake_SOURCE_DIR}/Source/CMakeVersionCompute.cmake)
+  include(${CMake_SOURCE_DIR}/Source/CMakeVersion.cmake)
   include(${CMake_SOURCE_DIR}/Source/CMakeInstallDestinations.cmake)
   unset(CMAKE_DATA_DIR)
   unset(CMAKE_DATA_DIR CACHE)
@@ -82,14 +82,14 @@ if (CMake_BUILD_DEVELOPER_REFERENCE OR CMakeDeveloperReference_STANDALONE)
   if(CMake_BUILD_DEVELOPER_REFERENCE_HTML)
     CMake_OPTIONAL_COMPONENT(cmake-developer-reference-html)
     install(DIRECTORY "${CMakeDeveloperReference_BINARY_DIR}/developer-reference/html"
-      DESTINATION ${CMAKE_DOC_DIR}/developer-reference
+      DESTINATION ${CMake_INSTALL_DOC_DIR}/developer-reference
       ${COMPONENT})
   endif()
 
   if(CMake_BUILD_DEVELOPER_REFERENCE_QTHELP)
     CMake_OPTIONAL_COMPONENT(cmake-developer-reference-qthelp)
     install(FILES "${CMakeDeveloperReference_BINARY_DIR}/developer-reference/CMakeDeveloperReference-${CMake_VERSION_MAJOR}${CMake_VERSION_MINOR}${CMake_VERSION_PATCH}.qch"
-      DESTINATION ${CMAKE_DOC_DIR}/developer-reference
+      DESTINATION ${CMake_INSTALL_DOC_DIR}/developer-reference
       ${COMPONENT})
   endif()
 

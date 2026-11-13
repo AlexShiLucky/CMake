@@ -141,13 +141,27 @@ typedef struct _U32_S { U32 v; } _PACKED U32_S;
 #  pragma pack(pop)
 #endif
 
-#define A32(x) (((const U32_S *)(x))->v)
-
 
 /****************************************
 ** Compiler-specific Functions and Macros
 *****************************************/
-#define GCC_VERSION (__GNUC__ * 100 + __GNUC_MINOR__)
+#define GCC_VERSION ((__GNUC__-0) * 100 + (__GNUC_MINOR__ - 0))
+
+#if GCC_VERSION >= 409
+__attribute__((__no_sanitize_undefined__))
+#else
+#  if defined(__clang__)
+__attribute__((no_sanitize("undefined")))
+#  endif
+#endif
+#if defined(_MSC_VER)
+static __inline U32 A32(const void * x)
+#else
+static inline U32 A32(const void* x)
+#endif
+{
+    return (((const U32_S *)(x))->v);
+}
 
 /* Note : although _rotl exists for minGW (GCC under windows), performance seems poor */
 #if defined(_MSC_VER)
@@ -347,6 +361,8 @@ static
 void* XXH32_init (U32 seed)
 {
     void* state = XXH_malloc (sizeof(struct XXH_state32_t));
+    if (state == NULL)
+        return NULL;
     XXH32_resetState(state, seed);
     return state;
 }

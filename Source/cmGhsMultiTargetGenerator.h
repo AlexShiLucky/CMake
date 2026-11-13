@@ -1,19 +1,25 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGhsMultiTargetGenerator_h
-#define cmGhsMultiTargetGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
+
+#include <iosfwd>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+#include <cm/string_view>
 
 #include "cmGhsMultiGpj.h"
 
-#include "cmTarget.h"
-
 class cmCustomCommand;
-class cmGeneratedFileStream;
+class cmCustomCommandGenerator;
 class cmGeneratorTarget;
 class cmGlobalGhsMultiGenerator;
 class cmLocalGhsMultiGenerator;
 class cmMakefile;
 class cmSourceFile;
+class cmGeneratorFileSet;
 
 class cmGhsMultiTargetGenerator
 {
@@ -24,97 +30,59 @@ public:
 
   virtual void Generate();
 
-  bool IncludeThisTarget();
-  std::vector<cmSourceFile*> GetSources() const;
-  GhsMultiGpj::Types GetGpjTag() const;
-  static GhsMultiGpj::Types GetGpjTag(const cmGeneratorTarget* target);
-  const char* GetAbsBuildFilePath() const
-  {
-    return this->AbsBuildFilePath.c_str();
-  }
-  const char* GetRelBuildFileName() const
-  {
-    return this->RelBuildFileName.c_str();
-  }
-  const char* GetAbsBuildFileName() const
-  {
-    return this->AbsBuildFileName.c_str();
-  }
-  const char* GetAbsOutputFileName() const
-  {
-    return this->AbsOutputFileName.c_str();
-  }
-
-  static std::string GetRelBuildFilePath(const cmGeneratorTarget* target);
-  static std::string GetAbsPathToRoot(const cmGeneratorTarget* target);
-  static std::string GetAbsBuildFilePath(const cmGeneratorTarget* target);
-  static std::string GetRelBuildFileName(const cmGeneratorTarget* target);
-  static std::string GetBuildFileName(const cmGeneratorTarget* target);
-  static std::string AddSlashIfNeededToPath(std::string const& input);
-
 private:
   cmGlobalGhsMultiGenerator* GetGlobalGenerator() const;
-  cmGeneratedFileStream* GetFolderBuildStreams()
-  {
-    return this->FolderBuildStreams[""];
-  };
-  bool IsTargetGroup() const { return this->TargetGroup; }
 
-  void WriteTypeSpecifics(const std::string& config, bool notKernel);
-  void WriteCompilerFlags(const std::string& config,
-                          const std::string& language);
-  void WriteCompilerDefinitions(const std::string& config,
-                                const std::string& language);
+  void GenerateTarget();
 
-  void SetCompilerFlags(std::string const& config, const std::string& language,
-                        bool const notKernel);
-  std::string GetDefines(const std::string& langugae,
+  void WriteTargetSpecifics(std::ostream& fout, std::string const& config);
+
+  void WriteCompilerFlags(std::ostream& fout, std::string const& config,
+                          std::string const& language);
+  void WriteCompilerDefinitions(std::ostream& fout, std::string const& config,
+                                std::string const& language);
+
+  void SetCompilerFlags(std::string const& config,
+                        std::string const& language);
+
+  std::string GetDefines(std::string const& language,
                          std::string const& config);
 
-  void WriteIncludes(const std::string& config, const std::string& language);
-  void WriteTargetLinkLibraries(std::string const& config,
-                                std::string const& language);
-  void WriteCustomCommands();
-  void WriteCustomCommandsHelper(
-    std::vector<cmCustomCommand> const& commandsSet,
-    cmTarget::CustomCommandType commandType);
-  void WriteSources(
-    std::vector<cmSourceFile*> const& objectSources,
-    std::map<const cmSourceFile*, std::string> const& objectNames);
-  static std::map<const cmSourceFile*, std::string> GetObjectNames(
-    std::vector<cmSourceFile*>* objectSources,
-    cmLocalGhsMultiGenerator* localGhsMultiGenerator,
-    cmGeneratorTarget* generatorTarget);
-  static void WriteObjectLangOverride(cmGeneratedFileStream* fileStream,
-                                      cmSourceFile* sourceFile);
-  static void WriteObjectDir(cmGeneratedFileStream* fileStream,
-                             std::string const& dir);
-  std::string GetOutputDirectory(const std::string& config) const;
-  std::string GetOutputFilename(const std::string& config) const;
-  static std::string ComputeLongestObjectDirectory(
-    cmLocalGhsMultiGenerator const* localGhsMultiGenerator,
-    cmGeneratorTarget* generatorTarget, cmSourceFile* const sourceFile);
+  void WriteIncludes(std::ostream& fout, std::string const& config,
+                     std::string const& language);
+  void WriteTargetLinkLine(std::ostream& fout, std::string const& config);
+  void WriteBuildEvents(std::ostream& fout);
+  void WriteBuildEventsHelper(std::ostream& fout,
+                              std::vector<cmCustomCommand> const& ccv,
+                              std::string const& name, std::string const& cmd);
+  void WriteCustomCommandsHelper(std::ostream& fout,
+                                 cmCustomCommandGenerator const& ccg);
+  void WriteCustomCommandLine(std::ostream& fout, std::string& fname,
+                              cmCustomCommandGenerator const& ccg);
+  bool ComputeCustomCommandOrder(std::vector<cmSourceFile const*>& order);
+  bool VisitCustomCommand(std::set<cmSourceFile const*>& temp,
+                          std::set<cmSourceFile const*>& perm,
+                          std::vector<cmSourceFile const*>& order,
+                          cmSourceFile const* sf);
+  void WriteSources(std::ostream& fout_proj);
+  void WriteSourceProperty(std::ostream& fout, cmSourceFile const* sf,
+                           std::string const& propName,
+                           std::string const& propFlag);
+  void WriteFileSetProperty(std::ostream& fout,
+                            cmGeneratorFileSet const* fileSet,
+                            std::string const& lang, cm::string_view propName,
+                            cm::string_view propFlag);
+  static std::string WriteObjectLangOverride(cmSourceFile const* sourceFile);
 
-  bool IsNotKernel(std::string const& config, const std::string& language);
-  static bool DetermineIfTargetGroup(const cmGeneratorTarget* target);
-  bool DetermineIfDynamicDownload(std::string const& config,
-                                  const std::string& language);
-
+  bool DetermineIfIntegrityApp();
   cmGeneratorTarget* GeneratorTarget;
   cmLocalGhsMultiGenerator* LocalGenerator;
   cmMakefile* Makefile;
-  std::string AbsBuildFilePath;
-  std::string RelBuildFilePath;
-  std::string AbsBuildFileName;
-  std::string RelBuildFileName;
-  std::string RelOutputFileName;
-  std::string AbsOutputFileName;
-  std::map<std::string, cmGeneratedFileStream*> FolderBuildStreams;
-  bool TargetGroup;
-  bool DynamicDownload;
-  static std::string const DDOption;
   std::map<std::string, std::string> FlagsByLanguage;
   std::map<std::string, std::string> DefinesByLanguage;
-};
 
-#endif // ! cmGhsMultiTargetGenerator_h
+  std::string TargetNameReal;
+  GhsMultiGpj::Types TagType;
+  std::string const Name;
+  std::string ConfigName; /* CMAKE_BUILD_TYPE */
+};

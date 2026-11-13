@@ -1,17 +1,20 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
-#ifndef cmStatePrivate_h
-#define cmStatePrivate_h
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "cmDefinitions.h"
+#include "cmDiagnostics.h"
 #include "cmLinkedTree.h"
 #include "cmListFileCache.h"
+#include "cmPackageState.h"
 #include "cmPolicies.h"
 #include "cmPropertyMap.h"
 #include "cmStateSnapshot.h"
@@ -20,9 +23,9 @@
 namespace cmStateDetail {
 struct BuildsystemDirectoryStateType;
 struct PolicyStackEntry;
+struct DiagnosticStackEntry;
+extern std::string const PropertySentinel;
 } // namespace cmStateDetail
-
-static const std::string cmPropertySentinal = std::string();
 
 struct cmStateDetail::SnapshotDataType
 {
@@ -31,7 +34,12 @@ struct cmStateDetail::SnapshotDataType
   cmLinkedTree<cmStateDetail::PolicyStackEntry>::iterator Policies;
   cmLinkedTree<cmStateDetail::PolicyStackEntry>::iterator PolicyRoot;
   cmLinkedTree<cmStateDetail::PolicyStackEntry>::iterator PolicyScope;
+  cmLinkedTree<cmStateDetail::DiagnosticStackEntry>::iterator Diagnostics;
+  cmLinkedTree<cmStateDetail::DiagnosticStackEntry>::iterator DiagnosticRoot;
+  cmLinkedTree<cmStateDetail::DiagnosticStackEntry>::iterator DiagnosticScope;
   cmStateEnums::SnapshotType SnapshotType;
+  cmStateEnums::SnapshotUnwindType UnwindType = cmStateEnums::NO_UNWIND;
+  cmStateEnums::SnapshotUnwindState UnwindState = cmStateEnums::NOT_UNWINDING;
   bool Keep;
   cmLinkedTree<std::string>::iterator ExecutionListFile;
   cmLinkedTree<cmStateDetail::BuildsystemDirectoryStateType>::iterator
@@ -42,14 +50,15 @@ struct cmStateDetail::SnapshotDataType
   std::vector<std::string>::size_type IncludeDirectoryPosition;
   std::vector<std::string>::size_type CompileDefinitionsPosition;
   std::vector<std::string>::size_type CompileOptionsPosition;
+  std::vector<std::string>::size_type LinkOptionsPosition;
+  std::vector<std::string>::size_type LinkDirectoriesPosition;
 };
 
 struct cmStateDetail::PolicyStackEntry : public cmPolicies::PolicyMap
 {
-  typedef cmPolicies::PolicyMap derived;
+  using derived = cmPolicies::PolicyMap;
   PolicyStackEntry(bool w = false)
-    : derived()
-    , Weak(w)
+    : Weak(w)
   {
   }
   PolicyStackEntry(derived const& d, bool w)
@@ -60,37 +69,51 @@ struct cmStateDetail::PolicyStackEntry : public cmPolicies::PolicyMap
   bool Weak;
 };
 
+struct cmStateDetail::DiagnosticStackEntry
+  : public cmDiagnostics::DiagnosticMap
+{
+  using derived = cmDiagnostics::DiagnosticMap;
+  DiagnosticStackEntry(bool w = false)
+    : Weak(w)
+  {
+  }
+  DiagnosticStackEntry(derived d, bool w)
+    : derived(d)
+    , Weak(w)
+  {
+  }
+  bool Weak;
+};
+
 struct cmStateDetail::BuildsystemDirectoryStateType
 {
-  cmStateDetail::PositionType DirectoryEnd;
+  cmStateDetail::PositionType CurrentScope;
 
   std::string Location;
   std::string OutputLocation;
 
-  // The top-most directories for relative path conversion.  Both the
-  // source and destination location of a relative path conversion
-  // must be underneath one of these directories (both under source or
-  // both under binary) in order for the relative path to be evaluated
-  // safely by the build tools.
-  std::string RelativePathTopSource;
-  std::string RelativePathTopBinary;
+  std::vector<BT<std::string>> IncludeDirectories;
 
-  std::vector<std::string> IncludeDirectories;
-  std::vector<cmListFileBacktrace> IncludeDirectoryBacktraces;
+  std::vector<BT<std::string>> CompileDefinitions;
 
-  std::vector<std::string> CompileDefinitions;
-  std::vector<cmListFileBacktrace> CompileDefinitionsBacktraces;
+  std::vector<BT<std::string>> CompileOptions;
 
-  std::vector<std::string> CompileOptions;
-  std::vector<cmListFileBacktrace> CompileOptionsBacktraces;
+  std::vector<BT<std::string>> LinkOptions;
+
+  std::vector<BT<std::string>> LinkDirectories;
 
   std::vector<std::string> NormalTargetNames;
+  std::vector<std::string> ImportedTargetNames;
+
+  std::vector<std::string> RuleNames;
+
+  std::set<std::string> Projects;
 
   std::string ProjectName;
 
   cmPropertyMap Properties;
 
+  std::unordered_map<std::string, cmPackageState> Packages;
+
   std::vector<cmStateSnapshot> Children;
 };
-
-#endif

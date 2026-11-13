@@ -1,5 +1,5 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmWIXRichTextFormatWriter.h"
 
 #include "cmVersion.h"
@@ -25,7 +25,7 @@ cmWIXRichTextFormatWriter::~cmWIXRichTextFormatWriter()
 
 void cmWIXRichTextFormatWriter::AddText(std::string const& text)
 {
-  typedef unsigned char rtf_byte_t;
+  using rtf_byte_t = unsigned char;
 
   for (size_t i = 0; i < text.size(); ++i) {
     rtf_byte_t c = rtf_byte_t(text[i]);
@@ -79,7 +79,7 @@ void cmWIXRichTextFormatWriter::WriteHeader()
   ControlWord("ansi");
   ControlWord("ansicpg1252");
   ControlWord("deff0");
-  ControlWord("deflang1031");
+  ControlWord("deflang1033");
 
   WriteFontTable();
   WriteColorTable();
@@ -94,7 +94,7 @@ void cmWIXRichTextFormatWriter::WriteFontTable()
   StartGroup();
   ControlWord("f0");
   ControlWord("fswiss");
-  ControlWord("fcharset0 Arial;");
+  ControlWord("fcharset0 Consolas;");
   EndGroup();
 
   EndGroup();
@@ -128,14 +128,14 @@ void cmWIXRichTextFormatWriter::WriteDocumentPrefix()
 {
   ControlWord("viewkind4");
   ControlWord("uc1");
-  ControlWord("pard");
+  ControlWord("pard"); // noqa: spellcheck disable-line
   ControlWord("f0");
-  ControlWord("fs20");
+  ControlWord("fs14");
 }
 
 void cmWIXRichTextFormatWriter::ControlWord(std::string const& keyword)
 {
-  File << "\\" << keyword;
+  File << '\\' << keyword;
 }
 
 void cmWIXRichTextFormatWriter::NewControlWord(std::string const& keyword)
@@ -158,7 +158,8 @@ void cmWIXRichTextFormatWriter::EmitUnicodeCodepoint(int c)
   // Do not emit byte order mark (BOM)
   if (c == 0xFEFF) {
     return;
-  } else if (c <= 0xFFFF) {
+  }
+  if (c <= 0xFFFF) {
     EmitUnicodeSurrogate(c);
   } else {
     c -= 0x10000;
@@ -175,12 +176,12 @@ void cmWIXRichTextFormatWriter::EmitUnicodeSurrogate(int c)
   } else {
     File << (c - 65536);
   }
-  File << "?";
+  File << '?';
 }
 
 void cmWIXRichTextFormatWriter::EmitInvalidCodepoint(int c)
 {
   ControlWord("cf1 ");
-  File << "[INVALID-BYTE-" << int(c) << "]";
+  File << "[INVALID-BYTE-" << c << ']';
   ControlWord("cf0 ");
 }

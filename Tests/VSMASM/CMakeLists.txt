@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.25) # Enable CMP0141
+cmake_policy(SET CMP0184 NEW)
 project(VSMASM C ASM_MASM)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
   add_definitions(-DTESTx64)
@@ -8,3 +9,6 @@ else()
 endif()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_executable(VSMASM main.c foo.asm)
+target_compile_definitions(VSMASM PUBLIC DEF_FOO)
+target_compile_options(VSMASM PUBLIC -DDEF_BAR)
+add_library(empty STATIC empty.asm)

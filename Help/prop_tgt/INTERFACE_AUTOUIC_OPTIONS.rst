@@ -1,6 +1,8 @@
 INTERFACE_AUTOUIC_OPTIONS
 -------------------------
 
+.. versionadded:: 3.0
+
 List of interface options to pass to uic.
 
 Targets may populate this property to publish the options
@@ -10,5 +12,5 @@ own :prop_tgt:`AUTOUIC_OPTIONS` property such as
 specified in the interface of ``foo``. This is done automatically by
 the :command:`target_link_libraries` command.
 
-This property supports generator expressions.  See the
-:manual:`cmake-generator-expressions(7)` manual for available expressions.
+.. |genex_subject| replace:: ``INTERFACE_AUTOUIC_OPTIONS``
+.. include:: ../include/GENEX_NOTE.rst

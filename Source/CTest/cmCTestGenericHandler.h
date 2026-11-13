@@ -1,21 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestGenericHandler_h
-#define cmCTestGenericHandler_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
-
-#include <map>
-#include <stddef.h>
-#include <string>
-#include <vector>
 
 #include "cmCTest.h"
 #include "cmSystemTools.h"
 
-class cmCTestCommand;
 class cmGeneratedFileStream;
 class cmMakefile;
+class cmake;
 
 /** \class cmCTestGenericHandler
  * \brief A superclass of all CTest Handlers
@@ -25,7 +19,7 @@ class cmCTestGenericHandler
 {
 public:
   /**
-   * If verbose then more informaiton is printed out
+   * If verbose then more information is printed out
    */
   void SetVerbose(bool val)
   {
@@ -45,39 +39,15 @@ public:
   virtual int ProcessHandler() = 0;
 
   /**
-   * Process command line arguments that are applicable for the handler
+   * Get the CTest instance
    */
-  virtual int ProcessCommandLineArguments(
-    const std::string& /*currentArg*/, size_t& /*idx*/,
-    const std::vector<std::string>& /*allArgs*/)
-  {
-    return 1;
-  }
-
-  /**
-   * Initialize handler
-   */
-  virtual void Initialize();
-
-  /**
-   * Set the CTest instance
-   */
-  void SetCTestInstance(cmCTest* ctest) { this->CTest = ctest; }
   cmCTest* GetCTestInstance() { return this->CTest; }
 
   /**
    * Construct handler
    */
-  cmCTestGenericHandler();
+  cmCTestGenericHandler(cmCTest* ctest);
   virtual ~cmCTestGenericHandler();
-
-  typedef std::map<std::string, std::string> t_StringToString;
-
-  void SetPersistentOption(const std::string& op, const char* value);
-  void SetOption(const std::string& op, const char* value);
-  const char* GetOption(const std::string& op);
-
-  void SetCommand(cmCTestCommand* command) { this->Command = command; }
 
   void SetSubmitIndex(int idx) { this->SubmitIndex = idx; }
   int GetSubmitIndex() { return this->SubmitIndex; }
@@ -88,21 +58,19 @@ public:
   void SetTestLoad(unsigned long load) { this->TestLoad = load; }
   unsigned long GetTestLoad() const { return this->TestLoad; }
 
+  void SetCMakeInstance(cmake* cm) { this->CMake = cm; }
+
 protected:
-  bool StartResultingXML(cmCTest::Part part, const char* name,
+  bool StartResultingXML(cmCTest::Part part, char const* name,
                          cmGeneratedFileStream& xofs);
-  bool StartLogFile(const char* name, cmGeneratedFileStream& xofs);
+  bool StartLogFile(char const* name, cmGeneratedFileStream& xofs);
 
-  bool AppendXML;
-  bool Quiet;
-  unsigned long TestLoad;
-  cmSystemTools::OutputOption HandlerVerbose;
+  bool AppendXML = false;
+  bool Quiet = false;
+  unsigned long TestLoad = 0;
+  cmSystemTools::OutputOption HandlerVerbose = cmSystemTools::OUTPUT_NONE;
   cmCTest* CTest;
-  t_StringToString Options;
-  t_StringToString PersistentOptions;
+  cmake* CMake = nullptr;
 
-  cmCTestCommand* Command;
-  int SubmitIndex;
+  int SubmitIndex = 0;
 };
-
-#endif

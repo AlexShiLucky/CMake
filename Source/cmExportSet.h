@@ -1,12 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmExportSet_h
-#define cmExportSet_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
+
+#include <cm/optional>
 
 class cmInstallExportGenerator;
 class cmLocalGenerator;
@@ -17,24 +20,27 @@ class cmExportSet
 {
 public:
   /// Construct an empty export set named \a name
-  cmExportSet(const std::string& name)
-    : Name(name)
-  {
-  }
+  cmExportSet(std::string name);
   /// Destructor
   ~cmExportSet();
 
-  void Compute(cmLocalGenerator* lg);
+  cmExportSet(cmExportSet const&) = delete;
+  cmExportSet& operator=(cmExportSet const&) = delete;
 
-  void AddTargetExport(cmTargetExport* tgt);
+  bool Compute(cmLocalGenerator* lg);
+
+  void AddTargetExport(std::unique_ptr<cmTargetExport> tgt);
 
   void AddInstallation(cmInstallExportGenerator const* installation);
 
+  void SetXcFrameworkLocation(std::string const& name,
+                              std::string const& location);
+
   std::string const& GetName() const { return this->Name; }
 
-  std::vector<cmTargetExport*> const* GetTargetExports() const
+  std::vector<std::unique_ptr<cmTargetExport>> const& GetTargetExports() const
   {
-    return &this->TargetExports;
+    return this->TargetExports;
   }
 
   std::vector<cmInstallExportGenerator const*> const* GetInstallations() const
@@ -42,10 +48,46 @@ public:
     return &this->Installations;
   }
 
+  enum class PackageDependencyExportEnabled
+  {
+    Auto,
+    Off,
+    On,
+  };
+
+  struct PackageDependency
+  {
+    PackageDependencyExportEnabled Enabled =
+      PackageDependencyExportEnabled::Auto;
+    std::vector<std::string> ExtraArguments;
+    cm::optional<unsigned int> SpecifiedIndex;
+    cm::optional<unsigned int> FindPackageIndex;
+  };
+
+  PackageDependency& GetPackageDependencyForSetup(std::string const& name);
+
+  std::map<std::string, PackageDependency> const& GetPackageDependencies()
+    const
+  {
+    return this->PackageDependencies;
+  }
+
 private:
-  std::vector<cmTargetExport*> TargetExports;
+  std::vector<std::unique_ptr<cmTargetExport>> TargetExports;
   std::string Name;
   std::vector<cmInstallExportGenerator const*> Installations;
+  std::map<std::string, PackageDependency> PackageDependencies;
+  unsigned int NextPackageDependencyIndex = 0;
 };
 
-#endif
+/// A name -> cmExportSet map with overloaded operator[].
+class cmExportSetMap : public std::map<std::string, cmExportSet>
+{
+public:
+  /** \brief Overloaded operator[].
+   *
+   * The operator is overloaded because cmExportSet has no default constructor:
+   * we do not want unnamed export sets.
+   */
+  cmExportSet& operator[](std::string const& name);
+};

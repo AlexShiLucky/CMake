@@ -1,39 +1,103 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmInstallScriptGenerator.h"
 
-#include "cmScriptGenerator.h"
-
 #include <ostream>
+#include <utility>
 #include <vector>
 
-cmInstallScriptGenerator::cmInstallScriptGenerator(const char* script,
-                                                   bool code,
-                                                   const char* component,
-                                                   bool exclude_from_all)
-  : cmInstallGenerator(CM_NULLPTR, std::vector<std::string>(), component,
-                       MessageDefault, exclude_from_all)
-  , Script(script)
+#include "cmDiagnosticContext.h"
+#include "cmGeneratorExpression.h"
+#include "cmLocalGenerator.h"
+#include "cmPolicies.h"
+#include "cmScriptGenerator.h"
+
+cmInstallScriptGenerator::cmInstallScriptGenerator(
+  std::string script, bool code, std::string const& component,
+  bool excludeFromAll, bool allComponents,
+  std::vector<std::string> buildDepends, cmListFileBacktrace backtrace)
+  : cmInstallGenerator("", std::vector<std::string>(), component,
+                       MessageDefault, excludeFromAll, allComponents,
+                       cmDiagnosticContext{ std::move(backtrace) })
+  , Script(std::move(script))
   , Code(code)
+  , BuildDepends(std::move(buildDepends))
 {
+  // We need per-config actions if the script has generator expressions.
+  if (cmGeneratorExpression::Find(this->Script) != std::string::npos) {
+    this->ActionsPerConfig = true;
+  }
 }
 
-cmInstallScriptGenerator::~cmInstallScriptGenerator()
-{
-}
+cmInstallScriptGenerator::~cmInstallScriptGenerator() = default;
 
-void cmInstallScriptGenerator::GenerateScript(std::ostream& os)
+bool cmInstallScriptGenerator::Compute(cmLocalGenerator* lg)
 {
-  Indent indent;
-  std::string component_test =
-    this->CreateComponentTest(this->Component.c_str(), this->ExcludeFromAll);
-  os << indent << "if(" << component_test << ")\n";
-
-  if (this->Code) {
-    os << indent.Next() << this->Script << "\n";
-  } else {
-    os << indent.Next() << "include(\"" << this->Script << "\")\n";
+  this->LocalGenerator = lg;
+  if (!this->ResolveBuildDepends(lg, this->Code ? "CODE" : "SCRIPT",
+                                 this->BuildDepends,
+                                 this->ResolvedBuildDepends)) {
+    return false;
   }
 
-  os << indent << "endif()\n\n";
+  if (this->ActionsPerConfig) {
+    switch (this->LocalGenerator->GetPolicyStatus(cmPolicies::CMP0087)) {
+      case cmPolicies::WARN:
+        this->LocalGenerator->IssuePolicyWarning(cmPolicies::CMP0087);
+        CM_FALLTHROUGH;
+      case cmPolicies::OLD:
+        break;
+      case cmPolicies::NEW:
+        this->AllowGenex = true;
+        break;
+    }
+  }
+
+  return true;
+}
+
+void cmInstallScriptGenerator::GetInstallBuildDependencies(
+  std::string const& config, std::vector<BuildDependency>& dependencies) const
+{
+  AddBuildDependsDependencies(this->LocalGenerator, config,
+                              this->ResolvedBuildDepends, dependencies);
+}
+
+std::string cmInstallScriptGenerator::GetScript(
+  std::string const& config) const
+{
+  std::string script = this->Script;
+  if (this->AllowGenex && this->ActionsPerConfig) {
+    cmGeneratorExpression::ReplaceInstallPrefix(script,
+                                                "${CMAKE_INSTALL_PREFIX}");
+    script =
+      cmGeneratorExpression::Evaluate(script, this->LocalGenerator, config);
+  }
+  return script;
+}
+
+void cmInstallScriptGenerator::AddScriptInstallRule(
+  std::ostream& os, Indent indent, std::string const& script) const
+{
+  if (this->Code) {
+    os << indent << script << "\n";
+  } else {
+    os << indent << "include(\"" << script << "\")\n";
+  }
+}
+
+void cmInstallScriptGenerator::GenerateScriptActions(std::ostream& os,
+                                                     Indent indent)
+{
+  if (this->AllowGenex && this->ActionsPerConfig) {
+    this->cmInstallGenerator::GenerateScriptActions(os, indent);
+  } else {
+    this->AddScriptInstallRule(os, indent, this->Script);
+  }
+}
+
+void cmInstallScriptGenerator::GenerateScriptForConfig(
+  std::ostream& os, std::string const& config, Indent indent)
+{
+  this->AddScriptInstallRule(os, indent, this->GetScript(config));
 }

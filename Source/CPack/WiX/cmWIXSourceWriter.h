@@ -1,14 +1,15 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmWIXSourceWriter_h
-#define cmWIXSourceWriter_h
-
-#include "cmCPackLog.h"
-
-#include "cmsys/FStream.hxx"
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include <string>
 #include <vector>
+
+#include <cm/optional>
+
+#include "cmsys/FStream.hxx"
+
+#include "cmCPackLog.h"
 
 /** \class cmWIXSourceWriter
  * \brief Helper class to generate XML WiX source files
@@ -28,11 +29,14 @@ public:
     INCLUDE_ELEMENT_ROOT
   };
 
-  cmWIXSourceWriter(cmCPackLog* logger, std::string const& filename,
-                    GuidType componentGuidType,
+  cmWIXSourceWriter(unsigned long wixVersion, cmCPackLog* logger,
+                    std::string const& filename, GuidType componentGuidType,
                     RootElementType rootElementType = WIX_ELEMENT_ROOT);
 
   ~cmWIXSourceWriter();
+
+  void BeginElement_StandardDirectory();
+  void EndElement_StandardDirectory();
 
   void BeginElement(std::string const& name);
 
@@ -50,7 +54,16 @@ public:
 
   std::string CreateGuidFromComponentId(std::string const& componentId);
 
+  // In most cases CreateGuidFromComponentId should be used instead, since it
+  // takes ComponentGuidType into consideration. This function always generates
+  // an explicit GUID.
+  static std::string CreateCmakeGeneratedGuidFromComponentId(
+    std::string const& componentId);
+
+  static std::string EscapeAttributeValue(std::string const& value);
+
 protected:
+  unsigned long WixVersion;
   cmCPackLog* Logger;
 
 private:
@@ -64,8 +77,6 @@ private:
 
   void Indent(size_t count);
 
-  static std::string EscapeAttributeValue(std::string const& value);
-
   cmsys::ofstream File;
 
   State State;
@@ -76,5 +87,3 @@ private:
 
   GuidType ComponentGuidType;
 };
-
-#endif

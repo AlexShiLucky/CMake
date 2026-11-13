@@ -1,285 +1,276 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmSourceGroupCommand.h"
 
+#include <functional>
+#include <map>
+#include <memory>
 #include <set>
-#include <sstream>
-#include <stddef.h>
+#include <unordered_map>
+#include <utility>
 
+#include <cm/optional>
+#include <cm/string_view>
+#include <cmext/algorithm>
+#include <cmext/string_view>
+
+#include "cmArgumentParser.h"
+#include "cmArgumentParserTypes.h"
+#include "cmCMakePath.h"
+#include "cmDiagnostics.h"
+#include "cmExecutionStatus.h"
 #include "cmMakefile.h"
+#include "cmSourceFile.h"
+#include "cmSourceFileLocation.h"
 #include "cmSourceGroup.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
+#include "cmTarget.h"
 
 namespace {
-const size_t RootIndex = 1;
-const size_t FilesWithoutPrefixKeywordIndex = 2;
-const size_t FilesWithPrefixKeywordIndex = 4;
-const size_t PrefixKeywordIndex = 2;
-
-std::vector<std::string> tokenizePath(const std::string& path)
+template <typename Args>
+bool ProcessTree(Args const& args, cmExecutionStatus& status)
 {
-  return cmSystemTools::tokenize(path, "\\/");
-}
+  cmMakefile& mf = status.GetMakefile();
 
-std::string getFullFilePath(const std::string& currentPath,
-                            const std::string& path)
-{
-  std::string fullPath = path;
+  auto const& currentSourceDir = mf.GetCurrentSourceDirectory();
+  std::vector<std::string> files;
+  if (args.Files) {
+    files.reserve(args.Files->size());
 
-  if (!cmSystemTools::FileIsFullPath(path.c_str())) {
-    fullPath = currentPath;
-    fullPath += "/";
-    fullPath += path;
+    for (auto const& file : *args.Files) {
+      if (file.empty()) {
+        continue;
+      }
+      std::string fullPath =
+        cmSystemTools::CollapseFullPath(file, currentSourceDir);
+      files.emplace_back(std::move(fullPath));
+    }
+  } else {
+    std::vector<std::unique_ptr<cmSourceFile>> const& sources =
+      mf.GetSourceFiles();
+    for (auto const& src : sources) {
+      if (!src->GetIsGenerated()) {
+        files.push_back(cmSystemTools::CollapseFullPath(
+          src->GetLocation().GetFullPath(), currentSourceDir));
+      }
+    }
   }
 
-  return cmSystemTools::CollapseFullPath(fullPath);
-}
+  // final checks
+  cmCMakePath const root{ cmSystemTools::CollapseFullPath(*args.Tree) };
+  cmCMakePath const prefix{
+    cmCMakePath{ args.Prefix ? *args.Prefix : "" }.Normal()
+  };
 
-std::set<std::string> getSourceGroupFilesPaths(
-  const std::string& root, const std::vector<std::string>& files)
-{
-  std::set<std::string> ret;
-  const std::string::size_type rootLength = root.length();
+  auto it = files.begin();
+  while (it != files.end()) {
+    if (it->empty() || cmSystemTools::FileIsDirectory(*it) ||
+        (it->back() == '/' || it->back() == '\\')) {
+      // Ignore any empty files or directories
+      it = files.erase(it);
+      continue;
+    }
 
-  for (size_t i = 0; i < files.size(); ++i) {
-    ret.insert(files[i].substr(rootLength + 1)); // +1 to also omnit last '/'
-  }
-
-  return ret;
-}
-
-bool rootIsPrefix(const std::string& root,
-                  const std::vector<std::string>& files, std::string& error)
-{
-  for (size_t i = 0; i < files.size(); ++i) {
-    if (!cmSystemTools::StringStartsWith(files[i], root.c_str())) {
-      error = "ROOT: " + root + " is not a prefix of file: " + files[i];
+    cmCMakePath file{ *it };
+    if (!root.IsPrefix(file)) {
+      status.SetError(cmStrCat('"', root.GenericString(),
+                               "\" is not a prefix of file \"",
+                               file.GenericString(), '"'));
       return false;
     }
-  }
 
-  return true;
-}
+    // source groups generation
+    cmCMakePath sourceGroup = prefix / file.Relative(root);
+    if (sourceGroup.HasParentPath()) {
+      sourceGroup = sourceGroup.GetParentPath();
+    }
+    std::vector<std::string> tokenizedSG =
+      cmTokenize(sourceGroup.GenericString(), '/', cmTokenizerMode::New);
 
-cmSourceGroup* addSourceGroup(const std::vector<std::string>& tokenizedPath,
-                              cmMakefile& makefile)
-{
-  cmSourceGroup* sg;
-
-  sg = makefile.GetSourceGroup(tokenizedPath);
-  if (!sg) {
-    makefile.AddSourceGroup(tokenizedPath);
-    sg = makefile.GetSourceGroup(tokenizedPath);
+    auto* sg = mf.GetOrCreateSourceGroup(tokenizedSG);
     if (!sg) {
-      return CM_NULLPTR;
+      status.SetError(cmStrCat("could not create source group for file \"",
+                               file.GenericString(), '"'));
+      return false;
     }
+    sg->AddGroupFile(file.GenericString());
+
+    ++it;
   }
-
-  return sg;
-}
-
-std::string prepareFilePathForTree(const std::string& path,
-                                   const std::string& currentSourceDir)
-{
-  if (!cmSystemTools::FileIsFullPath(path)) {
-    return cmSystemTools::CollapseFullPath(currentSourceDir + "/" + path);
-  }
-  return cmSystemTools::CollapseFullPath(path);
-}
-
-std::vector<std::string> prepareFilesPathsForTree(
-  std::vector<std::string>::const_iterator begin,
-  std::vector<std::string>::const_iterator end,
-  const std::string& currentSourceDir)
-{
-  std::vector<std::string> prepared;
-
-  for (; begin != end; ++begin) {
-    prepared.push_back(prepareFilePathForTree(*begin, currentSourceDir));
-  }
-
-  return prepared;
-}
-
-bool addFilesToItsSourceGroups(const std::string& root,
-                               const std::set<std::string>& sgFilesPaths,
-                               const std::string& prefix, cmMakefile& makefile,
-                               std::string& errorMsg)
-{
-  cmSourceGroup* sg;
-
-  for (std::set<std::string>::const_iterator it = sgFilesPaths.begin();
-       it != sgFilesPaths.end(); ++it) {
-
-    std::vector<std::string> tokenizedPath;
-    if (!prefix.empty()) {
-      tokenizedPath = tokenizePath(prefix + '/' + *it);
-    } else {
-      tokenizedPath = tokenizePath(*it);
-    }
-
-    if (tokenizedPath.size() > 1) {
-      tokenizedPath.pop_back();
-
-      sg = addSourceGroup(tokenizedPath, makefile);
-
-      if (!sg) {
-        errorMsg = "Could not create source group for file: " + *it;
-        return false;
-      }
-      const std::string fullPath = getFullFilePath(root, *it);
-      sg->AddGroupFile(fullPath);
-    }
-  }
-
   return true;
 }
-}
+} // namespace
 
-class cmExecutionStatus;
-
-// cmSourceGroupCommand
-bool cmSourceGroupCommand::InitialPass(std::vector<std::string> const& args,
-                                       cmExecutionStatus&)
+bool cmSourceGroupCommand(std::vector<std::string> const& args,
+                          cmExecutionStatus& status)
 {
   if (args.empty()) {
-    this->SetError("called with incorrect number of arguments");
+    status.SetError("called with incorrect number of arguments");
     return false;
   }
 
-  if (args[0] == "TREE") {
-    std::string error;
+  static cm::string_view const Keywords[]{ "TREE"_s, "PREFIX"_s, "FILES"_s,
+                                           "REGULAR_EXPRESSION"_s };
+  cmMakefile& mf = status.GetMakefile();
 
-    if (!processTree(args, error)) {
-      this->SetError(error);
+  if (args.size() == 2 && !cm::contains(Keywords, args[0]) &&
+      !cm::contains(Keywords, args[1])) {
+    // The pre-1.8 version of the command is being invoked.
+    cmSourceGroup* sg = mf.GetOrCreateSourceGroup(args[0]);
+    if (!sg) {
+      status.SetError("Could not create or find source group.");
+      return false;
+    }
+    sg->SetGroupRegex(args[1]);
+    return true;
+  }
+
+  struct Arguments : public ArgumentParser::ParseResult
+  {
+    cm::optional<std::string> GroupName;
+    cm::optional<ArgumentParser::MaybeEmpty<std::vector<std::string>>> Files;
+    cm::optional<std::string> Regex;
+    cm::optional<ArgumentParser::MaybeEmpty<std::vector<std::string>>>
+      FileSets;
+    cm::optional<ArgumentParser::MaybeEmpty<std::string>> Tree;
+    cm::optional<ArgumentParser::MaybeEmpty<std::string>> Prefix;
+
+    std::map<std::string, std::set<std::string>> FileSetsPerTarget;
+  };
+
+  auto unsupportedKeyword =
+    [&mf](Arguments&, cm::string_view key,
+          cm::string_view /*value */) -> ArgumentParser::Continue {
+    mf.IssueDiagnostic(
+      cmDiagnostics::CMD_AUTHOR,
+      cmStrCat("keyword \"", key, "\" will be ignored in this context."));
+    return ArgumentParser::Continue::Yes;
+  };
+  // to distinguish REGULAR_EXPRESSION without values from with an empty string
+  auto handleRegex = [](Arguments& result,
+                        cm::string_view value) -> ArgumentParser::Continue {
+    if (value.data()) {
+      result.Regex = std::string{ value };
+    }
+    return ArgumentParser::Continue::No;
+  };
+  auto handleTarget = [](Arguments& result,
+                         cm::string_view value) -> ArgumentParser::Continue {
+    if (!result.FileSets) {
+      result.AddKeywordError(
+        "TARGET", cmStrCat("FILE_SETS is required for TARGET ", value, '.'));
+      return ArgumentParser::Continue::No;
+    }
+    if (!result.FileSets->empty()) {
+      result.FileSetsPerTarget[std::string{ value }].insert(
+        result.FileSets->begin(), result.FileSets->end());
+    }
+    result.FileSets.reset();
+
+    return ArgumentParser::Continue::Yes;
+  };
+
+  std::vector<std::string> unexpectedArgs;
+  auto parser =
+    cmArgumentParser<Arguments>{}.Bind("FILES"_s, &Arguments::Files);
+
+  if (cm::contains(args, "TREE")) {
+    // this is the TREE syntax
+    parser.Bind("TREE"_s, &Arguments::Tree)
+      .Bind("PREFIX"_s, &Arguments::Prefix)
+      .Bind("REGULAR_EXPRESSION"_s, unsupportedKeyword)
+      .Bind("FILE_SETS"_s, unsupportedKeyword)
+      .Bind("TARGET"_s, unsupportedKeyword);
+  } else {
+    // assume that first argument is the group name
+    parser.Bind(0, &Arguments::GroupName)
+      .Bind("REGULAR_EXPRESSION"_s, handleRegex, 0)
+      .Bind("FILE_SETS"_s, &Arguments::FileSets)
+      .Bind("TARGET"_s, handleTarget)
+      .Bind("TREE"_s, unsupportedKeyword)
+      .Bind("PREFIX"_s, unsupportedKeyword);
+  }
+
+  auto parsedArgs = parser.Parse(args, &unexpectedArgs);
+
+  // do various checks for arguments consistency
+  if (!parsedArgs.Check("", &unexpectedArgs, status)) {
+    cmSystemTools::SetFatalErrorOccurred();
+    return false;
+  }
+  if (!parsedArgs.Tree && !parsedArgs.GroupName) {
+    status.SetError("missing source group name.");
+    cmSystemTools::SetFatalErrorOccurred();
+    return false;
+  }
+  if (!parsedArgs.Tree && parsedArgs.FileSets) {
+    status.SetError(cmStrCat("TARGET is required for FILE_SETS ",
+                             cmJoin(*parsedArgs.FileSets, ", "), '.'));
+    return false;
+  }
+
+  if (parsedArgs.Tree) {
+    if (!ProcessTree(parsedArgs, status)) {
+      cmSystemTools::SetFatalErrorOccurred();
+      return false;
+    }
+  } else {
+    if (!parsedArgs.Files && !parsedArgs.Regex &&
+        parsedArgs.FileSetsPerTarget.empty()) {
+      // group is not created
+      return true;
+    }
+
+    auto* sg = mf.GetOrCreateSourceGroup(*parsedArgs.GroupName);
+    if (!sg) {
+      status.SetError("could not create or find source group");
+      cmSystemTools::SetFatalErrorOccurred();
       return false;
     }
 
-    return true;
-  }
-
-  std::string delimiter = "\\";
-  if (this->Makefile->GetDefinition("SOURCE_GROUP_DELIMITER")) {
-    delimiter = this->Makefile->GetDefinition("SOURCE_GROUP_DELIMITER");
-  }
-
-  std::vector<std::string> folders =
-    cmSystemTools::tokenize(args[0], delimiter);
-
-  cmSourceGroup* sg = CM_NULLPTR;
-  sg = this->Makefile->GetSourceGroup(folders);
-  if (!sg) {
-    this->Makefile->AddSourceGroup(folders);
-    sg = this->Makefile->GetSourceGroup(folders);
-  }
-
-  if (!sg) {
-    this->SetError("Could not create or find source group");
-    return false;
-  }
-  // If only two arguments are given, the pre-1.8 version of the
-  // command is being invoked.
-  if (args.size() == 2 && args[1] != "FILES") {
-    sg->SetGroupRegex(args[1].c_str());
-    return true;
-  }
-
-  // Process arguments.
-  bool doingFiles = false;
-  for (unsigned int i = 1; i < args.size(); ++i) {
-    if (args[i] == "REGULAR_EXPRESSION") {
-      // Next argument must specify the regex.
-      if (i + 1 < args.size()) {
-        ++i;
-        sg->SetGroupRegex(args[i].c_str());
-      } else {
-        this->SetError("REGULAR_EXPRESSION argument given without a regex.");
+    if (parsedArgs.Regex) {
+      if (!sg->SetGroupRegex(*parsedArgs.Regex)) {
+        status.SetError(cmStrCat("regular expression \"", *parsedArgs.Regex,
+                                 "\" is invalid"));
         return false;
       }
-      doingFiles = false;
-    } else if (args[i] == "FILES") {
-      // Next arguments will specify files.
-      doingFiles = true;
-    } else if (doingFiles) {
-      // Convert name to full path and add to the group's list.
-      std::string src = args[i];
-      if (!cmSystemTools::FileIsFullPath(src.c_str())) {
-        src = this->Makefile->GetCurrentSourceDirectory();
-        src += "/";
-        src += args[i];
-      }
-      src = cmSystemTools::CollapseFullPath(src);
-      sg->AddGroupFile(src);
-    } else {
-      std::ostringstream err;
-      err << "Unknown argument \"" << args[i] << "\".  "
-          << "Perhaps the FILES keyword is missing.\n";
-      this->SetError(err.str());
-      return false;
     }
-  }
+    if (parsedArgs.Files) {
+      auto const& currentSourceDir = mf.GetCurrentSourceDirectory();
+      for (auto const& file : *parsedArgs.Files) {
+        sg->AddGroupFile(
+          cmSystemTools::CollapseFullPath(file, currentSourceDir));
+      }
+    }
+    for (auto& item : parsedArgs.FileSetsPerTarget) {
+      // check validity of arguments
+      auto it = mf.GetTargets().find(item.first);
+      if (it == mf.GetTargets().end()) {
+        mf.IssueDiagnostic(
+          cmDiagnostics::CMD_AUTHOR,
+          cmStrCat(
+            "TARGET \"", item.first,
+            "\" is not defined in this directory. It will be ignored."));
+        continue;
+      }
 
-  return true;
-}
-
-bool cmSourceGroupCommand::checkTreeArgumentsPreconditions(
-  const std::vector<std::string>& args, std::string& errorMsg) const
-{
-  if (args.size() == 1) {
-    errorMsg = "TREE argument given without a root.";
-    return false;
-  }
-
-  if (args.size() < 3) {
-    errorMsg = "Missing FILES arguments.";
-    return false;
-  }
-
-  if (args[FilesWithoutPrefixKeywordIndex] != "FILES" &&
-      args[PrefixKeywordIndex] != "PREFIX") {
-    errorMsg = "Unknown argument \"" + args[2] +
-      "\". Perhaps the FILES keyword is missing.\n";
-    return false;
-  }
-
-  if (args[PrefixKeywordIndex] == "PREFIX" &&
-      (args.size() < 5 || args[FilesWithPrefixKeywordIndex] != "FILES")) {
-    errorMsg = "Missing FILES arguments.";
-    return false;
-  }
-
-  return true;
-}
-
-bool cmSourceGroupCommand::processTree(const std::vector<std::string>& args,
-                                       std::string& errorMsg)
-{
-  if (!checkTreeArgumentsPreconditions(args, errorMsg)) {
-    return false;
-  }
-
-  const std::string root = cmSystemTools::CollapseFullPath(args[RootIndex]);
-  std::string prefix;
-  size_t filesBegin = FilesWithoutPrefixKeywordIndex + 1;
-  if (args[PrefixKeywordIndex] == "PREFIX") {
-    prefix = args[PrefixKeywordIndex + 1];
-    filesBegin = FilesWithPrefixKeywordIndex + 1;
-  }
-
-  const std::vector<std::string> filesVector =
-    prepareFilesPathsForTree(args.begin() + filesBegin, args.end(),
-                             this->Makefile->GetCurrentSourceDirectory());
-
-  if (!rootIsPrefix(root, filesVector, errorMsg)) {
-    return false;
-  }
-
-  std::set<std::string> sourceGroupPaths =
-    getSourceGroupFilesPaths(root, filesVector);
-
-  if (!addFilesToItsSourceGroups(root, sourceGroupPaths, prefix,
-                                 *(this->Makefile), errorMsg)) {
-    return false;
+      cmTarget const& target = it->second;
+      for (auto it2 = item.second.begin(); it2 != item.second.end();) {
+        if (!target.GetFileSet(*it2)) {
+          mf.IssueDiagnostic(cmDiagnostics::CMD_AUTHOR,
+                             cmStrCat("FILE_SET \"", *it2,
+                                      "\" is not known for TARGET \"",
+                                      item.first, "\". It will ignored."));
+          it2 = item.second.erase(it2);
+        } else {
+          ++it2;
+        }
+      }
+      if (!item.second.empty()) {
+        sg->AddGroupFileSets(item.first, item.second);
+      }
+    }
   }
 
   return true;

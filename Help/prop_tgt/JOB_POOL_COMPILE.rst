@@ -15,3 +15,10 @@ For instance:
 
 This property is initialized by the value of
 :variable:`CMAKE_JOB_POOL_COMPILE`.
+
+See Also
+^^^^^^^^
+
+* :prop_rule:`JOB_POOL_COMPILE` rule property
+* :prop_fs:`JOB_POOL_COMPILE` file set property
+* :prop_sf:`JOB_POOL_COMPILE` source file property

@@ -25,7 +25,6 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD$");
 
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
@@ -36,26 +35,29 @@ __FBSDID("$FreeBSD$");
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
+#ifdef HAVE_LIMITS_H
+#include <limits.h>
+#endif
 
 #include "archive.h"
+#include "archive_integer.h"
 #include "archive_private.h"
 #include "archive_entry.h"
-#include "archive_getdate.h"
 #include "archive_pathmatch.h"
 #include "archive_rb.h"
 #include "archive_string.h"
+#include "archive_time_private.h"
 
 struct match {
 	struct match		*next;
-	int			 matches;
+	int			 matched;
 	struct archive_mstring	 pattern;
 };
 
 struct match_list {
 	struct match		*first;
 	struct match		**last;
-	int			 count;
-	int			 unmatched_count;
+	size_t			 unmatched_count;
 	struct match		*unmatched_next;
 	int			 unmatched_eof;
 };
@@ -74,7 +76,6 @@ struct match_file {
 struct entry_list {
 	struct match_file	*first;
 	struct match_file	**last;
-	int			 count;
 };
 
 struct id_array {
@@ -92,6 +93,9 @@ struct archive_match {
 
 	/* exclusion/inclusion set flag. */
 	int			 setflag;
+
+	/* Recursively include directory content? */
+	int			 recursive_include;
 
 	/*
 	 * Matching filename patterns.
@@ -142,12 +146,15 @@ static int	add_pattern_mbs(struct archive_match *, struct match_list *,
 		    const char *);
 static int	add_pattern_wcs(struct archive_match *, struct match_list *,
 		    const wchar_t *);
+#if !defined(_WIN32) || defined(__CYGWIN__)
 static int	cmp_key_mbs(const struct archive_rb_node *, const void *);
-static int	cmp_key_wcs(const struct archive_rb_node *, const void *);
 static int	cmp_node_mbs(const struct archive_rb_node *,
 		    const struct archive_rb_node *);
+#else
+static int	cmp_key_wcs(const struct archive_rb_node *, const void *);
 static int	cmp_node_wcs(const struct archive_rb_node *,
 		    const struct archive_rb_node *);
+#endif
 static void	entry_list_add(struct entry_list *, struct match_file *);
 static void	entry_list_free(struct entry_list *);
 static void	entry_list_init(struct entry_list *);
@@ -185,14 +192,14 @@ static int	time_excluded(struct archive_match *,
 		    struct archive_entry *);
 static int	validate_time_flag(struct archive *, int, const char *);
 
-#define get_date __archive_get_date
+#define get_date archive_parse_date
 
-static const struct archive_rb_tree_ops rb_ops_mbs = {
+static const struct archive_rb_tree_ops rb_ops = {
+#if !defined(_WIN32) || defined(__CYGWIN__)
 	cmp_node_mbs, cmp_key_mbs
-};
-
-static const struct archive_rb_tree_ops rb_ops_wcs = {
+#else
 	cmp_node_wcs, cmp_key_wcs
+#endif
 };
 
 /*
@@ -210,6 +217,14 @@ error_nomem(struct archive_match *a)
 	return (ARCHIVE_FATAL);
 }
 
+static int
+error_pattern(struct archive_match *a)
+{
+	archive_set_error(&(a->archive), EINVAL, "Failed to apply pattern");
+	a->archive.state = ARCHIVE_STATE_FATAL;
+	return (ARCHIVE_FATAL);
+}
+
 /*
  * Create an ARCHIVE_MATCH object.
  */
@@ -218,14 +233,15 @@ archive_match_new(void)
 {
 	struct archive_match *a;
 
-	a = (struct archive_match *)calloc(1, sizeof(*a));
+	a = calloc(1, sizeof(*a));
 	if (a == NULL)
 		return (NULL);
 	a->archive.magic = ARCHIVE_MATCH_MAGIC;
 	a->archive.state = ARCHIVE_STATE_NEW;
+	a->recursive_include = 1;
 	match_list_init(&(a->inclusions));
 	match_list_init(&(a->exclusions));
-	__archive_rb_tree_init(&(a->exclusion_tree), &rb_ops_mbs);
+	__archive_rb_tree_init(&(a->exclusion_tree), &rb_ops);
 	entry_list_init(&(a->exclusion_entry_list));
 	match_list_init(&(a->inclusion_unames));
 	match_list_init(&(a->inclusion_gnames));
@@ -262,7 +278,7 @@ archive_match_free(struct archive *_a)
  *
  * Returns 1 if archive entry is excluded.
  * Returns 0 if archive entry is not excluded.
- * Returns <0 if something error happened.
+ * Returns <0 if some error happened.
  */
 int
 archive_match_excluded(struct archive *_a, struct archive_entry *entry)
@@ -286,6 +302,8 @@ archive_match_excluded(struct archive *_a, struct archive_entry *entry)
 #else
 		r = path_excluded(a, 1, archive_entry_pathname(entry));
 #endif
+		if (r < 0)
+			return (error_pattern(a));
 		if (r != 0)
 			return (r);
 	}
@@ -442,13 +460,14 @@ archive_match_include_pattern_from_file_w(struct archive *_a,
  *
  * Returns 1 if archive entry is excluded.
  * Returns 0 if archive entry is not excluded.
- * Returns <0 if something error happened.
+ * Returns <0 if some error happened.
  */
 int
 archive_match_path_excluded(struct archive *_a,
     struct archive_entry *entry)
 {
 	struct archive_match *a;
+	int r;
 
 	archive_check_magic(_a, ARCHIVE_MATCH_MAGIC,
 	    ARCHIVE_STATE_NEW, "archive_match_path_excluded");
@@ -464,10 +483,35 @@ archive_match_path_excluded(struct archive *_a,
 	if ((a->setflag & PATTERN_IS_SET) == 0)
 		return (0);
 #if defined(_WIN32) && !defined(__CYGWIN__)
-	return (path_excluded(a, 0, archive_entry_pathname_w(entry)));
+	r = path_excluded(a, 0, archive_entry_pathname_w(entry));
 #else
-	return (path_excluded(a, 1, archive_entry_pathname(entry)));
+	r = path_excluded(a, 1, archive_entry_pathname(entry));
 #endif
+	if (r < 0)
+		return (error_pattern(a));
+	return (r);
+}
+
+/*
+ * When recursive inclusion of directory content is enabled,
+ * an inclusion pattern that matches a directory will also
+ * include everything beneath that directory. Enabled by default.
+ *
+ * For compatibility with GNU tar, exclusion patterns always
+ * match if a subset of the full patch matches (i.e., they are
+ * are not rooted at the beginning of the path) and thus there
+ * is no corresponding non-recursive exclusion mode.
+ */
+int
+archive_match_set_inclusion_recursion(struct archive *_a, int enabled)
+{
+	struct archive_match *a;
+
+	archive_check_magic(_a, ARCHIVE_MATCH_MAGIC,
+	    ARCHIVE_STATE_NEW, "archive_match_set_inclusion_recursion");
+	a = (struct archive_match *)_a;
+	a->recursive_include = enabled;
+	return (ARCHIVE_OK);
 }
 
 /*
@@ -482,7 +526,9 @@ archive_match_path_unmatched_inclusions(struct archive *_a)
 	    ARCHIVE_STATE_NEW, "archive_match_unmatched_inclusions");
 	a = (struct archive_match *)_a;
 
-	return (a->inclusions.unmatched_count);
+	if (a->inclusions.unmatched_count > (size_t)INT_MAX)
+		return INT_MAX;
+	return (int)(a->inclusions.unmatched_count);
 }
 
 int
@@ -580,7 +626,8 @@ add_pattern_from_file(struct archive_match *a, struct match_list *mlist,
 		return (ARCHIVE_FATAL);
 	}
 	r = archive_read_support_format_raw(ar);
-	r = archive_read_support_format_empty(ar);
+	if (r == ARCHIVE_OK)
+		r = archive_read_support_format_empty(ar);
 	if (r != ARCHIVE_OK) {
 		archive_copy_error(&(a->archive), ar);
 		archive_read_free(ar);
@@ -597,11 +644,12 @@ add_pattern_from_file(struct archive_match *a, struct match_list *mlist,
 	}
 	r = archive_read_next_header(ar, &ae);
 	if (r != ARCHIVE_OK) {
-		archive_read_free(ar);
 		if (r == ARCHIVE_EOF) {
+			archive_read_free(ar);
 			return (ARCHIVE_OK);
 		} else {
 			archive_copy_error(&(a->archive), ar);
+			archive_read_free(ar);
 			return (r);
 		}
 	}
@@ -624,7 +672,7 @@ add_pattern_from_file(struct archive_match *a, struct match_list *mlist,
 						break;
 					}
 				} else {
-			            	if (*b == 0x0d || *b == 0x0a) {
+					if (*b == 0x0d || *b == 0x0a) {
 						found_separator = 1;
 						break;
 					}
@@ -699,17 +747,17 @@ path_excluded(struct archive_match *a, int mbs, const void *pathname)
 	matched = NULL;
 	for (match = a->inclusions.first; match != NULL;
 	    match = match->next){
-		if (match->matches == 0 &&
+		if (!match->matched &&
 		    (r = match_path_inclusion(a, match, mbs, pathname)) != 0) {
 			if (r < 0)
 				return (r);
 			a->inclusions.unmatched_count--;
-			match->matches++;
+			match->matched = 1;
 			matched = match;
 		}
 	}
 
-	/* Exclusions take priority */
+	/* Exclusions take priority. */
 	for (match = a->exclusions.first; match != NULL;
 	    match = match->next){
 		r = match_path_exclusion(a, match, mbs, pathname);
@@ -727,11 +775,10 @@ path_excluded(struct archive_match *a, int mbs, const void *pathname)
 	for (match = a->inclusions.first; match != NULL;
 	    match = match->next){
 		/* We looked at previously-unmatched inclusions already. */
-		if (match->matches > 0 &&
+		if (match->matched &&
 		    (r = match_path_inclusion(a, match, mbs, pathname)) != 0) {
 			if (r < 0)
 				return (r);
-			match->matches++;
 			return (0);
 		}
 	}
@@ -781,7 +828,10 @@ static int
 match_path_inclusion(struct archive_match *a, struct match *m,
     int mbs, const void *pn)
 {
-	int flag = PATHMATCH_NO_ANCHOR_END;
+	/* Recursive operation requires only a prefix match. */
+	int flag = a->recursive_include ?
+		PATHMATCH_NO_ANCHOR_END :
+		0;
 	int r;
 
 	if (mbs) {
@@ -806,7 +856,6 @@ match_list_init(struct match_list *list)
 {
 	list->first = NULL;
 	list->last = &(list->first);
-	list->count = 0;
 }
 
 static void
@@ -827,7 +876,6 @@ match_list_add(struct match_list *list, struct match *m)
 {
 	*list->last = m;
 	list->last = &(m->next);
-	list->count++;
 	list->unmatched_count++;
 }
 
@@ -851,7 +899,7 @@ match_list_unmatched_inclusions_next(struct archive_match *a,
 	for (m = list->unmatched_next; m != NULL; m = m->next) {
 		int r;
 
-		if (m->matches)
+		if (m->matched)
 			continue;
 		if (mbs) {
 			const char *p;
@@ -975,7 +1023,7 @@ archive_match_exclude_entry(struct archive *_a, int flag,
  *
  * Returns 1 if archive entry is excluded.
  * Returns 0 if archive entry is not excluded.
- * Returns <0 if something error happened.
+ * Returns <0 if some error happened.
  */
 int
 archive_match_time_excluded(struct archive *_a,
@@ -1117,36 +1165,15 @@ set_timefilter_date_w(struct archive_match *a, int timetype,
 }
 
 #if defined(_WIN32) && !defined(__CYGWIN__)
-#define EPOC_TIME ARCHIVE_LITERAL_ULL(116444736000000000)
 static int
 set_timefilter_find_data(struct archive_match *a, int timetype,
-    DWORD ftLastWriteTime_dwHighDateTime, DWORD ftLastWriteTime_dwLowDateTime,
-    DWORD ftCreationTime_dwHighDateTime, DWORD ftCreationTime_dwLowDateTime)
+    const FILETIME* ftLastWriteTime, const FILETIME* ftCreationTime)
 {
-	ULARGE_INTEGER utc;
 	time_t ctime_sec, mtime_sec;
-	long ctime_ns, mtime_ns;
+	uint32_t ctime_ns, mtime_ns;
 
-	utc.HighPart = ftCreationTime_dwHighDateTime;
-	utc.LowPart = ftCreationTime_dwLowDateTime;
-	if (utc.QuadPart >= EPOC_TIME) {
-		utc.QuadPart -= EPOC_TIME;
-		ctime_sec = (time_t)(utc.QuadPart / 10000000);
-		ctime_ns = (long)(utc.QuadPart % 10000000) * 100;
-	} else {
-		ctime_sec = 0;
-		ctime_ns = 0;
-	}
-	utc.HighPart = ftLastWriteTime_dwHighDateTime;
-	utc.LowPart = ftLastWriteTime_dwLowDateTime;
-	if (utc.QuadPart >= EPOC_TIME) {
-		utc.QuadPart -= EPOC_TIME;
-		mtime_sec = (time_t)(utc.QuadPart / 10000000);
-		mtime_ns = (long)(utc.QuadPart % 10000000) * 100;
-	} else {
-		mtime_sec = 0;
-		mtime_ns = 0;
-	}
+	ntfs_to_unix(FILETIME_to_ntfs(ftLastWriteTime), &mtime_sec, &mtime_ns);
+	ntfs_to_unix(FILETIME_to_ntfs(ftCreationTime), &ctime_sec, &ctime_ns);
 	return set_timefilter(a, timetype,
 			mtime_sec, mtime_ns, ctime_sec, ctime_ns);
 }
@@ -1171,9 +1198,7 @@ set_timefilter_pathname_mbs(struct archive_match *a, int timetype,
 		return (ARCHIVE_FAILED);
 	}
 	FindClose(h);
-	return set_timefilter_find_data(a, timetype,
-	    d.ftLastWriteTime.dwHighDateTime, d.ftLastWriteTime.dwLowDateTime,
-	    d.ftCreationTime.dwHighDateTime, d.ftCreationTime.dwLowDateTime);
+	return set_timefilter_find_data(a, timetype, &d.ftLastWriteTime, &d.ftCreationTime);
 }
 
 static int
@@ -1195,9 +1220,7 @@ set_timefilter_pathname_wcs(struct archive_match *a, int timetype,
 		return (ARCHIVE_FAILED);
 	}
 	FindClose(h);
-	return set_timefilter_find_data(a, timetype,
-	    d.ftLastWriteTime.dwHighDateTime, d.ftLastWriteTime.dwLowDateTime,
-	    d.ftCreationTime.dwHighDateTime, d.ftCreationTime.dwLowDateTime);
+	return set_timefilter_find_data(a, timetype, &d.ftLastWriteTime, &d.ftCreationTime);
 }
 
 #else /* _WIN32 && !__CYGWIN__ */
@@ -1232,7 +1255,7 @@ set_timefilter_pathname_mbs(struct archive_match *a, int timetype,
 		archive_set_error(&(a->archive), EINVAL, "pathname is empty");
 		return (ARCHIVE_FAILED);
 	}
-	if (stat(path, &st) != 0) {
+	if (la_stat(path, &st) != 0) {
 		archive_set_error(&(a->archive), errno, "Failed to stat()");
 		return (ARCHIVE_FAILED);
 	}
@@ -1272,6 +1295,7 @@ set_timefilter_pathname_wcs(struct archive_match *a, int timetype,
 /*
  * Call back functions for archive_rb.
  */
+#if !defined(_WIN32) || defined(__CYGWIN__)
 static int
 cmp_node_mbs(const struct archive_rb_node *n1,
     const struct archive_rb_node *n2)
@@ -1288,7 +1312,7 @@ cmp_node_mbs(const struct archive_rb_node *n1,
 		return (-1);
 	return (strcmp(p1, p2));
 }
-        
+
 static int
 cmp_key_mbs(const struct archive_rb_node *n, const void *key)
 {
@@ -1300,7 +1324,7 @@ cmp_key_mbs(const struct archive_rb_node *n, const void *key)
 		return (-1);
 	return (strcmp(p, (const char *)key));
 }
-
+#else
 static int
 cmp_node_wcs(const struct archive_rb_node *n1,
     const struct archive_rb_node *n2)
@@ -1317,7 +1341,7 @@ cmp_node_wcs(const struct archive_rb_node *n1,
 		return (-1);
 	return (wcscmp(p1, p2));
 }
-        
+
 static int
 cmp_key_wcs(const struct archive_rb_node *n, const void *key)
 {
@@ -1329,13 +1353,13 @@ cmp_key_wcs(const struct archive_rb_node *n, const void *key)
 		return (-1);
 	return (wcscmp(p, (const wchar_t *)key));
 }
+#endif
 
 static void
 entry_list_init(struct entry_list *list)
 {
 	list->first = NULL;
 	list->last = &(list->first);
-	list->count = 0;
 }
 
 static void
@@ -1356,7 +1380,6 @@ entry_list_add(struct entry_list *list, struct match_file *file)
 {
 	*list->last = file;
 	list->last = &(file->next);
-	list->count++;
 }
 
 static int
@@ -1379,9 +1402,7 @@ add_entry(struct archive_match *a, int flag,
 		return (ARCHIVE_FAILED);
 	}
 	archive_mstring_copy_wcs(&(f->pathname), pathname);
-	a->exclusion_tree.rbt_ops = &rb_ops_wcs;
 #else
-	(void)rb_ops_wcs;
 	pathname = archive_entry_pathname(entry);
 	if (pathname == NULL) {
 		free(f);
@@ -1389,7 +1410,6 @@ add_entry(struct archive_match *a, int flag,
 		return (ARCHIVE_FAILED);
 	}
 	archive_mstring_copy_mbs(&(f->pathname), pathname);
-	a->exclusion_tree.rbt_ops = &rb_ops_mbs;
 #endif
 	f->flag = flag;
 	f->mtime_sec = archive_entry_mtime(entry);
@@ -1514,16 +1534,13 @@ time_excluded(struct archive_match *a, struct archive_entry *entry)
 	}
 
 	/* If there is no exclusion list, include the file. */
-	if (a->exclusion_entry_list.count == 0)
+	if (a->exclusion_entry_list.first == NULL)
 		return (0);
 
 #if defined(_WIN32) && !defined(__CYGWIN__)
 	pathname = archive_entry_pathname_w(entry);
-	a->exclusion_tree.rbt_ops = &rb_ops_wcs;
 #else
-	(void)rb_ops_wcs;
 	pathname = archive_entry_pathname(entry);
-	a->exclusion_tree.rbt_ops = &rb_ops_mbs;
 #endif
 	if (pathname == NULL)
 		return (0);
@@ -1582,7 +1599,7 @@ time_excluded(struct archive_match *a, struct archive_entry *entry)
  */
 
 int
-archive_match_include_uid(struct archive *_a, int64_t uid)
+archive_match_include_uid(struct archive *_a, la_int64_t uid)
 {
 	struct archive_match *a;
 
@@ -1593,7 +1610,7 @@ archive_match_include_uid(struct archive *_a, int64_t uid)
 }
 
 int
-archive_match_include_gid(struct archive *_a, int64_t gid)
+archive_match_include_gid(struct archive *_a, la_int64_t gid)
 {
 	struct archive_match *a;
 
@@ -1652,7 +1669,7 @@ archive_match_include_gname_w(struct archive *_a, const wchar_t *gname)
  *
  * Returns 1 if archive entry is excluded.
  * Returns 0 if archive entry is not excluded.
- * Returns <0 if something error happened.
+ * Returns <0 if some error happened.
  */
 int
 archive_match_owner_excluded(struct archive *_a,
@@ -1679,19 +1696,26 @@ archive_match_owner_excluded(struct archive *_a,
 static int
 add_owner_id(struct archive_match *a, struct id_array *ids, int64_t id)
 {
-	unsigned i;
+	size_t i;
 
 	if (ids->count + 1 >= ids->size) {
 		void *p;
+		size_t alloc_size, new_size;
 
 		if (ids->size == 0)
-			ids->size = 8;
-		else
-			ids->size *= 2;
-		p = realloc(ids->ids, sizeof(*ids->ids) * ids->size);
+			new_size = 8;
+		else {
+			if (archive_ckd_mul_size(&new_size, ids->size, 2))
+				return (error_nomem(a));
+		}
+		if (archive_ckd_mul_size(&alloc_size,
+		    new_size, sizeof(*ids->ids)))
+			return (error_nomem(a));
+		p = realloc(ids->ids, alloc_size);
 		if (p == NULL)
 			return (error_nomem(a));
 		ids->ids = (int64_t *)p;
+		ids->size = new_size;
 	}
 
 	/* Find an insert point. */
@@ -1716,10 +1740,10 @@ add_owner_id(struct archive_match *a, struct id_array *ids, int64_t id)
 static int
 match_owner_id(struct id_array *ids, int64_t id)
 {
-	unsigned b, m, t;
+	size_t b, m, t;
 
 	t = 0;
-	b = (unsigned)ids->count;
+	b = ids->count;
 	while (t < b) {
 		m = (t + b)>>1;
 		if (ids->ids[m] == id)
@@ -1765,7 +1789,7 @@ match_owner_name_mbs(struct archive_match *a, struct match_list *list,
 		    < 0 && errno == ENOMEM)
 			return (error_nomem(a));
 		if (p != NULL && strcmp(p, name) == 0) {
-			m->matches++;
+			m->matched = 1;
 			return (1);
 		}
 	}
@@ -1786,7 +1810,7 @@ match_owner_name_wcs(struct archive_match *a, struct match_list *list,
 		    < 0 && errno == ENOMEM)
 			return (error_nomem(a));
 		if (p != NULL && wcscmp(p, name) == 0) {
-			m->matches++;
+			m->matched = 1;
 			return (1);
 		}
 	}
@@ -1814,7 +1838,7 @@ owner_excluded(struct archive_match *a, struct archive_entry *entry)
 			return (1);
 	}
 
-	if (a->inclusion_unames.count) {
+	if (a->inclusion_unames.first != NULL) {
 #if defined(_WIN32) && !defined(__CYGWIN__)
 		r = match_owner_name_wcs(a, &(a->inclusion_unames),
 			archive_entry_uname_w(entry));
@@ -1828,7 +1852,7 @@ owner_excluded(struct archive_match *a, struct archive_entry *entry)
 			return (r);
 	}
 
-	if (a->inclusion_gnames.count) {
+	if (a->inclusion_gnames.first != NULL) {
 #if defined(_WIN32) && !defined(__CYGWIN__)
 		r = match_owner_name_wcs(a, &(a->inclusion_gnames),
 			archive_entry_gname_w(entry));
@@ -1843,4 +1867,3 @@ owner_excluded(struct archive_match *a, struct archive_entry *entry)
 	}
 	return (0);
 }
-

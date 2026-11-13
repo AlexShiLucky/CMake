@@ -1,4 +1,7 @@
-cmake_minimum_required(VERSION 3.1.0)
+cmake_minimum_required(VERSION 3.10)
+if(POLICY CMP0129)
+  cmake_policy(SET CMP0129 NEW)
+endif()
 project(WriteCompilerDetectionHeader)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -52,8 +55,10 @@ endmacro()
 # detailed features tables, not just meta-features
 
 if (CMAKE_C_COMPILE_FEATURES)
-  set(C_expected_features ${CMAKE_C_COMPILE_FEATURES})
-  list(FILTER C_expected_features EXCLUDE REGEX "^c_std_[0-9][0-9]")
+  if (NOT CMAKE_C_COMPILER_ID MATCHES "^(LCC|Cray|CrayClang|PGI|NVHPC|XL|XLClang|IBMClang|IntelLLVM|DPClang|Fujitsu|FujitsuClang|OrangeC)$")
+    set(C_expected_features ${CMAKE_C_COMPILE_FEATURES})
+    list(FILTER C_expected_features EXCLUDE REGEX "^c_std_[0-9][0-9]")
+  endif()
 endif()
 if (C_expected_features)
   string(REGEX REPLACE "^([0-9]+)\\.[0-9]+\\.[0-9]+.*" "\\1" COMPILER_VERSION_MAJOR "${CMAKE_C_COMPILER_VERSION}")
@@ -61,7 +66,7 @@ if (C_expected_features)
   string(REGEX REPLACE "^[0-9]+\\.[0-9]+\\.([0-9]+).*" "\\1" COMPILER_VERSION_PATCH "${CMAKE_C_COMPILER_VERSION}")
 
   if (CMAKE_C_COMPILER_ID STREQUAL "GNU"
-      OR CMAKE_C_COMPILER_ID STREQUAL "Clang"
+      OR (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND NOT "x${CMAKE_CXX_SIMULATE_ID}" STREQUAL "xMSVC")
       OR CMAKE_C_COMPILER_ID STREQUAL "AppleClang"
       OR CMAKE_C_COMPILER_ID STREQUAL "Intel")
     add_executable(WriteCompilerDetectionHeader_C11 main.c)
@@ -93,8 +98,10 @@ if (C_expected_features)
 endif()
 
 if (CMAKE_CXX_COMPILE_FEATURES)
-  set(CXX_expected_features ${CMAKE_CXX_COMPILE_FEATURES})
-  list(FILTER CXX_expected_features EXCLUDE REGEX "^cxx_std_[0-9][0-9]")
+  if (NOT CMAKE_CXX_COMPILER_ID MATCHES "^(LCC|Cray|CrayClang|PGI|NVHPC|XL|XLClang|IBMClang|IntelLLVM|DPClang|Fujitsu|FujitsuClang|OrangeC)$")
+    set(CXX_expected_features ${CMAKE_CXX_COMPILE_FEATURES})
+    list(FILTER CXX_expected_features EXCLUDE REGEX "^cxx_std_[0-9][0-9]")
+  endif()
 endif()
 if (NOT CXX_expected_features)
   file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dummy.cpp"
@@ -118,7 +125,7 @@ string(REGEX REPLACE "^[0-9]+\\.([0-9]+)\\.[0-9]+.*" "\\1" COMPILER_VERSION_MINO
 string(REGEX REPLACE "^[0-9]+\\.[0-9]+\\.([0-9]+).*" "\\1" COMPILER_VERSION_PATCH "${CMAKE_CXX_COMPILER_VERSION}")
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
-    OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+    OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT "x${CMAKE_CXX_SIMULATE_ID}" STREQUAL "xMSVC")
     OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"
     OR CMAKE_CXX_COMPILER_ID STREQUAL "SunPro"
     OR CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
@@ -128,7 +135,8 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
 endif()
 
 # for msvc the compiler version determines which c++11 features are available.
-if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC"
+    OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND "x${CMAKE_CXX_SIMULATE_ID}" STREQUAL "xMSVC"))
   if(";${CMAKE_CXX_COMPILE_FEATURES};" MATCHES ";cxx_delegating_constructors;")
     list(APPEND true_defs EXPECTED_COMPILER_CXX_DELEGATING_CONSTRUCTORS)
     list(APPEND true_defs EXPECTED_COMPILER_CXX_VARIADIC_TEMPLATES)
@@ -190,7 +198,7 @@ write_compiler_detection_header(
   ALLOW_UNKNOWN_COMPILERS
 )
 
-# intentionally abuse the TEST_NULLPR variable: this will only work
+# intentionally abuse the TEST_NULLPTR variable: this will only work
 # with the fallback code.
 check_cxx_source_compiles("#include \"${CMAKE_CURRENT_BINARY_DIR}/test_compiler_detection_allow_unknown.h\"
 int main() {\n int i = TEST_NULLPTR;\n return 0; }\n"
@@ -199,3 +207,16 @@ int main() {\n int i = TEST_NULLPTR;\n return 0; }\n"
 if (NOT file_include_works_allow_unknown)
   message(SEND_ERROR "Inclusion of ${CMAKE_CURRENT_BINARY_DIR}/test_compiler_detection_allow_unknown.h was expected to work, but did not.")
 endif()
+
+# test for BARE_FEATURES
+
+write_compiler_detection_header(
+  FILE "${CMAKE_CURRENT_BINARY_DIR}/test_compiler_detection_bare_features.h"
+  PREFIX TEST
+  COMPILERS GNU Clang AppleClang MSVC SunPro Intel
+  VERSION 3.1
+  BARE_FEATURES cxx_nullptr cxx_override cxx_noexcept cxx_final
+)
+
+add_executable(WriteCompilerDetectionHeaderBareFeatures main_bare.cpp)
+set_property(TARGET WriteCompilerDetectionHeaderBareFeatures PROPERTY CXX_STANDARD 11)

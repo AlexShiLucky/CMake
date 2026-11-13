@@ -9,7 +9,7 @@ struct X
   int n;
 };
 
-constexpr int g(const int (&is)[4])
+constexpr int g(int const (&is)[4])
 {
   X x;
   int r = x.n;
@@ -22,6 +22,7 @@ constexpr int g(const int (&is)[4])
 
 int someFunc()
 {
-  constexpr int k3 = g({ 4, 5, 6, 7 });
+  constexpr int values[4] = { 4, 5, 6, 7 };
+  constexpr int k3 = g(values);
   return k3 - 42;
 }

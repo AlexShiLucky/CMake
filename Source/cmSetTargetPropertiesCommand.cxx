@@ -1,80 +1,63 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmSetTargetPropertiesCommand.h"
 
+#include <algorithm>
 #include <iterator>
 
+#include "cmExecutionStatus.h"
 #include "cmMakefile.h"
+#include "cmStringAlgorithms.h"
 #include "cmTarget.h"
 
-class cmExecutionStatus;
-
-// cmSetTargetPropertiesCommand
-bool cmSetTargetPropertiesCommand::InitialPass(
-  std::vector<std::string> const& args, cmExecutionStatus&)
+bool cmSetTargetPropertiesCommand(std::vector<std::string> const& args,
+                                  cmExecutionStatus& status)
 {
   if (args.size() < 2) {
-    this->SetError("called with incorrect number of arguments");
+    status.SetError("called with incorrect number of arguments");
     return false;
   }
 
-  // first collect up the list of files
-  std::vector<std::string> propertyPairs;
-  int numFiles = 0;
-  std::vector<std::string>::const_iterator j;
-  for (j = args.begin(); j != args.end(); ++j) {
-    if (*j == "PROPERTIES") {
-      // now loop through the rest of the arguments, new style
-      ++j;
-      if (std::distance(j, args.end()) % 2 != 0) {
-        this->SetError("called with incorrect number of arguments.");
+  // first identify the properties arguments
+  auto propsIter = std::find(args.begin(), args.end(), "PROPERTIES");
+  if (propsIter == args.end() || propsIter + 1 == args.end()) {
+    status.SetError("called with illegal arguments, maybe missing a "
+                    "PROPERTIES specifier?");
+    return false;
+  }
+
+  if (std::distance(propsIter, args.end()) % 2 != 1) {
+    status.SetError("called with incorrect number of arguments.");
+    return false;
+  }
+
+  cmMakefile& mf = status.GetMakefile();
+
+  // loop over all the targets
+  for (std::string const& tname : cmStringRange{ args.begin(), propsIter }) {
+    if (cmTarget* target = mf.FindTargetToUse(tname)) {
+      if (target->IsSymbolic()) {
+        status.SetError("can not be used on a SYMBOLIC target.");
         return false;
       }
-      propertyPairs.insert(propertyPairs.end(), j, args.end());
-      break;
-    }
-    numFiles++;
-  }
-  if (propertyPairs.empty()) {
-    this->SetError("called with illegal arguments, maybe missing "
-                   "a PROPERTIES specifier?");
-    return false;
-  }
-
-  // now loop over all the targets
-  int i;
-  for (i = 0; i < numFiles; ++i) {
-    if (this->Makefile->IsAlias(args[i])) {
-      this->SetError("can not be used on an ALIAS target.");
+      // loop through all the props and set them
+      for (auto k = propsIter + 1; k != args.end(); k += 2) {
+        // Better error message for alias properties set on an alias target.
+        if (*k == "ALIASED_TARGET" || *k == "ALIAS_GLOBAL") {
+          if (mf.IsAlias(tname)) {
+            status.SetError(cmStrCat("can not set property ", *k,
+                                     " on an ALIAS target: ", tname));
+            return false;
+          }
+        }
+        target->SetProperty(*k, *(k + 1));
+        target->CheckProperty(*k, &mf);
+      }
+    } else {
+      status.SetError(
+        cmStrCat("Can not find target to add properties to: ", tname));
       return false;
     }
-    bool ret = cmSetTargetPropertiesCommand::SetOneTarget(
-      args[i], propertyPairs, this->Makefile);
-    if (!ret) {
-      std::string message = "Can not find target to add properties to: ";
-      message += args[i];
-      this->SetError(message);
-      return false;
-    }
-  }
-  return true;
-}
-
-bool cmSetTargetPropertiesCommand::SetOneTarget(
-  const std::string& tname, std::vector<std::string>& propertyPairs,
-  cmMakefile* mf)
-{
-  if (cmTarget* target = mf->FindTargetToUse(tname)) {
-    // now loop through all the props and set them
-    unsigned int k;
-    for (k = 0; k < propertyPairs.size(); k = k + 2) {
-      target->SetProperty(propertyPairs[k], propertyPairs[k + 1].c_str());
-      target->CheckProperty(propertyPairs[k], mf);
-    }
-  }
-  // if file is not already in the makefile, then add it
-  else {
-    return false;
   }
   return true;
 }

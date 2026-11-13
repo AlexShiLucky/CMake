@@ -1,17 +1,16 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmCTestSubmitHandler_h
-#define cmCTestSubmitHandler_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmCTest.h"
-#include "cmCTestGenericHandler.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <set>
 #include <string>
 #include <vector>
+
+#include "cmCTest.h"
+#include "cmCTestGenericHandler.h"
 
 /** \class cmCTestSubmitHandler
  * \brief Helper class for CTest
@@ -22,85 +21,60 @@
 class cmCTestSubmitHandler : public cmCTestGenericHandler
 {
 public:
-  typedef cmCTestGenericHandler Superclass;
+  using Superclass = cmCTestGenericHandler;
 
-  cmCTestSubmitHandler();
-  ~cmCTestSubmitHandler() CM_OVERRIDE { this->LogFile = CM_NULLPTR; }
+  cmCTestSubmitHandler(cmCTest* ctest);
+  ~cmCTestSubmitHandler() override { this->LogFile = nullptr; }
 
   /*
    * The main entry point for this class
    */
-  int ProcessHandler() CM_OVERRIDE;
-
-  void Initialize() CM_OVERRIDE;
+  int ProcessHandler() override;
 
   /** Specify a set of parts (by name) to submit.  */
   void SelectParts(std::set<cmCTest::Part> const& parts);
 
   /** Specify a set of files to submit.  */
-  void SelectFiles(cmCTest::SetOfStrings const& files);
+  void SelectFiles(std::set<std::string> const& files);
+
+  void SetHttpHeaders(std::vector<std::string> const& v)
+  {
+    this->HttpHeaders.insert(this->HttpHeaders.end(), v.begin(), v.end());
+  }
+
+private:
+  /**
+   * Submit file using various ways
+   */
+  bool SubmitUsingHTTP(std::string const& localprefix,
+                       std::vector<std::string> const& files,
+                       std::string const& remoteprefix,
+                       std::string const& url);
+  void ParseResponse(std::vector<char> chunk);
 
   // handle the cdash file upload protocol
   int HandleCDashUploadFile(std::string const& file, std::string const& type);
 
-  void SetHttpHeaders(std::vector<std::string> const& v)
-  {
-    this->HttpHeaders = v;
-  }
-
-  void ConstructCDashURL(std::string& dropMethod, std::string& url);
-
-private:
-  void SetLogFile(std::ostream* ost) { this->LogFile = ost; }
-
-  /**
-   * Submit file using various ways
-   */
-  bool SubmitUsingFTP(const std::string& localprefix,
-                      const std::set<std::string>& files,
-                      const std::string& remoteprefix, const std::string& url);
-  bool SubmitUsingHTTP(const std::string& localprefix,
-                       const std::set<std::string>& files,
-                       const std::string& remoteprefix,
-                       const std::string& url);
-  bool SubmitUsingSCP(const std::string& scp_command,
-                      const std::string& localprefix,
-                      const std::set<std::string>& files,
-                      const std::string& remoteprefix, const std::string& url);
-
-  bool SubmitUsingCP(const std::string& localprefix,
-                     const std::set<std::string>& files,
-                     const std::string& remoteprefix, const std::string& url);
-
-  bool TriggerUsingHTTP(const std::set<std::string>& files,
-                        const std::string& remoteprefix,
-                        const std::string& url);
-
-  bool SubmitUsingXMLRPC(const std::string& localprefix,
-                         const std::set<std::string>& files,
-                         const std::string& remoteprefix,
-                         const std::string& url);
-
-  typedef std::vector<char> cmCTestSubmitHandlerVectorOfChar;
-
-  void ParseResponse(cmCTestSubmitHandlerVectorOfChar chunk);
-
   std::string GetSubmitResultsPrefix();
-
-  class ResponseParser;
+  int GetSubmitInactivityTimeout();
 
   std::string HTTPProxy;
-  int HTTPProxyType;
+  int HTTPProxyType = 0;
   std::string HTTPProxyAuth;
-  std::string FTPProxy;
-  int FTPProxyType;
-  std::ostream* LogFile;
+  std::ostream* LogFile = nullptr;
   bool SubmitPart[cmCTest::PartCount];
-  bool CDash;
-  bool HasWarnings;
-  bool HasErrors;
-  cmCTest::SetOfStrings Files;
+  bool HasWarnings = false;
+  bool HasErrors = false;
+  std::set<std::string> Files;
   std::vector<std::string> HttpHeaders;
-};
 
-#endif
+  bool CDashUpload = false;
+  bool InternalTest = false;
+
+  std::string CDashUploadFile;
+  std::string CDashUploadType;
+  std::string RetryCount;
+  std::string RetryDelay;
+
+  friend class cmCTestSubmitCommand;
+};

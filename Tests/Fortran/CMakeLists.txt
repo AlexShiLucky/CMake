@@ -1,4 +1,7 @@
-cmake_minimum_required (VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
+if(POLICY CMP0129)
+  cmake_policy(SET CMP0129 NEW)
+endif()
 project(testf C CXX Fortran)
 
 message("CTEST_FULL_OUTPUT ")
@@ -14,7 +17,7 @@ if(CMAKE_Fortran_COMPILER_ID MATCHES "^(XL|VisualAge)$")
   # We do not implement SHARED Fortran libs on AIX yet!
   # Workaround: Set LINKER_LANGUAGE to C, which uses 'xlc' and Fortran implicits.
   set(_SHARED STATIC)
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU|LCC")
   # g77 2.96 does not support shared libs on Itanium because g2c is not -fPIC
   execute_process(COMMAND ${CMAKE_Fortran_COMPILER} --version
                   OUTPUT_VARIABLE output ERROR_VARIABLE output)
@@ -26,7 +29,7 @@ endif()
 # Pick a module .def file with the properly mangled symbol name.
 set(world_def "")
 if(WIN32 AND NOT CYGWIN)
-  if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
+  if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU|LCC|LLVMFlang")
     set(world_def world_gnu.def)
   elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel" OR
       CMAKE_GENERATOR MATCHES "Visual Studio") # Intel plugin
@@ -34,8 +37,23 @@ if(WIN32 AND NOT CYGWIN)
   endif()
 endif()
 
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "LFortran")
+  if(CMAKE_Fortran_COMPILER_VERSION VERSION_GREATER_EQUAL "0.55")
+    set(_LFORTRAN_SC_FLAG --separate-compilation)
+  else()
+    set(_LFORTRAN_SC_FLAG --generate-object-code)
+  endif()
+  add_compile_options("$<$<COMPILE_LANGUAGE:Fortran>:--implicit-interface;${_LFORTRAN_SC_FLAG}>")
+endif()
+
 add_library(hello STATIC hello.f)
 add_library(world ${_SHARED} world.f ${world_def})
+if(APPLE AND CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang")
+  set_target_properties(world PROPERTIES VERSION 1.2.3 SOVERSION 1)
+  add_library(world_module MODULE world.f)
+  add_library(world_framework SHARED world.f)
+  set_target_properties(world_framework PROPERTIES FRAMEWORK TRUE)
+endif()
 add_executable(testf testf.f)
 target_link_libraries(testf hello world)
 
@@ -46,7 +64,7 @@ function(test_fortran_c_interface_module)
   FortranCInterface_VERIFY()
   FortranCInterface_VERIFY(CXX)
   if(CMAKE_Fortran_COMPILER_SUPPORTS_F90)
-    if(NOT CMAKE_Fortran_COMPILER_ID MATCHES "SunPro|MIPSpro|PathScale|Absoft")
+    if(NOT CMAKE_Fortran_COMPILER_ID MATCHES "SunPro|PathScale|Absoft|Fujitsu|LCC|LFortran")
       set(module_expected 1)
     endif()
     if(FortranCInterface_MODULE_FOUND OR module_expected)
@@ -99,6 +117,11 @@ function(test_fortran_c_interface_module)
   target_link_libraries(myc myfort)
   set_property(TARGET myc PROPERTY COMPILE_DEFINITIONS ${MYC_DEFS})
 
+  add_library(myfort_obj OBJECT mysub.f)
+  add_library(myc_use_obj myc.c $<TARGET_OBJECTS:myfort_obj>)
+  add_executable(mainc_use_obj mainc.c)
+  target_link_libraries(mainc_use_obj myc_use_obj)
+
   add_library(mycxx mycxx.cxx)
   target_link_libraries(mycxx myc)
 
@@ -115,7 +138,7 @@ endfunction()
 # if the id's match or the compilers are compatible, then
 # call the test_fortran_c_interface_module function
 if("${CMAKE_Fortran_COMPILER_ID}:${CMAKE_C_COMPILER_ID}" MATCHES
-    "(Intel:MSVC|Absoft:GNU)"
+    "(Intel(LLVM)?:MSVC|Absoft:GNU|(LLVMFlang|LFortran):(GNU|Clang)|Cray:CrayClang)"
     OR ("${CMAKE_Fortran_COMPILER_ID}" STREQUAL "${CMAKE_C_COMPILER_ID}" ))
   test_fortran_c_interface_module()
 else()
@@ -123,10 +146,10 @@ else()
   message("Fortran = ${CMAKE_Fortran_COMPILER_ID}")
   message("C = ${CMAKE_C_COMPILER_ID}")
   # hack to make g77 work after CL has been enabled
-  # as a languge, cmake needs language specific versions
+  # as a language, cmake needs language specific versions
   # of these variables....
   if(WIN32 AND CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
-    set(CMAKE_CREATE_CONSOLE_EXE )
+    set(CMAKE_Fortran_CREATE_CONSOLE_EXE )
     set(CMAKE_LIBRARY_PATH_FLAG "-L")
     set(CMAKE_LINK_LIBRARY_FLAG "-l")
     set(CMAKE_LINK_LIBRARY_SUFFIX )

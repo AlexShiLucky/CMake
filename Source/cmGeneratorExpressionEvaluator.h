@@ -1,22 +1,33 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGeneratorExpressionEvaluator_h
-#define cmGeneratorExpressionEvaluator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include <stddef.h>
+#include <cstddef>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-struct cmGeneratorExpressionContext;
+namespace cm {
+namespace GenEx {
+struct Evaluation;
+}
+}
+
 struct cmGeneratorExpressionDAGChecker;
 struct cmGeneratorExpressionNode;
 
 struct cmGeneratorExpressionEvaluator
 {
-  cmGeneratorExpressionEvaluator() {}
-  virtual ~cmGeneratorExpressionEvaluator() {}
+  cmGeneratorExpressionEvaluator() = default;
+  virtual ~cmGeneratorExpressionEvaluator() = default;
+
+  cmGeneratorExpressionEvaluator(cmGeneratorExpressionEvaluator const&) =
+    delete;
+  cmGeneratorExpressionEvaluator& operator=(
+    cmGeneratorExpressionEvaluator const&) = delete;
 
   enum Type
   {
@@ -26,88 +37,89 @@ struct cmGeneratorExpressionEvaluator
 
   virtual Type GetType() const = 0;
 
-  virtual std::string Evaluate(cmGeneratorExpressionContext* context,
+  virtual std::string Evaluate(cm::GenEx::Evaluation* eval,
                                cmGeneratorExpressionDAGChecker*) const = 0;
-
-private:
-  CM_DISABLE_COPY(cmGeneratorExpressionEvaluator)
 };
+
+using cmGeneratorExpressionEvaluatorVector =
+  std::vector<std::unique_ptr<cmGeneratorExpressionEvaluator>>;
 
 struct TextContent : public cmGeneratorExpressionEvaluator
 {
-  TextContent(const char* start, size_t length)
+  TextContent(char const* start, size_t length)
     : Content(start)
     , Length(length)
   {
   }
 
-  std::string Evaluate(cmGeneratorExpressionContext*,
-                       cmGeneratorExpressionDAGChecker*) const CM_OVERRIDE
+  std::string Evaluate(cm::GenEx::Evaluation*,
+                       cmGeneratorExpressionDAGChecker*) const override
   {
     return std::string(this->Content, this->Length);
   }
 
-  Type GetType() const CM_OVERRIDE
+  Type GetType() const override
   {
     return cmGeneratorExpressionEvaluator::Text;
   }
 
   void Extend(size_t length) { this->Length += length; }
 
-  size_t GetLength() { return this->Length; }
+  size_t GetLength() const { return this->Length; }
 
 private:
-  const char* Content;
+  char const* Content;
   size_t Length;
 };
 
 struct GeneratorExpressionContent : public cmGeneratorExpressionEvaluator
 {
-  GeneratorExpressionContent(const char* startContent, size_t length);
-  void SetIdentifier(
-    std::vector<cmGeneratorExpressionEvaluator*> const& identifier)
+  GeneratorExpressionContent(char const* startContent, size_t length);
+
+  void SetIdentifier(cmGeneratorExpressionEvaluatorVector&& identifier)
   {
-    this->IdentifierChildren = identifier;
+    this->IdentifierChildren = std::move(identifier);
   }
 
   void SetParameters(
-    std::vector<std::vector<cmGeneratorExpressionEvaluator*> > const&
-      parameters)
+    std::vector<cmGeneratorExpressionEvaluatorVector>&& parameters)
   {
-    this->ParamChildren = parameters;
+    this->ParamChildren = std::move(parameters);
   }
 
-  Type GetType() const CM_OVERRIDE
+  Type GetType() const override
   {
     return cmGeneratorExpressionEvaluator::Generator;
   }
 
-  std::string Evaluate(cmGeneratorExpressionContext* context,
-                       cmGeneratorExpressionDAGChecker*) const CM_OVERRIDE;
+  std::string Evaluate(cm::GenEx::Evaluation* eval,
+                       cmGeneratorExpressionDAGChecker*) const override;
 
   std::string GetOriginalExpression() const;
 
-  ~GeneratorExpressionContent() CM_OVERRIDE;
+  std::vector<cmGeneratorExpressionEvaluatorVector> const& GetParamChildren()
+    const
+  {
+    return this->ParamChildren;
+  }
+
+  ~GeneratorExpressionContent() override;
 
 private:
-  std::string EvaluateParameters(const cmGeneratorExpressionNode* node,
-                                 const std::string& identifier,
-                                 cmGeneratorExpressionContext* context,
+  std::string EvaluateParameters(cmGeneratorExpressionNode const* node,
+                                 std::string const& identifier,
+                                 cm::GenEx::Evaluation* eval,
                                  cmGeneratorExpressionDAGChecker* dagChecker,
                                  std::vector<std::string>& parameters) const;
 
   std::string ProcessArbitraryContent(
-    const cmGeneratorExpressionNode* node, const std::string& identifier,
-    cmGeneratorExpressionContext* context,
-    cmGeneratorExpressionDAGChecker* dagChecker,
-    std::vector<std::vector<cmGeneratorExpressionEvaluator*> >::const_iterator
-      pit) const;
+    cmGeneratorExpressionNode const* node, std::string const& identifier,
+    cm::GenEx::Evaluation* eval, cmGeneratorExpressionDAGChecker* dagChecker,
+    std::vector<cmGeneratorExpressionEvaluatorVector>::const_iterator pit)
+    const;
 
-private:
-  std::vector<cmGeneratorExpressionEvaluator*> IdentifierChildren;
-  std::vector<std::vector<cmGeneratorExpressionEvaluator*> > ParamChildren;
-  const char* StartContent;
+  cmGeneratorExpressionEvaluatorVector IdentifierChildren;
+  std::vector<cmGeneratorExpressionEvaluatorVector> ParamChildren;
+  char const* StartContent;
   size_t ContentLength;
 };
-
-#endif

@@ -1,16 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmXCodeObject.h"
 
-#include <CoreFoundation/CoreFoundation.h>
 #include <ostream>
 
-#include "cmSystemTools.h"
+#include <cm/string_view>
+#include <cmext/string_view>
 
-const char* cmXCodeObject::PBXTypeNames[] = {
+#include "cmUnreachable.h"
+
+char const* cmXCodeObject::PBXTypeNames[] = {
   /* clang-format needs this comment to break after the opening brace */
   "PBXGroup",
-  "PBXBuildStyle",
   "PBXProject",
   "PBXHeadersBuildPhase",
   "PBXSourcesBuildPhase",
@@ -39,39 +40,19 @@ cmXCodeObject::~cmXCodeObject()
   this->Version = 15;
 }
 
-cmXCodeObject::cmXCodeObject(PBXType ptype, Type type)
+cmXCodeObject::cmXCodeObject(PBXType ptype, Type type, std::string id)
 {
   this->Version = 15;
-  this->Target = 0;
-  this->Object = 0;
+  this->Target = nullptr;
+  this->Object = nullptr;
 
   this->IsA = ptype;
 
-  if (type == OBJECT) {
-    // Set the Id of an Xcode object to a unique string for each instance.
-    // However the Xcode user file references certain Ids: for those cases,
-    // override the generated Id using SetId().
-    //
-    char cUuid[40] = { 0 };
-    CFUUIDRef uuid = CFUUIDCreate(kCFAllocatorDefault);
-    CFStringRef s = CFUUIDCreateString(kCFAllocatorDefault, uuid);
-    CFStringGetCString(s, cUuid, sizeof(cUuid), kCFStringEncodingUTF8);
-    this->Id = cUuid;
-    CFRelease(s);
-    CFRelease(uuid);
-  } else {
-    this->Id =
-      "Temporary cmake object, should not be referred to in Xcode file";
-  }
-
-  cmSystemTools::ReplaceString(this->Id, "-", "");
-  if (this->Id.size() > 24) {
-    this->Id = this->Id.substr(0, 24);
-  }
+  this->Id = std::move(id);
 
   this->TypeValue = type;
   if (this->TypeValue == OBJECT) {
-    this->AddAttribute("isa", 0);
+    this->AddAttribute("isa", nullptr);
   }
 }
 
@@ -86,9 +67,10 @@ bool cmXCodeObject::IsEmpty() const
       return this->ObjectAttributes.empty();
     case OBJECT_REF:
     case OBJECT:
-      return this->Object == 0;
+      return this->Object == nullptr;
   }
-  return true; // unreachable, but quiets warnings
+  CM_UNREACHABLE;
+  return true;
 }
 
 void cmXCodeObject::Indent(int level, std::ostream& out)
@@ -112,28 +94,28 @@ void cmXCodeObject::Print(std::ostream& out)
   out << this->Id;
   this->PrintComment(out);
   out << " = {";
-  if (separator == "\n") {
+  if (separator == "\n"_s) {
     out << separator;
   }
-  std::map<std::string, cmXCodeObject*>::iterator i;
   cmXCodeObject::Indent(3 * indentFactor, out);
   out << "isa = " << PBXTypeNames[this->IsA] << ";" << separator;
-  for (i = this->ObjectAttributes.begin(); i != this->ObjectAttributes.end();
-       ++i) {
-    if (i->first == "isa")
+  for (auto const& keyVal : this->ObjectAttributes) {
+    if (keyVal.first == "isa"_s) {
       continue;
+    }
 
-    PrintAttribute(out, 3, separator, indentFactor, i->first, i->second, this);
+    PrintAttribute(out, 3, separator, indentFactor, keyVal.first,
+                   keyVal.second, this);
   }
   cmXCodeObject::Indent(2 * indentFactor, out);
   out << "};\n";
 }
 
-void cmXCodeObject::PrintAttribute(std::ostream& out, const int level,
-                                   const std::string separator,
-                                   const int factor, const std::string& name,
-                                   const cmXCodeObject* object,
-                                   const cmXCodeObject* parent)
+void cmXCodeObject::PrintAttribute(std::ostream& out, int level,
+                                   std::string const& separator, int factor,
+                                   std::string const& name,
+                                   cmXCodeObject const* object,
+                                   cmXCodeObject const* parent)
 {
   cmXCodeObject::Indent(level * factor, out);
   switch (object->TypeValue) {
@@ -163,14 +145,12 @@ void cmXCodeObject::PrintAttribute(std::ostream& out, const int level,
 
     case ATTRIBUTE_GROUP: {
       out << name << " = {";
-      if (separator == "\n") {
+      if (separator == "\n"_s) {
         out << separator;
       }
-      std::map<std::string, cmXCodeObject*>::const_iterator i;
-      for (i = object->ObjectAttributes.begin();
-           i != object->ObjectAttributes.end(); ++i) {
-        PrintAttribute(out, (level + 1) * factor, separator, factor, i->first,
-                       i->second, object);
+      for (auto const& keyVal : object->ObjectAttributes) {
+        PrintAttribute(out, (level + 1) * factor, separator, factor,
+                       keyVal.first, keyVal.second, object);
       }
       cmXCodeObject::Indent(level * factor, out);
       out << "};" << separator;
@@ -179,7 +159,7 @@ void cmXCodeObject::PrintAttribute(std::ostream& out, const int level,
     case OBJECT_REF: {
       cmXCodeObject::PrintString(out, name);
       out << " = " << object->Object->Id;
-      if (object->Object->HasComment() && name != "remoteGlobalIDString") {
+      if (object->Object->HasComment() && name != "remoteGlobalIDString"_s) {
         object->Object->PrintComment(out);
       }
       out << ";" << separator;
@@ -203,9 +183,9 @@ void cmXCodeObject::PrintList(std::vector<cmXCodeObject*> const& objs,
 {
   cmXCodeObject::Indent(1, out);
   out << "objects = {\n";
-  for (unsigned int i = 0; i < objs.size(); ++i) {
-    if (objs[i]->TypeValue == OBJECT) {
-      objs[i]->Print(out);
+  for (auto* obj : objs) {
+    if (obj->TypeValue == OBJECT) {
+      obj->Print(out);
     }
   }
   cmXCodeObject::Indent(1, out);
@@ -220,7 +200,7 @@ void cmXCodeObject::CopyAttributes(cmXCodeObject* copy)
   this->Object = copy->Object;
 }
 
-void cmXCodeObject::PrintString(std::ostream& os, std::string String)
+void cmXCodeObject::PrintString(std::ostream& os, std::string const& String)
 {
   // The string needs to be quoted if it contains any characters
   // considered special by the Xcode project file parser.
@@ -229,17 +209,16 @@ void cmXCodeObject::PrintString(std::ostream& os, std::string String)
                                              "abcdefghijklmnopqrstuvwxyz"
                                              "0123456789"
                                              "$_./") != std::string::npos);
-  const char* quote = needQuote ? "\"" : "";
+  char const* quote = needQuote ? "\"" : "";
 
   // Print the string, quoted and escaped as necessary.
   os << quote;
-  for (std::string::const_iterator i = String.begin(); i != String.end();
-       ++i) {
-    if (*i == '"' || *i == '\\') {
+  for (auto c : String) {
+    if (c == '"' || c == '\\') {
       // Escape double-quotes and backslashes.
       os << '\\';
     }
-    os << *i;
+    os << c;
   }
   os << quote;
 }
@@ -249,7 +228,7 @@ void cmXCodeObject::PrintString(std::ostream& os) const
   cmXCodeObject::PrintString(os, this->String);
 }
 
-void cmXCodeObject::SetString(const std::string& s)
+void cmXCodeObject::SetString(cm::string_view s)
 {
-  this->String = s;
+  this->String = std::string(s);
 }

@@ -1,9 +1,9 @@
 #ifndef foo_h
-#include "foo.h"
-#error "Precompiled header foo_precompiled.h has not been loaded."
+#  include "foo.h"
+#  error "Precompiled header foo_precompiled.h has not been loaded."
 #endif
 
-int foo()
+int foo(void)
 {
   return 0;
 }

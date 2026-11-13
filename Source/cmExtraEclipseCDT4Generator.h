@@ -1,20 +1,19 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmExtraEclipseCDT4Generator_h
-#define cmExtraEclipseCDT4Generator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmExternalMakefileProjectGenerator.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "cmExternalMakefileProjectGenerator.h"
+#include "cmSourceGroup.h"
+
 class cmLocalGenerator;
 class cmMakefile;
-class cmSourceGroup;
 class cmXMLWriter;
 
 /** \class cmExtraEclipseCDT4Generator
@@ -35,13 +34,16 @@ public:
   static cmExternalMakefileProjectGeneratorFactory* GetFactory();
 
   void EnableLanguage(std::vector<std::string> const& languages, cmMakefile*,
-                      bool optional) CM_OVERRIDE;
+                      bool optional) override;
 
-  void Generate() CM_OVERRIDE;
+  void Generate() override;
 
 private:
   // create .project file in the source tree
   void CreateSourceProjectFile();
+
+  // create .settings/org.eclipse.core.resources.prefs
+  void CreateSettingsResourcePrefsFile();
 
   // create .project file
   void CreateProjectFile();
@@ -50,44 +52,45 @@ private:
   void CreateCProjectFile() const;
 
   // If built with cygwin cmake, convert posix to windows path.
-  static std::string GetEclipsePath(const std::string& path);
+  static std::string GetEclipsePath(std::string const& path);
 
   // Extract basename.
-  static std::string GetPathBasename(const std::string& path);
+  static std::string GetPathBasename(std::string const& path);
 
   // Generate the project name as: <name>-<type>@<path>
-  static std::string GenerateProjectName(const std::string& name,
-                                         const std::string& type,
-                                         const std::string& path);
+  static std::string GenerateProjectName(std::string const& name,
+                                         std::string const& type,
+                                         std::string const& path);
 
   // Helper functions
   static void AppendStorageScanners(cmXMLWriter& xml,
-                                    const cmMakefile& makefile);
-  static void AppendTarget(cmXMLWriter& xml, const std::string& target,
-                           const std::string& make,
-                           const std::string& makeArguments,
-                           const std::string& path, const char* prefix = "",
-                           const char* makeTarget = CM_NULLPTR);
+                                    cmMakefile const& makefile);
+  static void AppendTarget(cmXMLWriter& xml, std::string const& target,
+                           std::string const& make,
+                           std::string const& makeArguments,
+                           std::string const& path, char const* prefix = "",
+                           char const* makeTarget = nullptr);
   static void AppendScannerProfile(
-    cmXMLWriter& xml, const std::string& profileID, bool openActionEnabled,
-    const std::string& openActionFilePath, bool pParserEnabled,
-    const std::string& scannerInfoProviderID,
-    const std::string& runActionArguments, const std::string& runActionCommand,
+    cmXMLWriter& xml, std::string const& profileID, bool openActionEnabled,
+    std::string const& openActionFilePath, bool pParserEnabled,
+    std::string const& scannerInfoProviderID,
+    std::string const& runActionArguments, std::string const& runActionCommand,
     bool runActionUseDefault, bool sipParserEnabled);
 
-  static void AppendLinkedResource(cmXMLWriter& xml, const std::string& name,
-                                   const std::string& path, LinkType linkType);
+  static void AppendLinkedResource(cmXMLWriter& xml, std::string const& name,
+                                   std::string const& path, LinkType linkType);
 
   static void AppendIncludeDirectories(
-    cmXMLWriter& xml, const std::vector<std::string>& includeDirs,
+    cmXMLWriter& xml, std::vector<std::string> const& includeDirs,
     std::set<std::string>& emittedDirs);
 
-  static void AddEnvVar(std::ostream& out, const char* envVar,
-                        cmLocalGenerator* lg);
+  static void AddEnvVar(std::ostream& out, char const* envVar,
+                        cmLocalGenerator& lg);
 
-  void WriteGroups(std::vector<cmSourceGroup> const& sourceGroups,
+  void WriteGroups(SourceGroupVector const& sourceGroups,
+                   cmSourceGroupFiles const& sourceGroupFiles,
                    std::string& linkName, cmXMLWriter& xml);
-  void CreateLinksToSubprojects(cmXMLWriter& xml, const std::string& baseDir);
+  void CreateLinksToSubprojects(cmXMLWriter& xml, std::string const& baseDir);
   void CreateLinksForTargets(cmXMLWriter& xml);
 
   std::vector<std::string> SrcLinkedResources;
@@ -103,5 +106,3 @@ private:
   bool CEnabled;
   bool CXXEnabled;
 };
-
-#endif

@@ -1,6 +1,10 @@
-cmake_minimum_required(VERSION 3.1)
-project(XCTest)
+cmake_minimum_required(VERSION 3.10)
+project(XCTest C)
 enable_testing()
+
+set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
+set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
+set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
 
 find_package(XCTest REQUIRED)
 
@@ -55,6 +59,21 @@ xctest_add_bundle(CocoaExampleTests CocoaExample
   CocoaExampleTests/CocoaExampleTests.m)
 
 xctest_add_test(XCTest.CocoaExample CocoaExampleTests)
+
+# Cocoa App Bundle with explicit artifact location.
+block()
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/lib")
+  add_executable(CocoaExample2 MACOSX_BUNDLE
+    CocoaExample/main.m
+    CocoaExample/AppDelegate.m
+    CocoaExample/AppDelegate.h
+    CocoaExample/MainMenu.xib
+  )
+  target_link_libraries(CocoaExample2 PRIVATE "-framework Foundation" "-framework AppKit")
+  xctest_add_bundle(CocoaExample2Tests CocoaExample2 CocoaExampleTests/CocoaExampleTests.m)
+  xctest_add_test(XCTest.CocoaExample2 CocoaExample2Tests)
+endblock()
 
 # Static lib
 

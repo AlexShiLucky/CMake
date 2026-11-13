@@ -1,15 +1,13 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmVSSetupHelper_h
-#define cmVSSetupHelper_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #ifndef NOMINMAX
-#define NOMINMAX // Undefine min and max defined by windows.h
+#  define NOMINMAX // Undefine min and max defined by windows.h
 #endif
 
 // Published by Visual Studio Setup team
-#include "cmvssetup/Setup.Configuration.h"
-
+#include <cm3p/Setup.Configuration.h>
 #include <string>
 #include <vector>
 
@@ -19,18 +17,20 @@ template <class T>
 class SmartCOMPtr
 {
 public:
-  SmartCOMPtr() { ptr = NULL; }
+  SmartCOMPtr() = default;
   SmartCOMPtr(T* p)
   {
     ptr = p;
-    if (ptr != NULL)
+    if (ptr) {
       ptr->AddRef();
+    }
   }
-  SmartCOMPtr(const SmartCOMPtr<T>& sptr)
+  SmartCOMPtr(SmartCOMPtr<T> const& sptr)
   {
     ptr = sptr.ptr;
-    if (ptr != NULL)
+    if (ptr) {
       ptr->AddRef();
+    }
   }
   T** operator&() { return &ptr; }
   T* operator->() { return ptr; }
@@ -38,8 +38,9 @@ public:
   {
     if (*this != p) {
       ptr = p;
-      if (ptr != NULL)
+      if (ptr) {
         ptr->AddRef();
+      }
     }
     return *this;
   }
@@ -47,11 +48,10 @@ public:
   template <class I>
   HRESULT QueryInterface(REFCLSID rclsid, I** pp)
   {
-    if (pp != NULL) {
+    if (pp) {
       return ptr->QueryInterface(rclsid, (void**)pp);
-    } else {
-      return E_FAIL;
     }
+    return E_FAIL;
   }
   HRESULT CoCreateInstance(REFCLSID clsid, IUnknown* pUnknown,
                            REFIID interfaceId, DWORD dwClsContext = CLSCTX_ALL)
@@ -62,70 +62,53 @@ public:
   }
   ~SmartCOMPtr()
   {
-    if (ptr != NULL)
+    if (ptr) {
       ptr->Release();
+    }
   }
 
 private:
-  T* ptr;
+  T* ptr = nullptr;
 };
 
 class SmartBSTR
 {
 public:
-  SmartBSTR() { str = NULL; }
-  SmartBSTR(const SmartBSTR& src)
-  {
-    if (src.str != NULL) {
-      str = ::SysAllocStringByteLen((char*)str, ::SysStringByteLen(str));
-    } else {
-      str = ::SysAllocStringByteLen(NULL, 0);
-    }
-  }
-  SmartBSTR& operator=(const SmartBSTR& src)
-  {
-    if (str != src.str) {
-      ::SysFreeString(str);
-      if (src.str != NULL) {
-        str = ::SysAllocStringByteLen((char*)str, ::SysStringByteLen(str));
-      } else {
-        str = ::SysAllocStringByteLen(NULL, 0);
-      }
-    }
-    return *this;
-  }
+  SmartBSTR() = default;
+  SmartBSTR(SmartBSTR const& src) = delete;
+  SmartBSTR& operator=(SmartBSTR const& src) = delete;
   operator BSTR() const { return str; }
   BSTR* operator&() throw() { return &str; }
   ~SmartBSTR() throw() { ::SysFreeString(str); }
+
 private:
-  BSTR str;
+  BSTR str = nullptr;
 };
 
 struct VSInstanceInfo
 {
-  std::wstring InstanceId;
-  std::wstring VSInstallLocation;
-  std::wstring Version;
-  ULONGLONG ullVersion;
-  bool IsWin10SDKInstalled;
-  bool IsWin81SDKInstalled;
+  std::string VSInstallLocation;
+  std::string Version;
+  std::string VCToolsetVersion;
+  bool IsWin10SDKInstalled = false;
+  bool IsWin81SDKInstalled = false;
 
-  VSInstanceInfo()
-  {
-    InstanceId = VSInstallLocation = Version = L"";
-    ullVersion = 0;
-    IsWin10SDKInstalled = IsWin81SDKInstalled = false;
-  }
+  std::string GetInstallLocation() const;
 };
 
 class cmVSSetupAPIHelper
 {
 public:
-  cmVSSetupAPIHelper();
+  cmVSSetupAPIHelper(unsigned int version);
   ~cmVSSetupAPIHelper();
 
-  bool IsVS2017Installed();
+  bool SetVSInstance(std::string const& vsInstallLocation,
+                     std::string const& vsInstallVersion);
+
+  bool IsVSInstalled();
   bool GetVSInstanceInfo(std::string& vsInstallLocation);
+  bool GetVSInstanceVersion(std::string& vsInstanceVersion);
+  bool GetVCToolsetVersion(std::string& vsToolsetVersion);
   bool IsWin10SDKInstalled();
   bool IsWin81SDKInstalled();
 
@@ -134,21 +117,28 @@ private:
   bool GetVSInstanceInfo(SmartCOMPtr<ISetupInstance2> instance2,
                          VSInstanceInfo& vsInstanceInfo);
   bool CheckInstalledComponent(SmartCOMPtr<ISetupPackageReference> package,
-                               bool& bVCToolset, bool& bWin10SDK,
-                               bool& bWin81SDK);
-  int ChooseVSInstance(const std::vector<VSInstanceInfo>& vecVSInstances);
+                               bool& bWin10SDK, bool& bWin81SDK);
+  int ChooseVSInstance(std::vector<VSInstanceInfo> const& vecVSInstances);
   bool EnumerateAndChooseVSInstance();
+  bool LoadSpecifiedVSInstanceFromDisk();
+  bool EnumerateVSInstancesWithVswhere(
+    std::vector<VSInstanceInfo>& VSInstances);
+  bool EnumerateVSInstancesWithCOM(std::vector<VSInstanceInfo>& VSInstances);
+
+  unsigned int Version;
 
   // COM ptrs to query about VS instances
   SmartCOMPtr<ISetupConfiguration> setupConfig;
   SmartCOMPtr<ISetupConfiguration2> setupConfig2;
   SmartCOMPtr<ISetupHelper> setupHelper;
   // used to indicate failure in Initialize(), so we don't have to call again
-  bool initializationFailure;
+  bool initializationFailure = false;
   // indicated if COM initialization is successful
   HRESULT comInitialized;
   // current best instance of VS selected
   VSInstanceInfo chosenInstanceInfo;
-};
+  bool IsEWDKEnabled();
 
-#endif
+  std::string SpecifiedVSInstallLocation;
+  std::string SpecifiedVSInstallVersion;
+};

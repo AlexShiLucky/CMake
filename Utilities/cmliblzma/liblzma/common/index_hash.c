@@ -1,12 +1,11 @@
+// SPDX-License-Identifier: 0BSD
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 /// \file       index_hash.c
 /// \brief      Validates Index by using a hash function
 //
 //  Author:     Lasse Collin
-//
-//  This file has been put into the public domain.
-//  You can do whatever you want with this file.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -70,7 +69,8 @@ struct lzma_index_hash_s {
 
 
 extern LZMA_API(lzma_index_hash *)
-lzma_index_hash_init(lzma_index_hash *index_hash, lzma_allocator *allocator)
+lzma_index_hash_init(lzma_index_hash *index_hash,
+		const lzma_allocator *allocator)
 {
 	if (index_hash == NULL) {
 		index_hash = lzma_alloc(sizeof(lzma_index_hash), allocator);
@@ -101,7 +101,8 @@ lzma_index_hash_init(lzma_index_hash *index_hash, lzma_allocator *allocator)
 
 
 extern LZMA_API(void)
-lzma_index_hash_end(lzma_index_hash *index_hash, lzma_allocator *allocator)
+lzma_index_hash_end(lzma_index_hash *index_hash,
+		const lzma_allocator *allocator)
 {
 	lzma_free(index_hash, allocator);
 	return;
@@ -120,22 +121,21 @@ lzma_index_hash_size(const lzma_index_hash *index_hash)
 
 
 /// Updates the sizes and the hash without any validation.
-static lzma_ret
+static void
 hash_append(lzma_index_hash_info *info, lzma_vli unpadded_size,
 		lzma_vli uncompressed_size)
 {
-	const lzma_vli sizes[2] = { unpadded_size, uncompressed_size };
-
 	info->blocks_size += vli_ceil4(unpadded_size);
 	info->uncompressed_size += uncompressed_size;
 	info->index_list_size += lzma_vli_size(unpadded_size)
 			+ lzma_vli_size(uncompressed_size);
 	++info->count;
 
+	const lzma_vli sizes[2] = { unpadded_size, uncompressed_size };
 	lzma_check_update(&info->check, LZMA_CHECK_BEST,
 			(const uint8_t *)(sizes), sizeof(sizes));
 
-	return LZMA_OK;
+	return;
 }
 
 
@@ -144,15 +144,14 @@ lzma_index_hash_append(lzma_index_hash *index_hash, lzma_vli unpadded_size,
 		lzma_vli uncompressed_size)
 {
 	// Validate the arguments.
-	if (index_hash->sequence != SEQ_BLOCK
+	if (index_hash == NULL || index_hash->sequence != SEQ_BLOCK
 			|| unpadded_size < UNPADDED_SIZE_MIN
 			|| unpadded_size > UNPADDED_SIZE_MAX
 			|| uncompressed_size > LZMA_VLI_MAX)
 		return LZMA_PROG_ERROR;
 
 	// Update the hash.
-	return_if_error(hash_append(&index_hash->blocks,
-			unpadded_size, uncompressed_size));
+	hash_append(&index_hash->blocks, unpadded_size, uncompressed_size);
 
 	// Validate the properties of *info are still in allowed limits.
 	if (index_hash->blocks.blocks_size > LZMA_VLI_MAX
@@ -174,9 +173,6 @@ extern LZMA_API(lzma_ret)
 lzma_index_hash_decode(lzma_index_hash *index_hash, const uint8_t *in,
 		size_t *in_pos, size_t in_size)
 {
-	size_t in_start;
-	lzma_ret ret;
-
 	// Catch zero input buffer here, because in contrast to Index encoder
 	// and decoder functions, applications call this function directly
 	// instead of via lzma_code(), which does the buffer checking.
@@ -186,14 +182,14 @@ lzma_index_hash_decode(lzma_index_hash *index_hash, const uint8_t *in,
 	// NOTE: This function has many similarities to index_encode() and
 	// index_decode() functions found from index_encoder.c and
 	// index_decoder.c. See the comments especially in index_encoder.c.
-	in_start = *in_pos;
-	ret = LZMA_OK;
+	const size_t in_start = *in_pos;
+	lzma_ret ret = LZMA_OK;
 
 	while (*in_pos < in_size)
 	switch (index_hash->sequence) {
 	case SEQ_BLOCK:
 		// Check the Index Indicator is present.
-		if (in[(*in_pos)++] != 0x00)
+		if (in[(*in_pos)++] != INDEX_INDICATOR)
 			return LZMA_DATA_ERROR;
 
 		index_hash->sequence = SEQ_COUNT;
@@ -241,9 +237,9 @@ lzma_index_hash_decode(lzma_index_hash *index_hash, const uint8_t *in,
 			index_hash->sequence = SEQ_UNCOMPRESSED;
 		} else {
 			// Update the hash.
-			return_if_error(hash_append(&index_hash->records,
+			hash_append(&index_hash->records,
 					index_hash->unpadded_size,
-					index_hash->uncompressed_size));
+					index_hash->uncompressed_size);
 
 			// Verify that we don't go over the known sizes. Note
 			// that this validation is simpler than the one used
@@ -315,8 +311,11 @@ lzma_index_hash_decode(lzma_index_hash *index_hash, const uint8_t *in,
 				return LZMA_OK;
 
 			if (((index_hash->crc32 >> (index_hash->pos * 8))
-					& 0xFF) != in[(*in_pos)++])
+					& 0xFF) != in[(*in_pos)++]) {
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 				return LZMA_DATA_ERROR;
+#endif
+			}
 
 		} while (++index_hash->pos < 4);
 
@@ -328,9 +327,16 @@ lzma_index_hash_decode(lzma_index_hash *index_hash, const uint8_t *in,
 	}
 
 out:
-	// Update the CRC32,
-	index_hash->crc32 = lzma_crc32(in + in_start,
-			*in_pos - in_start, index_hash->crc32);
+	// Update the CRC32.
+	//
+	// Avoid null pointer + 0 (undefined behavior) in "in + in_start".
+	// In such a case we had no input and thus in_used == 0.
+	{
+		const size_t in_used = *in_pos - in_start;
+		if (in_used > 0)
+			index_hash->crc32 = lzma_crc32(in + in_start,
+					in_used, index_hash->crc32);
+	}
 
 	return ret;
 }

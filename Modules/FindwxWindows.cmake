@@ -1,85 +1,124 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
-#.rst:
-# FindwxWindows
-# -------------
-#
-# Find wxWindows (wxWidgets) installation
-#
-# This module finds if wxWindows/wxWidgets is installed and determines
-# where the include files and libraries are.  It also determines what
-# the name of the library is.  Please note this file is DEPRECATED and
-# replaced by FindwxWidgets.cmake.  This code sets the following
-# variables:
-#
-# ::
-#
-#   WXWINDOWS_FOUND     = system has WxWindows
-#   WXWINDOWS_LIBRARIES = path to the wxWindows libraries
-#                         on Unix/Linux with additional
-#                         linker flags from
-#                         "wx-config --libs"
-#   CMAKE_WXWINDOWS_CXX_FLAGS  = Compiler flags for wxWindows,
-#                                essentially "`wx-config --cxxflags`"
-#                                on Linux
-#   WXWINDOWS_INCLUDE_DIR      = where to find "wx/wx.h" and "wx/setup.h"
-#   WXWINDOWS_LINK_DIRECTORIES = link directories, useful for rpath on
-#                                 Unix
-#   WXWINDOWS_DEFINITIONS      = extra defines
-#
-#
-#
-# OPTIONS If you need OpenGL support please
-#
-# ::
-#
-#   set(WXWINDOWS_USE_GL 1)
-#
-# in your CMakeLists.txt *before* you include this file.
-#
-# ::
-#
-#   HAVE_ISYSTEM      - true required to replace -I by -isystem on g++
-#
-#
-#
-# For convenience include Use_wxWindows.cmake in your project's
-# CMakeLists.txt using
-# include(${CMAKE_CURRENT_LIST_DIR}/Use_wxWindows.cmake).
-#
-# USAGE
-#
-# ::
-#
-#   set(WXWINDOWS_USE_GL 1)
-#   find_package(wxWindows)
-#
-#
-#
-# NOTES wxWidgets 2.6.x is supported for monolithic builds e.g.
-# compiled in wx/build/msw dir as:
-#
-# ::
-#
-#   nmake -f makefile.vc BUILD=debug SHARED=0 USE_OPENGL=1 MONOLITHIC=1
-#
-#
-#
-# DEPRECATED
-#
-# ::
-#
-#   CMAKE_WX_CAN_COMPILE
-#   WXWINDOWS_LIBRARY
-#   CMAKE_WX_CXX_FLAGS
-#   WXWINDOWS_INCLUDE_PATH
-#
-#
-#
-# AUTHOR Jan Woetzel <http://www.mip.informatik.uni-kiel.de/~jw>
-# (07/2003-01/2006)
+#[=======================================================================[.rst:
+FindwxWindows
+-------------
 
+.. deprecated:: 3.0
+
+  Replaced by :module:`FindwxWidgets`.
+
+Finds the wxWidgets (formerly known as wxWindows) installation and determines
+the locations of its include directories and libraries, as well as the name of
+the library:
+
+.. code-block:: cmake
+
+  find_package(wxWindows [...])
+
+wxWidgets 2.6.x is supported for monolithic builds, such as those compiled in
+the ``wx/build/msw`` directory using:
+
+.. code-block:: shell
+
+  nmake -f makefile.vc BUILD=debug SHARED=0 USE_OPENGL=1 MONOLITHIC=1
+
+Result Variables
+^^^^^^^^^^^^^^^^
+
+This module defines the following variables:
+
+``WXWINDOWS_FOUND``
+  Boolean indicating whether the wxWidgets was found.
+``WXWINDOWS_LIBRARIES``
+  Libraries needed to link against to use wxWidgets.  This includes paths to
+  the wxWidgets libraries and any additional linker flags, typically derived
+  from the output of ``wx-config --libs`` on Unix/Linux systems.
+``CMAKE_WXWINDOWS_CXX_FLAGS``
+  Compiler options needed to use wxWidgets (if any).  On Linux, this corresponds
+  to the output of ``wx-config --cxxflags``.
+``WXWINDOWS_INCLUDE_DIR``
+  The directory containing the ``wx/wx.h`` and ``wx/setup.h`` header files.
+``WXWINDOWS_LINK_DIRECTORIES``
+  Link directories, useful for setting ``rpath`` on Unix-like platforms.
+``WXWINDOWS_DEFINITIONS``
+  Extra compile definitions needed to use wxWidgets (if any).
+
+Hints
+^^^^^
+
+This module accepts the following variables before calling the
+``find_package(wxWindows)``:
+
+``WXWINDOWS_USE_GL``
+  Set this variable to boolean true to require OpenGL support.
+
+``HAVE_ISYSTEM``
+  Set this variable to boolean true to replace ``-I`` compiler options with
+  ``-isystem`` when the C++ compiler is GNU (``g++``).
+
+Deprecated Variables
+^^^^^^^^^^^^^^^^^^^^
+
+The following variables are provided for backward compatibility:
+
+``CMAKE_WX_CAN_COMPILE``
+  .. deprecated:: 1.8
+    Replaced by the ``WXWINDOWS_FOUND`` variable with the same value.
+
+``WXWINDOWS_LIBRARY``
+  .. deprecated:: 1.8
+    Replaced by the ``WXWINDOWS_LIBRARIES`` variable with the same value.
+
+``CMAKE_WX_CXX_FLAGS``
+  .. deprecated:: 1.8
+    Replaced by the ``CMAKE_WXWINDOWS_CXX_FLAGS`` variable with the same value.
+
+``WXWINDOWS_INCLUDE_PATH``
+  .. deprecated:: 1.8
+    Replaced by the ``WXWINDOWS_INCLUDE_DIR`` variable with the same value.
+
+Examples
+^^^^^^^^
+
+Example: Finding wxWidgets in Earlier CMake Versions
+""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+In earlier versions of CMake, wxWidgets (wxWindows) could be found using:
+
+.. code-block:: cmake
+
+  find_package(wxWindows)
+
+To request OpenGL support, the ``WXWINDOWS_USE_GL`` variable could be set before
+calling ``find_package()``:
+
+.. code-block:: cmake
+
+  set(WXWINDOWS_USE_GL ON)
+  find_package(wxWindows)
+
+Using wxWidgets (wxWindows) in CMake was commonly done by including the
+:module:`Use_wxWindows` module, which would find wxWidgets and set the
+appropriate libraries, include directories, and compiler flags:
+
+.. code-block:: cmake
+
+  include(Use_wxWindows)
+
+Example: Finding wxWidgets as of CMake 3.0
+""""""""""""""""""""""""""""""""""""""""""
+
+Starting with CMake 3.0, wxWidgets can be found using the
+:module:`FindwxWidgets` module:
+
+.. code-block:: cmake
+
+  find_package(wxWidgets)
+#]=======================================================================]
+
+# AUTHOR Jan Woetzel (07/2003-01/2006)
 # ------------------------------------------------------------------
 #
 # -removed OPTION for CMAKE_WXWINDOWS_USE_GL. Force the developer to SET it before calling this.
@@ -304,7 +343,7 @@ if(WIN32_STYLE_FIND)
   else ()
     ## WX is built as multiple small pieces libraries instead of monolithic
 
-    ## DEPECATED (jw) replaced by more general WXWINDOWS_USE_MONOLITHIC ON/OFF
+    ## DEPRECATED (jw) replaced by more general WXWINDOWS_USE_MONOLITHIC ON/OFF
     # option(WXWINDOWS_SEPARATE_LIBS_BUILD "Is wxWindows build with separate libs?" OFF)
 
     ## HACK: This is very dirty.
@@ -390,7 +429,7 @@ if(WIN32_STYLE_FIND)
 
   if (NOT WXWINDOWS_USE_SHARED_LIBS)
     set(WXWINDOWS_LIBRARIES ${WXWINDOWS_LIBRARIES}
-      ##  these ones dont seem required, in particular  ctl3d32 is not neccesary (Jan Woetzel 07/2003)
+      ##  these ones don't seem required, in particular  ctl3d32 is not necessary (Jan Woetzel 07/2003)
       #   ctl3d32
       debug ${WXWINDOWS_STATIC_DEBUG_LIBRARY_ZLIB}   optimized ${WXWINDOWS_STATIC_LIBRARY_ZLIB}
       debug ${WXWINDOWS_STATIC_DEBUG_LIBRARY_REGEX}  optimized ${WXWINDOWS_STATIC_LIBRARY_REGEX}
@@ -546,7 +585,7 @@ if(WIN32_STYLE_FIND)
   endif()
 
 
-  ## not neccessary in wxWindows 2.4.1 and 2.6.2
+  ## not necessary in wxWindows 2.4.1 and 2.6.2
   ## but it may fix a previous bug, see
   ## http://lists.wxwindows.org/cgi-bin/ezmlm-cgi?8:mss:37574:200305:mpdioeneabobmgjenoap
   option(WXWINDOWS_SET_DEFINITIONS "Set additional defines for wxWindows" OFF)
@@ -611,13 +650,14 @@ else()
     option(WXWINDOWS_USE_SHARED_LIBS "Use shared versions (.so) of wxWindows libraries" ON)
     mark_as_advanced(WXWINDOWS_USE_SHARED_LIBS)
 
-    # JW removed option and force the develper th SET it.
+    # JW removed option and force the developer to SET it.
     # option(WXWINDOWS_USE_GL "use wxWindows with GL support (use additional
     # --gl-libs for wx-config)?" OFF)
 
     # wx-config should be in your path anyhow, usually no need to set WXWIN or
     # search in ../wx or ../../wx
-    find_program(CMAKE_WXWINDOWS_WXCONFIG_EXECUTABLE wx-config
+    find_program(CMAKE_WXWINDOWS_WXCONFIG_EXECUTABLE
+      NAMES $ENV{WX_CONFIG} wx-config
       HINTS
         ENV WXWIN
         $ENV{WXWIN}/bin
@@ -632,21 +672,21 @@ else()
       # remember: always link shared to use systems GL etc. libs (no static
       # linking, just link *against* static .a libs)
       if(WXWINDOWS_USE_SHARED_LIBS)
-        set(WX_CONFIG_ARGS_LIBS "--libs")
+        set(WX_CONFIG_ARGS_LIBS --libs)
       else()
-        set(WX_CONFIG_ARGS_LIBS "--static --libs")
+        set(WX_CONFIG_ARGS_LIBS --static --libs)
       endif()
 
       # do we need additionial wx GL stuff like GLCanvas ?
       if(WXWINDOWS_USE_GL)
-        string(APPEND WX_CONFIG_ARGS_LIBS " --gl-libs" )
+        list(APPEND WX_CONFIG_ARGS_LIBS --gl-libs)
       endif()
       ##message("DBG: WX_CONFIG_ARGS_LIBS=${WX_CONFIG_ARGS_LIBS}===")
 
       # set CXXFLAGS to be fed into CMAKE_CXX_FLAGS by the user:
       if (HAVE_ISYSTEM) # does the compiler support -isystem ?
-              if (NOT APPLE) # -isystem seem sto be unsuppored on Mac
-                if(CMAKE_COMPILER_IS_GNUCC AND CMAKE_COMPILER_IS_GNUCXX )
+              if (NOT APPLE) # -isystem seems to be unsupported on Mac
+                if(CMAKE_C_COMPILER_ID MATCHES "^(GNU|LCC)$" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|LCC)$")
             if (CMAKE_CXX_COMPILER MATCHES g\\+\\+)
               set(CMAKE_WXWINDOWS_CXX_FLAGS "`${CMAKE_WXWINDOWS_WXCONFIG_EXECUTABLE} --cxxflags|sed -e s/-I/-isystem/g`")
             else()
@@ -659,15 +699,17 @@ else()
       ##CMAKE_WXWINDOWS_CXX_FLAGS=${CMAKE_WXWINDOWS_CXX_FLAGS}===")
 
       # keep the back-quoted string for clarity
-      set(WXWINDOWS_LIBRARIES "`${CMAKE_WXWINDOWS_WXCONFIG_EXECUTABLE} ${WX_CONFIG_ARGS_LIBS}`")
+      string(REPLACE ";" " " _wx_config_args_libs "${WX_CONFIG_ARGS_LIBS}")
+      set(WXWINDOWS_LIBRARIES "`${CMAKE_WXWINDOWS_WXCONFIG_EXECUTABLE} ${_wx_config_args_libs}`")
       ##message("DBG2: for linking:
       ##WXWINDOWS_LIBRARIES=${WXWINDOWS_LIBRARIES}===")
 
       # evaluate wx-config output to separate linker flags and linkdirs for
       # rpath:
-      exec_program(${CMAKE_WXWINDOWS_WXCONFIG_EXECUTABLE}
-        ARGS ${WX_CONFIG_ARGS_LIBS}
-        OUTPUT_VARIABLE WX_CONFIG_LIBS )
+      execute_process(COMMAND ${CMAKE_WXWINDOWS_WXCONFIG_EXECUTABLE}
+        ${WX_CONFIG_ARGS_LIBS}
+        OUTPUT_VARIABLE WX_CONFIG_LIBS
+        RESULT_VARIABLE _wx_config_libs_result)
 
       ## extract linkdirs (-L) for rpath
       ## use regular expression to match wildcard equivalent "-L*<endchar>"

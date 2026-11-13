@@ -1,5 +1,5 @@
 # a simple C only test case
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 project (UseX11 CXX C)
 
 include (${CMAKE_ROOT}/Modules/FindX11.cmake)
@@ -29,8 +29,6 @@ if(X11_FOUND)
     target_link_libraries(HelloWorldX11 ${X11_LIBRARIES})
     install(TARGETS HelloWorldX11 DESTINATION bin)
 
-    set(CPACK_BINARY_OSXX11 ON CACHE BOOL "" FORCE)
-    set(CPACK_BINARY_PACKAGEMAKER OFF CACHE BOOL "" FORCE )
     set(CPACK_PACKAGE_NAME HelloWorldX11Package)
     set(CPACK_PACKAGE_EXECUTABLES HelloWorldX11 HelloWorldX11)
   endif()

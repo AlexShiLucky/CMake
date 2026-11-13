@@ -1,5 +1,4 @@
-
-cmake_policy(SET CMP0037 NEW)
+enable_language(CXX)
 
 add_library(all empty.cpp)
 add_executable(clean empty.cpp)

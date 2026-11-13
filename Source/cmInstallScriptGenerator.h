@@ -1,14 +1,17 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmInstallScriptGenerator_h
-#define cmInstallScriptGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
-
-#include "cmInstallGenerator.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
 #include <iosfwd>
 #include <string>
+#include <vector>
+
+#include "cmInstallGenerator.h"
+#include "cmListFileCache.h"
+
+class cmLocalGenerator;
 
 /** \class cmInstallScriptGenerator
  * \brief Generate target installation rules.
@@ -16,14 +19,34 @@
 class cmInstallScriptGenerator : public cmInstallGenerator
 {
 public:
-  cmInstallScriptGenerator(const char* script, bool code,
-                           const char* component, bool exclude_from_all);
-  ~cmInstallScriptGenerator() CM_OVERRIDE;
+  cmInstallScriptGenerator(
+    std::string script, bool code, std::string const& component,
+    bool excludeFromAll, bool allComponents,
+    std::vector<std::string> buildDepends = {},
+    cmListFileBacktrace backtrace = cmListFileBacktrace());
+  ~cmInstallScriptGenerator() override;
+
+  bool Compute(cmLocalGenerator* lg) override;
+
+  void GetInstallBuildDependencies(
+    std::string const& config,
+    std::vector<BuildDependency>& dependencies) const override;
+
+  bool IsCode() const { return this->Code; }
+
+  std::string GetScript(std::string const& config) const;
 
 protected:
-  void GenerateScript(std::ostream& os) CM_OVERRIDE;
-  std::string Script;
-  bool Code;
-};
+  void GenerateScriptActions(std::ostream& os, Indent indent) override;
+  void GenerateScriptForConfig(std::ostream& os, std::string const& config,
+                               Indent indent) override;
+  void AddScriptInstallRule(std::ostream& os, Indent indent,
+                            std::string const& script) const;
 
-#endif
+  std::string const Script;
+  bool const Code;
+  std::vector<std::string> const BuildDepends;
+  BuildDependsEntries ResolvedBuildDepends;
+  cmLocalGenerator* LocalGenerator;
+  bool AllowGenex = false;
+};

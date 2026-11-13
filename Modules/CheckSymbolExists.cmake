@@ -1,116 +1,198 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 #[=======================================================================[.rst:
 CheckSymbolExists
 -----------------
 
-Provides a macro to check if a symbol exists as a function, variable,
-or macro in ``C``.
+This module provides a command to check whether a C symbol exists.
+
+Load this module in a CMake project with:
+
+.. code-block:: cmake
+
+  include(CheckSymbolExists)
+
+Commands
+^^^^^^^^
+
+This module provides the following command:
 
 .. command:: check_symbol_exists
 
-  ::
+  Checks once whether a symbol exists as a function, variable, or preprocessor
+  macro in C:
 
-    check_symbol_exists(<symbol> <files> <variable>)
+  .. code-block:: cmake
 
-  Check that the ``<symbol>`` is available after including given header
-  ``<files>`` and store the result in a ``<variable>``.  Specify the list
-  of files in one argument as a semicolon-separated list.
-  ``<variable>`` will be created as an internal cache variable.
+    check_symbol_exists(<symbol> <headers> <variable>)
 
-If the header files define the symbol as a macro it is considered
-available and assumed to work.  If the header files declare the symbol
-as a function or variable then the symbol must also be available for
-linking (so intrinsics may not be detected).
-If the symbol is a type, enum value, or intrinsic it will not be recognized
-(consider using :module:`CheckTypeSize` or :module:`CheckCSourceCompiles`).
-If the check needs to be done in C++, consider using
-:module:`CheckCXXSymbolExists` instead.
+  This command checks whether the ``<symbol>`` is available after including
+  the specified header file(s) ``<headers>``, and stores the result in the
+  internal cache variable ``<variable>``.  Multiple header files can be
+  specified in one argument as a string using a
+  :ref:`semicolon-separated list <CMake Language Lists>`.
 
-The following variables may be set before calling this macro to modify
-the way the check is run:
+  If the header files define the symbol as a macro, it is considered
+  available and assumed to work.  If the symbol is declared as a function
+  or variable, the check also ensures that it links successfully
+  (i.e., the symbol must exist in a linked library or object file).
+  Compiler intrinsics may not be detected, as they are not always linkable
+  or explicitly declared in headers.
 
-``CMAKE_REQUIRED_FLAGS``
-  string of compile command line flags
-``CMAKE_REQUIRED_DEFINITIONS``
-  list of macros to define (-DFOO=bar)
-``CMAKE_REQUIRED_INCLUDES``
-  list of include directories
-``CMAKE_REQUIRED_LIBRARIES``
-  list of libraries to link
-``CMAKE_REQUIRED_QUIET``
-  execute quietly without messages
+  Symbols that are types, enum values, or compiler intrinsics are not
+  recognized.  For those, consider using the :module:`CheckTypeSize` or
+  :module:`CheckSourceCompiles` module instead.
+
+  This command is intended to check symbols as they appear in C.  For C++
+  symbols, use the :module:`CheckCXXSymbolExists` module instead.
+
+  .. rubric:: Variables Affecting the Check
+
+  The following variables may be set before calling this command to modify
+  the way the check is run:
+
+  .. include:: /module/include/CMAKE_REQUIRED_FLAGS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_DEFINITIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_INCLUDES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_OPTIONS.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LIBRARIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_LINK_DIRECTORIES.rst
+
+  .. include:: /module/include/CMAKE_REQUIRED_QUIET.rst
+
+Examples
+^^^^^^^^
+
+The following example demonstrates how to check for the presence of a
+preprocessor macro ``SEEK_SET`` and the C function ``fopen()`` from
+the ``<stdio.h>`` header using this module:
+
+.. code-block:: cmake
+
+  include(CheckSymbolExists)
+
+  # Check for macro SEEK_SET
+  check_symbol_exists(SEEK_SET "stdio.h" HAVE_SEEK_SET)
+
+  # Check for function fopen
+  check_symbol_exists(fopen "stdio.h" HAVE_FOPEN)
+
+See Also
+^^^^^^^^
+
+* The :module:`CheckCXXSymbolExists` module to check whether a C++ symbol
+  exists.
 #]=======================================================================]
+
+include_guard(GLOBAL)
+include(Internal/CheckCommon)
 
 macro(CHECK_SYMBOL_EXISTS SYMBOL FILES VARIABLE)
   if(CMAKE_C_COMPILER_LOADED)
-    _CHECK_SYMBOL_EXISTS("${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckSymbolExists.c" "${SYMBOL}" "${FILES}" "${VARIABLE}" )
+    __CHECK_SYMBOL_EXISTS_FILTER_FLAGS(C)
+    __CHECK_SYMBOL_EXISTS_IMPL(CheckSymbolExists.c "${SYMBOL}" "${FILES}" "${VARIABLE}" )
+    __CHECK_SYMBOL_EXISTS_RESTORE_FLAGS(C)
   elseif(CMAKE_CXX_COMPILER_LOADED)
-    _CHECK_SYMBOL_EXISTS("${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/CheckSymbolExists.cxx" "${SYMBOL}" "${FILES}" "${VARIABLE}" )
+    __CHECK_SYMBOL_EXISTS_FILTER_FLAGS(CXX)
+    __CHECK_SYMBOL_EXISTS_IMPL(CheckSymbolExists.cxx "${SYMBOL}" "${FILES}" "${VARIABLE}" )
+    __CHECK_SYMBOL_EXISTS_RESTORE_FLAGS(CXX)
   else()
     message(FATAL_ERROR "CHECK_SYMBOL_EXISTS needs either C or CXX language enabled")
   endif()
 endmacro()
 
-macro(_CHECK_SYMBOL_EXISTS SOURCEFILE SYMBOL FILES VARIABLE)
+macro(__CHECK_SYMBOL_EXISTS_FILTER_FLAGS LANG)
+    if(CMAKE_TRY_COMPILE_CONFIGURATION)
+      string(TOUPPER "${CMAKE_TRY_COMPILE_CONFIGURATION}" _tc_config)
+    else()
+      set(_tc_config "DEBUG")
+    endif()
+    foreach(v CMAKE_${LANG}_FLAGS CMAKE_${LANG}_FLAGS_${_tc_config})
+      set(__${v}_SAVED "${${v}}")
+      string(REGEX REPLACE "(^| )-Werror([= ][^-][^ ]*)?( |$)" " " ${v} "${${v}}")
+      string(REGEX REPLACE "(^| )-pedantic-errors( |$)" " " ${v} "${${v}}")
+    endforeach()
+endmacro()
+
+macro(__CHECK_SYMBOL_EXISTS_RESTORE_FLAGS LANG)
+    if(CMAKE_TRY_COMPILE_CONFIGURATION)
+      string(TOUPPER "${CMAKE_TRY_COMPILE_CONFIGURATION}" _tc_config)
+    else()
+      set(_tc_config "DEBUG")
+    endif()
+    foreach(v CMAKE_${LANG}_FLAGS CMAKE_${LANG}_FLAGS_${_tc_config})
+      set(${v} "${__${v}_SAVED}")
+      unset(__${v}_SAVED)
+    endforeach()
+endmacro()
+
+macro(__CHECK_SYMBOL_EXISTS_IMPL SOURCEFILE SYMBOL FILES VARIABLE)
   if(NOT DEFINED "${VARIABLE}" OR "x${${VARIABLE}}" STREQUAL "x${VARIABLE}")
-    set(CMAKE_CONFIGURABLE_FILE_CONTENT "/* */\n")
-    set(MACRO_CHECK_SYMBOL_EXISTS_FLAGS ${CMAKE_REQUIRED_FLAGS})
-    if(CMAKE_REQUIRED_LIBRARIES)
-      set(CHECK_SYMBOL_EXISTS_LIBS
-        LINK_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-    else()
-      set(CHECK_SYMBOL_EXISTS_LIBS)
-    endif()
-    if(CMAKE_REQUIRED_INCLUDES)
-      set(CMAKE_SYMBOL_EXISTS_INCLUDES
-        "-DINCLUDE_DIRECTORIES:STRING=${CMAKE_REQUIRED_INCLUDES}")
-    else()
-      set(CMAKE_SYMBOL_EXISTS_INCLUDES)
-    endif()
+    set(_CSE_SOURCE "/* */\n")
+
     foreach(FILE ${FILES})
-      string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT
+      string(APPEND _CSE_SOURCE
         "#include <${FILE}>\n")
     endforeach()
-    string(APPEND CMAKE_CONFIGURABLE_FILE_CONTENT
-      "\nint main(int argc, char** argv)\n{\n  (void)argv;\n#ifndef ${SYMBOL}\n  return ((int*)(&${SYMBOL}))[argc];\n#else\n  (void)argc;\n  return 0;\n#endif\n}\n")
+    string(APPEND _CSE_SOURCE "
+int main(int argc, char** argv)
+{
+  (void)argv;")
+    set(_CSE_CHECK_NON_MACRO "return ((int*)(&${SYMBOL}))[argc];")
+    if("${SYMBOL}" MATCHES "^[a-zA-Z_][a-zA-Z0-9_]*$")
+      # The SYMBOL has a legal macro name.  Test whether it exists as a macro.
+      string(APPEND _CSE_SOURCE "
+#ifndef ${SYMBOL}
+  ${_CSE_CHECK_NON_MACRO}
+#else
+  (void)argc;
+  return 0;
+#endif")
+    else()
+      # The SYMBOL cannot be a macro (e.g., a template function).
+      string(APPEND _CSE_SOURCE "
+  ${_CSE_CHECK_NON_MACRO}")
+    endif()
+    string(APPEND _CSE_SOURCE "
+}\n")
+    unset(_CSE_CHECK_NON_MACRO)
 
-    configure_file("${CMAKE_ROOT}/Modules/CMakeConfigurableFile.in"
-      "${SOURCEFILE}" @ONLY)
+    cmake_check_common_init_args(_CSE)
 
     if(NOT CMAKE_REQUIRED_QUIET)
-      message(STATUS "Looking for ${SYMBOL}")
+      message(CHECK_START "Looking for ${SYMBOL}")
     endif()
     try_compile(${VARIABLE}
-      ${CMAKE_BINARY_DIR}
-      "${SOURCEFILE}"
+      SOURCE_FROM_VAR "${SOURCEFILE}" _CSE_SOURCE
       COMPILE_DEFINITIONS ${CMAKE_REQUIRED_DEFINITIONS}
-      ${CHECK_SYMBOL_EXISTS_LIBS}
+      ${_CSE_ADD_LINK_OPTIONS}
+      ${_CSE_ADD_LINK_LIBRARIES}
       CMAKE_FLAGS
-      -DCOMPILE_DEFINITIONS:STRING=${MACRO_CHECK_SYMBOL_EXISTS_FLAGS}
-      "${CMAKE_SYMBOL_EXISTS_INCLUDES}"
-      OUTPUT_VARIABLE OUTPUT)
+        -DCOMPILE_DEFINITIONS:STRING=${CMAKE_REQUIRED_FLAGS}
+        ${_CSE_EXTRA_CMAKE_ARGUMENTS}
+        -DCMAKE_SKIP_RPATH:BOOL=${CMAKE_SKIP_RPATH}
+        "${_CSE_INCLUDE_DIRECTORIES}"
+        "${_CSE_LINK_DIRECTORIES}"
+      )
+    cmake_check_common_cleanup(_CSE)
+
     if(${VARIABLE})
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${SYMBOL} - found")
+        message(CHECK_PASS "found")
       endif()
       set(${VARIABLE} 1 CACHE INTERNAL "Have symbol ${SYMBOL}")
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeOutput.log
-        "Determining if the ${SYMBOL} "
-        "exist passed with the following output:\n"
-        "${OUTPUT}\nFile ${SOURCEFILE}:\n"
-        "${CMAKE_CONFIGURABLE_FILE_CONTENT}\n")
     else()
       if(NOT CMAKE_REQUIRED_QUIET)
-        message(STATUS "Looking for ${SYMBOL} - not found")
+        message(CHECK_FAIL "not found")
       endif()
       set(${VARIABLE} "" CACHE INTERNAL "Have symbol ${SYMBOL}")
-      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
-        "Determining if the ${SYMBOL} "
-        "exist failed with the following output:\n"
-        "${OUTPUT}\nFile ${SOURCEFILE}:\n"
-        "${CMAKE_CONFIGURABLE_FILE_CONTENT}\n")
     endif()
+    unset(_CSE_SOURCE)
   endif()
 endmacro()

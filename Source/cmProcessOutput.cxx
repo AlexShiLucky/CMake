@@ -1,24 +1,29 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 
 #include "cmProcessOutput.h"
 
 #if defined(_WIN32)
-#include <windows.h>
+#  include <cm/memory>
+
+#  include <windows.h>
+
 unsigned int cmProcessOutput::defaultCodepage =
   KWSYS_ENCODING_DEFAULT_CODEPAGE;
 #endif
 
-cmProcessOutput::Encoding cmProcessOutput::FindEncoding(
+cm::optional<cmProcessOutput::Encoding> cmProcessOutput::FindEncoding(
   std::string const& name)
 {
-  Encoding encoding = Auto;
-  if (name == "UTF8") {
+  cm::optional<Encoding> encoding;
+  if ((name == "UTF8") || (name == "UTF-8")) {
     encoding = UTF8;
   } else if (name == "NONE") {
     encoding = None;
   } else if (name == "ANSI") {
     encoding = ANSI;
+  } else if (name == "AUTO") {
+    encoding = Auto;
   } else if (name == "OEM") {
     encoding = OEM;
   }
@@ -46,10 +51,6 @@ cmProcessOutput::cmProcessOutput(Encoding encoding, unsigned int maxSize)
   static_cast<void>(encoding);
   static_cast<void>(maxSize);
 #endif
-}
-
-cmProcessOutput::~cmProcessOutput()
-{
 }
 
 bool cmProcessOutput::DecodeText(std::string raw, std::string& decoded,
@@ -86,7 +87,7 @@ bool cmProcessOutput::DecodeText(std::string raw, std::string& decoded,
           rawparts[id - 1] += *(raw.end() - 1);
           raw.resize(raw.size() - 1);
         }
-        success = DoDecodeText(raw, decoded, NULL);
+        success = DoDecodeText(raw, decoded, nullptr);
       } else {
         bool restoreDecoded = false;
         std::string firstDecoded = decoded;
@@ -115,25 +116,25 @@ bool cmProcessOutput::DecodeText(std::string raw, std::string& decoded,
         }
       }
     } else {
-      success = DoDecodeText(raw, decoded, NULL);
+      success = DoDecodeText(raw, decoded, nullptr);
     }
   }
   return success;
 #endif
 }
 
-bool cmProcessOutput::DecodeText(const char* data, size_t length,
+bool cmProcessOutput::DecodeText(char const* data, size_t length,
                                  std::string& decoded, size_t id)
 {
-  return DecodeText(std::string(data, length), decoded, id);
+  return this->DecodeText(std::string(data, length), decoded, id);
 }
 
 bool cmProcessOutput::DecodeText(std::vector<char> raw,
                                  std::vector<char>& decoded, size_t id)
 {
   std::string str;
-  const bool success =
-    DecodeText(std::string(raw.begin(), raw.end()), str, id);
+  bool const success =
+    this->DecodeText(std::string(raw.begin(), raw.end()), str, id);
   decoded.assign(str.begin(), str.end());
   return success;
 }
@@ -143,11 +144,11 @@ bool cmProcessOutput::DoDecodeText(std::string raw, std::string& decoded,
                                    wchar_t* lastChar)
 {
   bool success = false;
-  const int wlength =
-    MultiByteToWideChar(codepage, 0, raw.c_str(), int(raw.size()), NULL, 0);
-  wchar_t* wdata = new wchar_t[wlength];
-  int r = MultiByteToWideChar(codepage, 0, raw.c_str(), int(raw.size()), wdata,
-                              wlength);
+  int const wlength =
+    MultiByteToWideChar(codepage, 0, raw.c_str(), int(raw.size()), nullptr, 0);
+  auto wdata = cm::make_unique<wchar_t[]>(wlength);
+  int r = MultiByteToWideChar(codepage, 0, raw.c_str(), int(raw.size()),
+                              wdata.get(), wlength);
   if (r > 0) {
     if (lastChar) {
       *lastChar = 0;
@@ -156,18 +157,16 @@ bool cmProcessOutput::DoDecodeText(std::string raw, std::string& decoded,
         *lastChar = wdata[wlength - 1];
       }
     }
-    int length = WideCharToMultiByte(defaultCodepage, 0, wdata, wlength, NULL,
-                                     0, NULL, NULL);
-    char* data = new char[length];
-    r = WideCharToMultiByte(defaultCodepage, 0, wdata, wlength, data, length,
-                            NULL, NULL);
+    int length = WideCharToMultiByte(defaultCodepage, 0, wdata.get(), wlength,
+                                     nullptr, 0, nullptr, nullptr);
+    auto data = cm::make_unique<char[]>(length);
+    r = WideCharToMultiByte(defaultCodepage, 0, wdata.get(), wlength,
+                            data.get(), length, nullptr, nullptr);
     if (r > 0) {
-      decoded = std::string(data, length);
+      decoded = std::string(data.get(), length);
       success = true;
     }
-    delete[] data;
   }
-  delete[] wdata;
   return success;
 }
 #endif

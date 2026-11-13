@@ -1,21 +1,27 @@
 # Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-# file Copyright.txt or https://cmake.org/licensing for details.
+# file LICENSE.rst or https://cmake.org/licensing for details.
 
 
 # This file is included by cmGlobalGenerator::EnableLanguage.
 # It is included after the compiler has been determined, so
 # we know things like the compiler name and if the compiler is gnu.
 
-# before cmake 2.6 these variables were set in cmMakefile.cxx. This is still
-# done to keep scripts and custom language and compiler modules working.
-# But they are reset here and set again in the platform files for the target
-# platform, so they can be used for testing the target platform instead
-# of testing the host platform.
-set(APPLE  )
-set(UNIX   )
-set(CYGWIN )
-set(WIN32  )
-
+function(_cmake_record_install_prefix )
+  set(_CMAKE_SYSTEM_PREFIX_PATH_INSTALL_PREFIX_VALUE "${CMAKE_INSTALL_PREFIX}" PARENT_SCOPE)
+  set(_CMAKE_SYSTEM_PREFIX_PATH_STAGING_PREFIX_VALUE "${CMAKE_STAGING_PREFIX}" PARENT_SCOPE)
+  set(icount 0)
+  set(scount 0)
+  foreach(value IN LISTS CMAKE_SYSTEM_PREFIX_PATH)
+    if(value STREQUAL CMAKE_INSTALL_PREFIX)
+      math(EXPR icount "${icount}+1")
+    endif()
+    if(value STREQUAL CMAKE_STAGING_PREFIX)
+      math(EXPR scount "${scount}+1")
+    endif()
+  endforeach()
+  set(_CMAKE_SYSTEM_PREFIX_PATH_INSTALL_PREFIX_COUNT "${icount}" PARENT_SCOPE)
+  set(_CMAKE_SYSTEM_PREFIX_PATH_STAGING_PREFIX_COUNT "${scount}" PARENT_SCOPE)
+endfunction()
 
 # include Generic system information
 include(CMakeGenericSystem)
@@ -27,16 +33,15 @@ include(${CMAKE_SYSTEM_INFO_FILE} OPTIONAL RESULT_VARIABLE _INCLUDED_SYSTEM_INFO
 
 if(NOT _INCLUDED_SYSTEM_INFO_FILE)
   message("System is unknown to cmake, create:\n${CMAKE_SYSTEM_INFO_FILE}"
-          " to use this system, please send your config file to "
-          "cmake@www.cmake.org so it can be added to cmake")
+          " to use this system, please post your config file on "
+          "discourse.cmake.org so it can be added to cmake")
   if(EXISTS ${CMAKE_BINARY_DIR}/CMakeCache.txt)
     configure_file(${CMAKE_BINARY_DIR}/CMakeCache.txt
                    ${CMAKE_BINARY_DIR}/CopyOfCMakeCache.txt COPYONLY)
     message("Your CMakeCache.txt file was copied to CopyOfCMakeCache.txt. "
-            "Please send that file to cmake@www.cmake.org.")
-   endif()
+            "Please post that file on discourse.cmake.org.")
+  endif()
 endif()
-
 
 # optionally include a file which can do extra-generator specific things, e.g.
 # CMakeFindEclipseCDT4.cmake asks gcc for the system include dirs for the Eclipse CDT4 generator

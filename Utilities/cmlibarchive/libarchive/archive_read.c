@@ -32,10 +32,12 @@
  */
 
 #include "archive_platform.h"
-__FBSDID("$FreeBSD: head/lib/libarchive/archive_read.c 201157 2009-12-29 05:30:23Z kientzle $");
 
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
+#endif
+#ifdef HAVE_LIMITS_H
+#include <limits.h>
 #endif
 #include <stdio.h>
 #ifdef HAVE_STDLIB_H
@@ -50,6 +52,7 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_read.c 201157 2009-12-29 05:30:2
 
 #include "archive.h"
 #include "archive_entry.h"
+#include "archive_integer.h"
 #include "archive_private.h"
 #include "archive_read_private.h"
 
@@ -58,7 +61,6 @@ __FBSDID("$FreeBSD: head/lib/libarchive/archive_read.c 201157 2009-12-29 05:30:2
 static int	choose_filters(struct archive_read *);
 static int	choose_format(struct archive_read *);
 static int	close_filters(struct archive_read *);
-static struct archive_vtable *archive_read_vtable(void);
 static int64_t	_archive_filter_bytes(struct archive *, int);
 static int	_archive_filter_code(struct archive *, int);
 static const char *_archive_filter_name(struct archive *, int);
@@ -73,26 +75,18 @@ static int	_archive_read_next_header2(struct archive *,
 		    struct archive_entry *);
 static int64_t  advance_file_pointer(struct archive_read_filter *, int64_t);
 
-static struct archive_vtable *
-archive_read_vtable(void)
-{
-	static struct archive_vtable av;
-	static int inited = 0;
-
-	if (!inited) {
-		av.archive_filter_bytes = _archive_filter_bytes;
-		av.archive_filter_code = _archive_filter_code;
-		av.archive_filter_name = _archive_filter_name;
-		av.archive_filter_count = _archive_filter_count;
-		av.archive_read_data_block = _archive_read_data_block;
-		av.archive_read_next_header = _archive_read_next_header;
-		av.archive_read_next_header2 = _archive_read_next_header2;
-		av.archive_free = _archive_read_free;
-		av.archive_close = _archive_read_close;
-		inited = 1;
-	}
-	return (&av);
-}
+static const struct archive_vtable
+archive_read_vtable = {
+	.archive_filter_bytes = _archive_filter_bytes,
+	.archive_filter_code = _archive_filter_code,
+	.archive_filter_name = _archive_filter_name,
+	.archive_filter_count = _archive_filter_count,
+	.archive_read_data_block = _archive_read_data_block,
+	.archive_read_next_header = _archive_read_next_header,
+	.archive_read_next_header2 = _archive_read_next_header2,
+	.archive_free = _archive_read_free,
+	.archive_close = _archive_read_close,
+};
 
 /*
  * Allocate, initialize and return a struct archive object.
@@ -102,14 +96,19 @@ archive_read_new(void)
 {
 	struct archive_read *a;
 
-	a = (struct archive_read *)calloc(1, sizeof(*a));
+	a = calloc(1, sizeof(*a));
 	if (a == NULL)
 		return (NULL);
 	a->archive.magic = ARCHIVE_READ_MAGIC;
 
 	a->archive.state = ARCHIVE_STATE_NEW;
 	a->entry = archive_entry_new2(&a->archive);
-	a->archive.vtable = archive_read_vtable();
+	if (a->entry == NULL) {
+		free(a);
+		return (NULL);
+	}
+	a->archive.vtable = &archive_read_vtable;
+	a->entry_bytes_declared = -1;
 
 	a->passphrases.last = &a->passphrases.first;
 
@@ -120,7 +119,8 @@ archive_read_new(void)
  * Record the do-not-extract-to file. This belongs in archive_read_extract.c.
  */
 void
-archive_read_extract_set_skip_file(struct archive *_a, int64_t d, int64_t i)
+archive_read_extract_set_skip_file(struct archive *_a, la_int64_t d,
+    la_int64_t i)
 {
 	struct archive_read *a = (struct archive_read *)_a;
 
@@ -140,12 +140,16 @@ archive_read_open(struct archive *a, void *client_data,
     archive_open_callback *client_opener, archive_read_callback *client_reader,
     archive_close_callback *client_closer)
 {
+	int r;
+
 	/* Old archive_read_open() is just a thin shell around
 	 * archive_read_open1. */
 	archive_read_set_open_callback(a, client_opener);
 	archive_read_set_read_callback(a, client_reader);
 	archive_read_set_close_callback(a, client_closer);
-	archive_read_set_callback_data(a, client_data);
+	r = archive_read_set_callback_data(a, client_data);
+	if (r < 0)
+		return (r);
 	return archive_read_open1(a);
 }
 
@@ -157,9 +161,13 @@ archive_read_open2(struct archive *a, void *client_data,
     archive_skip_callback *client_skipper,
     archive_close_callback *client_closer)
 {
+	int r;
+
 	/* Old archive_read_open2() is just a thin shell around
 	 * archive_read_open1. */
-	archive_read_set_callback_data(a, client_data);
+	r = archive_read_set_callback_data(a, client_data);
+	if (r < 0)
+		return (r);
 	archive_read_set_open_callback(a, client_opener);
 	archive_read_set_read_callback(a, client_reader);
 	archive_read_set_skip_callback(a, client_skipper);
@@ -168,34 +176,28 @@ archive_read_open2(struct archive *a, void *client_data,
 }
 
 static ssize_t
-client_read_proxy(struct archive_read_filter *self, const void **buff)
+client_read_proxy(struct archive_read_filter *f, const void **buff)
 {
 	ssize_t r;
-	r = (self->archive->client.reader)(&self->archive->archive,
-	    self->data, buff);
+	r = (f->archive->client.reader)(&f->archive->archive,
+	    f->data, buff);
 	return (r);
 }
 
 static int64_t
-client_skip_proxy(struct archive_read_filter *self, int64_t request)
+client_skip_proxy(struct archive_read_filter *f, int64_t request)
 {
 	if (request < 0)
-		__archive_errx(1, "Negative skip requested.");
+		__archive_errx(1, "Negative skip requested");
 	if (request == 0)
 		return 0;
 
-	if (self->archive->client.skipper != NULL) {
-		/* Seek requests over 1GiB are broken down into
-		 * multiple seeks.  This avoids overflows when the
-		 * requests get passed through 32-bit arguments. */
-		int64_t skip_limit = (int64_t)1 << 30;
+	if (f->archive->client.skipper != NULL) {
 		int64_t total = 0;
 		for (;;) {
 			int64_t get, ask = request;
-			if (ask > skip_limit)
-				ask = skip_limit;
-			get = (self->archive->client.skipper)
-				(&self->archive->archive, self->data, ask);
+			get = (f->archive->client.skipper)
+				(&f->archive->archive, f->data, ask);
 			total += get;
 			if (get == 0 || get == request)
 				return (total);
@@ -203,7 +205,7 @@ client_skip_proxy(struct archive_read_filter *self, int64_t request)
 				return ARCHIVE_FATAL;
 			request -= get;
 		}
-	} else if (self->archive->client.seeker != NULL
+	} else if (f->archive->client.seeker != NULL
 		&& request > 64 * 1024) {
 		/* If the client provided a seeker but not a skipper,
 		 * we can use the seeker to skip forward.
@@ -216,9 +218,9 @@ client_skip_proxy(struct archive_read_filter *self, int64_t request)
 		 * to just reading and discarding.  That's why we
 		 * only do this for skips of over 64k.
 		 */
-		int64_t before = self->position;
-		int64_t after = (self->archive->client.seeker)
-		    (&self->archive->archive, self->data, request, SEEK_CUR);
+		int64_t before = f->position;
+		int64_t after = (f->archive->client.seeker)
+		    (&f->archive->archive, f->data, request, SEEK_CUR);
 		if (after != before + request)
 			return ARCHIVE_FATAL;
 		return after - before;
@@ -227,35 +229,34 @@ client_skip_proxy(struct archive_read_filter *self, int64_t request)
 }
 
 static int64_t
-client_seek_proxy(struct archive_read_filter *self, int64_t offset, int whence)
+client_seek_proxy(struct archive_read_filter *f, int64_t offset, int whence)
 {
 	/* DO NOT use the skipper here!  If we transparently handled
 	 * forward seek here by using the skipper, that will break
 	 * other libarchive code that assumes a successful forward
 	 * seek means it can also seek backwards.
 	 */
-	if (self->archive->client.seeker == NULL) {
-		archive_set_error(&self->archive->archive, ARCHIVE_ERRNO_MISC,
+	if (f->archive->client.seeker == NULL) {
+		archive_set_error(&f->archive->archive, ARCHIVE_ERRNO_MISC,
 		    "Current client reader does not support seeking a device");
 		return (ARCHIVE_FAILED);
 	}
-	return (self->archive->client.seeker)(&self->archive->archive,
-	    self->data, offset, whence);
+	return (f->archive->client.seeker)(&f->archive->archive,
+	    f->data, offset, whence);
 }
 
 static int
-client_close_proxy(struct archive_read_filter *self)
+read_client_close_proxy(struct archive_read *a)
 {
 	int r = ARCHIVE_OK, r2;
 	unsigned int i;
 
-	if (self->archive->client.closer == NULL)
+	if (a->client.closer == NULL)
 		return (r);
-	for (i = 0; i < self->archive->client.nodes; i++)
+	for (i = 0; i < a->client.nodes; i++)
 	{
-		r2 = (self->archive->client.closer)
-			((struct archive *)self->archive,
-				self->archive->client.dataset[i].data);
+		r2 = (a->client.closer)
+			((struct archive *)a, a->client.dataset[i].data);
 		if (r > r2)
 			r = r2;
 	}
@@ -263,43 +264,44 @@ client_close_proxy(struct archive_read_filter *self)
 }
 
 static int
-client_open_proxy(struct archive_read_filter *self)
+client_close_proxy(struct archive_read_filter *f)
 {
-  int r = ARCHIVE_OK;
-	if (self->archive->client.opener != NULL)
-		r = (self->archive->client.opener)(
-		    (struct archive *)self->archive, self->data);
-	return (r);
+	return read_client_close_proxy(f->archive);
 }
 
 static int
-client_switch_proxy(struct archive_read_filter *self, unsigned int iindex)
+client_switch_proxy(struct archive_read_filter *f, unsigned int iindex)
 {
-  int r1 = ARCHIVE_OK, r2 = ARCHIVE_OK;
-	void *data2 = NULL;
+	struct archive_read *a;
+	int r1 = ARCHIVE_OK, r2 = ARCHIVE_OK;
+	void *data2;
+
+	while (f->upstream != NULL)
+		f = f->upstream;
+	a = f->archive;
 
 	/* Don't do anything if already in the specified data node */
-	if (self->archive->client.cursor == iindex)
+	if (a->client.cursor == iindex)
 		return (ARCHIVE_OK);
 
-	self->archive->client.cursor = iindex;
-	data2 = self->archive->client.dataset[self->archive->client.cursor].data;
-	if (self->archive->client.switcher != NULL)
+	a->client.cursor = iindex;
+	data2 = a->client.dataset[a->client.cursor].data;
+	if (a->client.switcher != NULL)
 	{
-		r1 = r2 = (self->archive->client.switcher)
-			((struct archive *)self->archive, self->data, data2);
-		self->data = data2;
+		r1 = r2 = (a->client.switcher)
+			((struct archive *)a, f->data, data2);
+		f->data = data2;
 	}
 	else
 	{
 		/* Attempt to call close and open instead */
-		if (self->archive->client.closer != NULL)
-			r1 = (self->archive->client.closer)
-				((struct archive *)self->archive, self->data);
-		self->data = data2;
-		if (self->archive->client.opener != NULL)
-			r2 = (self->archive->client.opener)
-				((struct archive *)self->archive, self->data);
+		if (a->client.closer != NULL)
+			r1 = (a->client.closer)
+				((struct archive *)a, f->data);
+		f->data = data2;
+		if (a->client.opener != NULL)
+			r2 = (a->client.opener)
+				((struct archive *)a, f->data);
 	}
 	return (r1 < r2) ? r1 : r2;
 }
@@ -391,7 +393,7 @@ archive_read_set_callback_data2(struct archive *_a, void *client_data,
 		if (a->client.dataset == NULL)
 		{
 			archive_set_error(&a->archive, ENOMEM,
-				"No memory.");
+				"No memory");
 			return ARCHIVE_FATAL;
 		}
 		a->client.nodes = 1;
@@ -400,7 +402,7 @@ archive_read_set_callback_data2(struct archive *_a, void *client_data,
 	if (iindex > a->client.nodes - 1)
 	{
 		archive_set_error(&a->archive, EINVAL,
-			"Invalid index specified.");
+			"Invalid index specified");
 		return ARCHIVE_FATAL;
 	}
 	a->client.dataset[iindex].data = client_data;
@@ -415,24 +417,38 @@ archive_read_add_callback_data(struct archive *_a, void *client_data,
 {
 	struct archive_read *a = (struct archive_read *)_a;
 	void *p;
+	size_t alloc_size;
 	unsigned int i;
+	unsigned int nodes;
 
 	archive_check_magic(_a, ARCHIVE_READ_MAGIC, ARCHIVE_STATE_NEW,
 	    "archive_read_add_callback_data");
 	if (iindex > a->client.nodes) {
 		archive_set_error(&a->archive, EINVAL,
-			"Invalid index specified.");
+			"Invalid index specified");
 		return ARCHIVE_FATAL;
 	}
-	p = realloc(a->client.dataset, sizeof(*a->client.dataset)
-		* (++(a->client.nodes)));
+
+	if (a->client.nodes == UINT_MAX ||
+	    archive_ckd_mul_size(&alloc_size,
+	    (size_t)a->client.nodes + 1, sizeof(*a->client.dataset))) {
+		archive_set_error(&a->archive, ENOMEM,
+			"No memory");
+		return ARCHIVE_FATAL;
+	}
+
+	nodes = a->client.nodes + 1;
+	p = realloc(a->client.dataset, alloc_size);
 	if (p == NULL) {
 		archive_set_error(&a->archive, ENOMEM,
-			"No memory.");
+			"No memory");
 		return ARCHIVE_FATAL;
 	}
+
 	a->client.dataset = (struct archive_read_data_node *)p;
-	for (i = a->client.nodes - 1; i > iindex && i > 0; i--) {
+	a->client.nodes = nodes;
+
+	for (i = a->client.nodes - 1; i > iindex; i--) {
 		a->client.dataset[i].data = a->client.dataset[i-1].data;
 		a->client.dataset[i].begin_position = -1;
 		a->client.dataset[i].total_size = -1;
@@ -456,13 +472,18 @@ archive_read_prepend_callback_data(struct archive *_a, void *client_data)
 	return archive_read_add_callback_data(_a, client_data, 0);
 }
 
+static const struct archive_read_filter_vtable
+none_reader_vtable = {
+	.read = client_read_proxy,
+	.close = client_close_proxy,
+};
+
 int
 archive_read_open1(struct archive *_a)
 {
 	struct archive_read *a = (struct archive_read *)_a;
-	struct archive_read_filter *filter, *tmp;
+	struct archive_read_filter *f, *tmp;
 	int slot, e = ARCHIVE_OK;
-	unsigned int i;
 
 	archive_check_magic(_a, ARCHIVE_READ_MAGIC, ARCHIVE_STATE_NEW,
 	    "archive_read_open");
@@ -480,35 +501,28 @@ archive_read_open1(struct archive *_a)
 		e = (a->client.opener)(&a->archive, a->client.dataset[0].data);
 		if (e != 0) {
 			/* If the open failed, call the closer to clean up. */
-			if (a->client.closer) {
-				for (i = 0; i < a->client.nodes; i++)
-					(a->client.closer)(&a->archive,
-					    a->client.dataset[i].data);
-			}
+			read_client_close_proxy(a);
 			return (e);
 		}
 	}
 
-	filter = calloc(1, sizeof(*filter));
-	if (filter == NULL)
+	f = calloc(1, sizeof(*f));
+	if (f == NULL)
 		return (ARCHIVE_FATAL);
-	filter->bidder = NULL;
-	filter->upstream = NULL;
-	filter->archive = a;
-	filter->data = a->client.dataset[0].data;
-	filter->open = client_open_proxy;
-	filter->read = client_read_proxy;
-	filter->skip = client_skip_proxy;
-	filter->seek = client_seek_proxy;
-	filter->close = client_close_proxy;
-	filter->sswitch = client_switch_proxy;
-	filter->name = "none";
-	filter->code = ARCHIVE_FILTER_NONE;
+	f->bidder = NULL;
+	f->upstream = NULL;
+	f->archive = a;
+	f->data = a->client.dataset[0].data;
+	f->vtable = &none_reader_vtable;
+	f->name = "none";
+	f->code = ARCHIVE_FILTER_NONE;
+	f->can_skip = 1;
+	f->can_seek = 1;
 
 	a->client.dataset[0].begin_position = 0;
 	if (!a->filter || !a->bypass_filter_bidding)
 	{
-		a->filter = filter;
+		a->filter = f;
 		/* Build out the input pipeline. */
 		e = choose_filters(a);
 		if (e < ARCHIVE_WARN) {
@@ -522,7 +536,7 @@ archive_read_open1(struct archive *_a)
 		tmp = a->filter;
 		while (tmp->upstream)
 			tmp = tmp->upstream;
-		tmp->upstream = filter;
+		tmp->upstream = f;
 	}
 
 	if (!a->format)
@@ -557,7 +571,7 @@ choose_filters(struct archive_read *a)
 {
 	int number_bidders, i, bid, best_bid, number_filters;
 	struct archive_read_filter_bidder *bidder, *best_bidder;
-	struct archive_read_filter *filter;
+	struct archive_read_filter *f;
 	ssize_t avail;
 	int r;
 
@@ -569,12 +583,12 @@ choose_filters(struct archive_read *a)
 
 		bidder = a->bidders;
 		for (i = 0; i < number_bidders; i++, bidder++) {
-			if (bidder->bid != NULL) {
-				bid = (bidder->bid)(bidder, a->filter);
-				if (bid > best_bid) {
-					best_bid = bid;
-					best_bidder = bidder;
-				}
+			if (bidder->vtable == NULL)
+				continue;
+			bid = (bidder->vtable->bid)(bidder, a->filter);
+			if (bid > best_bid) {
+				best_bid = bid;
+				best_bidder = bidder;
 			}
 		}
 
@@ -586,20 +600,17 @@ choose_filters(struct archive_read *a)
 				__archive_read_free_filters(a);
 				return (ARCHIVE_FATAL);
 			}
-			a->archive.compression_name = a->filter->name;
-			a->archive.compression_code = a->filter->code;
 			return (ARCHIVE_OK);
 		}
 
-		filter
-		    = (struct archive_read_filter *)calloc(1, sizeof(*filter));
-		if (filter == NULL)
+		f = calloc(1, sizeof(*f));
+		if (f == NULL)
 			return (ARCHIVE_FATAL);
-		filter->bidder = best_bidder;
-		filter->archive = a;
-		filter->upstream = a->filter;
-		a->filter = filter;
-		r = (best_bidder->init)(a->filter);
+		f->bidder = best_bidder;
+		f->archive = a;
+		f->upstream = a->filter;
+		a->filter = f;
+		r = (best_bidder->vtable->init)(a->filter);
 		if (r != ARCHIVE_OK) {
 			__archive_read_free_filters(a);
 			return (ARCHIVE_FATAL);
@@ -608,6 +619,14 @@ choose_filters(struct archive_read *a)
 	archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
 	    "Input requires too many filters for decoding");
 	return (ARCHIVE_FATAL);
+}
+
+int
+__archive_read_header(struct archive_read *a, struct archive_entry *entry)
+{
+	if (!a->filter->vtable->read_header)
+		return (ARCHIVE_OK);
+	return a->filter->vtable->read_header(a->filter, entry);
 }
 
 /*
@@ -620,7 +639,8 @@ _archive_read_next_header2(struct archive *_a, struct archive_entry *entry)
 	int r1 = ARCHIVE_OK, r2;
 
 	archive_check_magic(_a, ARCHIVE_READ_MAGIC,
-	    ARCHIVE_STATE_HEADER | ARCHIVE_STATE_DATA,
+	    ARCHIVE_STATE_HEADER | ARCHIVE_STATE_DATA |
+	    ARCHIVE_STATE_DATA_RECOVERY,
 	    "archive_read_next_header");
 
 	archive_entry_clear(entry);
@@ -629,12 +649,16 @@ _archive_read_next_header2(struct archive *_a, struct archive_entry *entry)
 	/*
 	 * If client didn't consume entire data, skip any remainder
 	 * (This is especially important for GNU incremental directories.)
+	 * A header that failed to parse (DATA_RECOVERY) still needs the
+	 * same treatment: whatever of its body the format reader left
+	 * unconsumed must be skipped before we can read the next header.
 	 */
-	if (a->archive.state == ARCHIVE_STATE_DATA) {
+	if (a->archive.state == ARCHIVE_STATE_DATA ||
+	    a->archive.state == ARCHIVE_STATE_DATA_RECOVERY) {
 		r1 = archive_read_data_skip(&a->archive);
 		if (r1 == ARCHIVE_EOF)
 			archive_set_error(&a->archive, EIO,
-			    "Premature end-of-file.");
+			    "Premature end-of-file");
 		if (r1 == ARCHIVE_EOF || r1 == ARCHIVE_FATAL) {
 			a->archive.state = ARCHIVE_STATE_FATAL;
 			return (ARCHIVE_FATAL);
@@ -668,7 +692,25 @@ _archive_read_next_header2(struct archive *_a, struct archive_entry *entry)
 	case ARCHIVE_FATAL:
 		a->archive.state = ARCHIVE_STATE_FATAL;
 		break;
+	case ARCHIVE_FAILED:
+		/*
+		 * This entry's header could not be parsed, so its metadata
+		 * cannot be trusted.  ARCHIVE_STATE_DATA_RECOVERY still
+		 * permits skipping past it (the format reader is
+		 * responsible for ensuring that's actually possible), but
+		 * blocks archive_read_data() and friends, which all check
+		 * for ARCHIVE_STATE_DATA specifically and would otherwise
+		 * return content for an entry we don't actually understand.
+		 */
+		a->archive.state = ARCHIVE_STATE_DATA_RECOVERY;
+		break;
 	}
+
+	if (r2 == ARCHIVE_OK || r2 == ARCHIVE_WARN)
+		a->entry_bytes_declared = archive_entry_size_is_set(entry)
+		    ? archive_entry_size(entry) : -1;
+	else
+		a->entry_bytes_declared = -1;
 
 	__archive_reset_read_data(&a->archive);
 
@@ -747,7 +789,7 @@ choose_format(struct archive_read *a)
  * Return the file offset (within the uncompressed data stream) where
  * the last header started.
  */
-int64_t
+la_int64_t
 archive_read_header_position(struct archive *_a)
 {
 	struct archive_read *a = (struct archive_read *)_a;
@@ -758,7 +800,7 @@ archive_read_header_position(struct archive *_a)
 
 /*
  * Returns 1 if the archive contains at least one encrypted entry.
- * If the archive format not support encryption at all
+ * If the archive format does not support encryption at all,
  * ARCHIVE_READ_FORMAT_ENCRYPTION_UNSUPPORTED is returned.
  * If for any other reason (e.g. not enough data read so far)
  * we cannot say whether there are encrypted entries, then
@@ -820,7 +862,7 @@ archive_read_format_capabilities(struct archive *_a)
  * DO NOT intermingle calls to this function and archive_read_data_block
  * to read a single entry body.
  */
-ssize_t
+la_ssize_t
 archive_read_data(struct archive *_a, void *buff, size_t s)
 {
 	struct archive *a = (struct archive *)_a;
@@ -834,14 +876,17 @@ archive_read_data(struct archive *_a, void *buff, size_t s)
 	dest = (char *)buff;
 
 	while (s > 0) {
-		if (a->read_data_remaining == 0) {
+		if (a->read_data_offset == a->read_data_output_offset &&
+		    a->read_data_remaining == 0) {
 			read_buf = a->read_data_block;
 			a->read_data_is_posix_read = 1;
 			a->read_data_requested = s;
 			r = archive_read_data_block(a, &read_buf,
 			    &a->read_data_remaining, &a->read_data_offset);
 			a->read_data_block = read_buf;
-			if (r == ARCHIVE_EOF)
+			if (r == ARCHIVE_EOF &&
+			    a->read_data_offset == a->read_data_output_offset &&
+			    a->read_data_remaining == 0)
 				return (bytes_read);
 			/*
 			 * Error codes are all negative, so the status
@@ -881,14 +926,16 @@ archive_read_data(struct archive *_a, void *buff, size_t s)
 			len = a->read_data_remaining;
 			if (len > s)
 				len = s;
-			memcpy(dest, a->read_data_block, len);
-			s -= len;
-			a->read_data_block += len;
-			a->read_data_remaining -= len;
-			a->read_data_output_offset += len;
-			a->read_data_offset += len;
-			dest += len;
-			bytes_read += len;
+			if (len) {
+				memcpy(dest, a->read_data_block, len);
+				s -= len;
+				a->read_data_block += len;
+				a->read_data_remaining -= len;
+				a->read_data_output_offset += len;
+				a->read_data_offset += len;
+				dest += len;
+				bytes_read += len;
+			}
 		}
 	}
 	a->read_data_is_posix_read = 0;
@@ -923,7 +970,8 @@ archive_read_data_skip(struct archive *_a)
 	size_t size;
 	int64_t offset;
 
-	archive_check_magic(_a, ARCHIVE_READ_MAGIC, ARCHIVE_STATE_DATA,
+	archive_check_magic(_a, ARCHIVE_READ_MAGIC,
+	    ARCHIVE_STATE_DATA | ARCHIVE_STATE_DATA_RECOVERY,
 	    "archive_read_data_skip");
 
 	if (a->format->read_data_skip != NULL)
@@ -938,25 +986,32 @@ archive_read_data_skip(struct archive *_a)
 	if (r == ARCHIVE_EOF)
 		r = ARCHIVE_OK;
 
-	a->archive.state = ARCHIVE_STATE_HEADER;
+	if (r == ARCHIVE_FATAL)
+		a->archive.state = ARCHIVE_STATE_FATAL;
+	else
+		a->archive.state = ARCHIVE_STATE_HEADER;
 	return (r);
 }
 
-int64_t
+la_int64_t
 archive_seek_data(struct archive *_a, int64_t offset, int whence)
 {
 	struct archive_read *a = (struct archive_read *)_a;
+	la_int64_t r;
+
 	archive_check_magic(_a, ARCHIVE_READ_MAGIC, ARCHIVE_STATE_DATA,
 	    "archive_seek_data_block");
 
 	if (a->format->seek_data == NULL) {
-		archive_set_error(&a->archive, ARCHIVE_ERRNO_PROGRAMMER,
-		    "Internal error: "
-		    "No format_seek_data_block function registered");
-		return (ARCHIVE_FATAL);
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
+		    "Cannot seek data with this format");
+		return (ARCHIVE_FAILED);
 	}
 
-	return (a->format->seek_data)(a, offset, whence);
+	r = (a->format->seek_data)(a, offset, whence);
+	if (r == ARCHIVE_FATAL)
+		a->archive.state = ARCHIVE_STATE_FATAL;
+	return (r);
 }
 
 /*
@@ -972,6 +1027,8 @@ _archive_read_data_block(struct archive *_a,
     const void **buff, size_t *size, int64_t *offset)
 {
 	struct archive_read *a = (struct archive_read *)_a;
+	int r;
+
 	archive_check_magic(_a, ARCHIVE_READ_MAGIC, ARCHIVE_STATE_DATA,
 	    "archive_read_data_block");
 
@@ -979,10 +1036,14 @@ _archive_read_data_block(struct archive *_a,
 		archive_set_error(&a->archive, ARCHIVE_ERRNO_PROGRAMMER,
 		    "Internal error: "
 		    "No format->read_data function registered");
+		a->archive.state = ARCHIVE_STATE_FATAL;
 		return (ARCHIVE_FATAL);
 	}
 
-	return (a->format->read_data)(a, buff, size, offset);
+	r = (a->format->read_data)(a, buff, size, offset);
+	if (r == ARCHIVE_FATAL)
+		a->archive.state = ARCHIVE_STATE_FATAL;
+	return (r);
 }
 
 static int
@@ -993,8 +1054,8 @@ close_filters(struct archive_read *a)
 	/* Close each filter in the pipeline. */
 	while (f != NULL) {
 		struct archive_read_filter *t = f->upstream;
-		if (!f->closed && f->close != NULL) {
-			int r1 = (f->close)(f);
+		if (!f->closed && f->vtable != NULL) {
+			int r1 = (f->vtable->close)(f);
 			f->closed = 1;
 			if (r1 < r)
 				r = r1;
@@ -1099,11 +1160,10 @@ _archive_read_free(struct archive *_a)
 	/* Release the bidder objects. */
 	n = sizeof(a->bidders)/sizeof(a->bidders[0]);
 	for (i = 0; i < n; i++) {
-		if (a->bidders[i].free != NULL) {
-			int r1 = (a->bidders[i].free)(&a->bidders[i]);
-			if (r1 < r)
-				r = r1;
-		}
+		if (a->bidders[i].vtable == NULL ||
+		    a->bidders[i].vtable->free == NULL)
+			continue;
+		(a->bidders[i].vtable->free)(&a->bidders[i]);
 	}
 
 	/* Release passphrase list. */
@@ -1228,19 +1288,35 @@ __archive_read_register_format(struct archive_read *a,
  * initialization functions.
  */
 int
-__archive_read_get_bidder(struct archive_read *a,
-    struct archive_read_filter_bidder **bidder)
+__archive_read_register_bidder(struct archive_read *a,
+	void *bidder_data,
+	const char *name,
+	const struct archive_read_filter_bidder_vtable *vtable)
 {
+	struct archive_read_filter_bidder *bidder;
 	int i, number_slots;
+
+	archive_check_magic(&a->archive, ARCHIVE_READ_MAGIC,
+	    ARCHIVE_STATE_NEW, "__archive_read_register_bidder");
 
 	number_slots = sizeof(a->bidders) / sizeof(a->bidders[0]);
 
 	for (i = 0; i < number_slots; i++) {
-		if (a->bidders[i].bid == NULL) {
-			memset(a->bidders + i, 0, sizeof(a->bidders[0]));
-			*bidder = (a->bidders + i);
-			return (ARCHIVE_OK);
+		if (a->bidders[i].vtable != NULL)
+			continue;
+		memset(a->bidders + i, 0, sizeof(a->bidders[0]));
+		bidder = (a->bidders + i);
+		bidder->data = bidder_data;
+		bidder->name = name;
+		bidder->vtable = vtable;
+		if (bidder->vtable->bid == NULL || bidder->vtable->init == NULL) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_PROGRAMMER,
+					"Internal error: "
+					"no bid/init for filter bidder");
+			return (ARCHIVE_FATAL);
 		}
+
+		return (ARCHIVE_OK);
 	}
 
 	archive_set_error(&a->archive, ENOMEM,
@@ -1306,13 +1382,13 @@ __archive_read_ahead(struct archive_read *a, size_t min, ssize_t *avail)
 }
 
 const void *
-__archive_read_filter_ahead(struct archive_read_filter *filter,
+__archive_read_filter_ahead(struct archive_read_filter *f,
     size_t min, ssize_t *avail)
 {
 	ssize_t bytes_read;
 	size_t tocopy;
 
-	if (filter->fatal) {
+	if (f->fatal) {
 		if (avail)
 			*avail = ARCHIVE_FATAL;
 		return (NULL);
@@ -1329,79 +1405,79 @@ __archive_read_filter_ahead(struct archive_read_filter *filter,
 		 * note that min == 0 is a perfectly well-defined
 		 * request.
 		 */
-		if (filter->avail >= min && filter->avail > 0) {
+		if (f->avail >= min && f->avail > 0) {
 			if (avail != NULL)
-				*avail = filter->avail;
-			return (filter->next);
+				*avail = f->avail;
+			return (f->next);
 		}
 
 		/*
 		 * We can satisfy directly from client buffer if everything
 		 * currently in the copy buffer is still in the client buffer.
 		 */
-		if (filter->client_total >= filter->client_avail + filter->avail
-		    && filter->client_avail + filter->avail >= min) {
+		if (f->client_total >= f->client_avail + f->avail
+		    && f->client_avail + f->avail >= min) {
 			/* "Roll back" to client buffer. */
-			filter->client_avail += filter->avail;
-			filter->client_next -= filter->avail;
+			f->client_avail += f->avail;
+			f->client_next -= f->avail;
 			/* Copy buffer is now empty. */
-			filter->avail = 0;
-			filter->next = filter->buffer;
+			f->avail = 0;
+			f->next = f->buffer;
 			/* Return data from client buffer. */
 			if (avail != NULL)
-				*avail = filter->client_avail;
-			return (filter->client_next);
+				*avail = f->client_avail;
+			return (f->client_next);
 		}
 
 		/* Move data forward in copy buffer if necessary. */
-		if (filter->next > filter->buffer &&
-		    filter->next + min > filter->buffer + filter->buffer_size) {
-			if (filter->avail > 0)
-				memmove(filter->buffer, filter->next,
-				    filter->avail);
-			filter->next = filter->buffer;
+		if (f->next > f->buffer &&
+		    min > f->buffer_size - (f->next - f->buffer)) {
+			if (f->avail > 0)
+				memmove(f->buffer, f->next,
+				    f->avail);
+			f->next = f->buffer;
 		}
 
 		/* If we've used up the client data, get more. */
-		if (filter->client_avail <= 0) {
-			if (filter->end_of_file) {
+		if (f->client_avail <= 0) {
+			if (f->end_of_file) {
 				if (avail != NULL)
-					*avail = 0;
+					*avail = f->avail;
 				return (NULL);
 			}
-			bytes_read = (filter->read)(filter,
-			    &filter->client_buff);
+			bytes_read = (f->vtable->read)(f,
+			    &f->client_buff);
 			if (bytes_read < 0) {		/* Read error. */
-				filter->client_total = filter->client_avail = 0;
-				filter->client_next =
-				    filter->client_buff = NULL;
-				filter->fatal = 1;
+				f->client_total = f->client_avail = 0;
+				f->client_next =
+				    f->client_buff = NULL;
+				f->fatal = 1;
 				if (avail != NULL)
 					*avail = ARCHIVE_FATAL;
 				return (NULL);
 			}
 			if (bytes_read == 0) {
 				/* Check for another client object first */
-				if (filter->archive->client.cursor !=
-				      filter->archive->client.nodes - 1) {
-					if (client_switch_proxy(filter,
-					    filter->archive->client.cursor + 1)
+				if (f->archive->client.cursor !=
+				      f->archive->client.nodes - 1) {
+					if (client_switch_proxy(f,
+					    f->archive->client.cursor + 1)
 					    == ARCHIVE_OK)
 						continue;
 				}
 				/* Premature end-of-file. */
-				filter->client_total = filter->client_avail = 0;
-				filter->client_next =
-				    filter->client_buff = NULL;
-				filter->end_of_file = 1;
+				f->client_total = f->client_avail = 0;
+				f->client_next =
+				    f->client_buff = NULL;
+				f->end_of_file = 1;
 				/* Return whatever we do have. */
 				if (avail != NULL)
-					*avail = filter->avail;
+					*avail = f->avail;
 				return (NULL);
 			}
-			filter->client_total = bytes_read;
-			filter->client_avail = filter->client_total;
-			filter->client_next = filter->client_buff;
+			f->client_total = bytes_read;
+			f->client_avail = f->client_total;
+			f->client_next = f->client_buff;
 		} else {
 			/*
 			 * We can't satisfy the request from the copy
@@ -1411,67 +1487,66 @@ __archive_read_filter_ahead(struct archive_read_filter *filter,
 			 */
 
 			/* Ensure the buffer is big enough. */
-			if (min > filter->buffer_size) {
-				size_t s, t;
+			if (min > f->buffer_size) {
+				size_t s;
 				char *p;
 
 				/* Double the buffer; watch for overflow. */
-				s = t = filter->buffer_size;
+				s = f->buffer_size;
 				if (s == 0)
 					s = min;
 				while (s < min) {
-					t *= 2;
-					if (t <= s) { /* Integer overflow! */
+					if (archive_ckd_mul_size(&s, s, 2)) {
+						/* Integer overflow! */
 						archive_set_error(
-						    &filter->archive->archive,
+						    &f->archive->archive,
 						    ENOMEM,
 						    "Unable to allocate copy"
 						    " buffer");
-						filter->fatal = 1;
+						f->fatal = 1;
 						if (avail != NULL)
 							*avail = ARCHIVE_FATAL;
 						return (NULL);
 					}
-					s = t;
 				}
 				/* Now s >= min, so allocate a new buffer. */
-				p = (char *)malloc(s);
+				p = malloc(s);
 				if (p == NULL) {
 					archive_set_error(
-						&filter->archive->archive,
+						&f->archive->archive,
 						ENOMEM,
 					    "Unable to allocate copy buffer");
-					filter->fatal = 1;
+					f->fatal = 1;
 					if (avail != NULL)
 						*avail = ARCHIVE_FATAL;
 					return (NULL);
 				}
 				/* Move data into newly-enlarged buffer. */
-				if (filter->avail > 0)
-					memmove(p, filter->next, filter->avail);
-				free(filter->buffer);
-				filter->next = filter->buffer = p;
-				filter->buffer_size = s;
+				if (f->avail > 0)
+					memmove(p, f->next, f->avail);
+				free(f->buffer);
+				f->next = f->buffer = p;
+				f->buffer_size = s;
 			}
 
 			/* We can add client data to copy buffer. */
 			/* First estimate: copy to fill rest of buffer. */
-			tocopy = (filter->buffer + filter->buffer_size)
-			    - (filter->next + filter->avail);
+			tocopy = (f->buffer + f->buffer_size)
+			    - (f->next + f->avail);
 			/* Don't waste time buffering more than we need to. */
-			if (tocopy + filter->avail > min)
-				tocopy = min - filter->avail;
+			if (tocopy + f->avail > min)
+				tocopy = min - f->avail;
 			/* Don't copy more than is available. */
-			if (tocopy > filter->client_avail)
-				tocopy = filter->client_avail;
+			if (tocopy > f->client_avail)
+				tocopy = f->client_avail;
 
-			memcpy(filter->next + filter->avail,
-			    filter->client_next, tocopy);
+			memcpy(f->next + f->avail,
+			    f->client_next, tocopy);
 			/* Remove this data from client buffer. */
-			filter->client_next += tocopy;
-			filter->client_avail -= tocopy;
+			f->client_next += tocopy;
+			f->client_avail -= tocopy;
 			/* add it to copy buffer. */
-			filter->avail += tocopy;
+			f->avail += tocopy;
 		}
 	}
 }
@@ -1486,7 +1561,7 @@ __archive_read_consume(struct archive_read *a, int64_t request)
 }
 
 int64_t
-__archive_read_filter_consume(struct archive_read_filter * filter,
+__archive_read_filter_consume(struct archive_read_filter *f,
     int64_t request)
 {
 	int64_t skipped;
@@ -1496,13 +1571,13 @@ __archive_read_filter_consume(struct archive_read_filter * filter,
 	if (request == 0)
 		return 0;
 
-	skipped = advance_file_pointer(filter, request);
+	skipped = advance_file_pointer(f, request);
 	if (skipped == request)
 		return (skipped);
 	/* We hit EOF before we satisfied the skip request. */
 	if (skipped < 0)  /* Map error code to 0 for error message below. */
 		skipped = 0;
-	archive_set_error(&filter->archive->archive,
+	archive_set_error(&f->archive->archive,
 	    ARCHIVE_ERRNO_MISC,
 	    "Truncated input file (needed %jd bytes, only %jd available)",
 	    (intmax_t)request, (intmax_t)skipped);
@@ -1516,45 +1591,45 @@ __archive_read_filter_consume(struct archive_read_filter * filter,
  * Returns a negative value if there's an I/O error.
  */
 static int64_t
-advance_file_pointer(struct archive_read_filter *filter, int64_t request)
+advance_file_pointer(struct archive_read_filter *f, int64_t request)
 {
 	int64_t bytes_skipped, total_bytes_skipped = 0;
 	ssize_t bytes_read;
 	size_t min;
 
-	if (filter->fatal)
+	if (f->fatal)
 		return (-1);
 
 	/* Use up the copy buffer first. */
-	if (filter->avail > 0) {
-		min = (size_t)minimum(request, (int64_t)filter->avail);
-		filter->next += min;
-		filter->avail -= min;
+	if (f->avail > 0) {
+		min = (size_t)minimum(request, (int64_t)f->avail);
+		f->next += min;
+		f->avail -= min;
 		request -= min;
-		filter->position += min;
+		f->position += min;
 		total_bytes_skipped += min;
 	}
 
 	/* Then use up the client buffer. */
-	if (filter->client_avail > 0) {
-		min = (size_t)minimum(request, (int64_t)filter->client_avail);
-		filter->client_next += min;
-		filter->client_avail -= min;
+	if (f->client_avail > 0) {
+		min = (size_t)minimum(request, (int64_t)f->client_avail);
+		f->client_next += min;
+		f->client_avail -= min;
 		request -= min;
-		filter->position += min;
+		f->position += min;
 		total_bytes_skipped += min;
 	}
 	if (request == 0)
 		return (total_bytes_skipped);
 
 	/* If there's an optimized skip function, use it. */
-	if (filter->skip != NULL) {
-		bytes_skipped = (filter->skip)(filter, request);
+	if (f->can_skip != 0) {
+		bytes_skipped = client_skip_proxy(f, request);
 		if (bytes_skipped < 0) {	/* error */
-			filter->fatal = 1;
+			f->fatal = 1;
 			return (bytes_skipped);
 		}
-		filter->position += bytes_skipped;
+		f->position += bytes_skipped;
 		total_bytes_skipped += bytes_skipped;
 		request -= bytes_skipped;
 		if (request == 0)
@@ -1563,37 +1638,37 @@ advance_file_pointer(struct archive_read_filter *filter, int64_t request)
 
 	/* Use ordinary reads as necessary to complete the request. */
 	for (;;) {
-		bytes_read = (filter->read)(filter, &filter->client_buff);
+		bytes_read = (f->vtable->read)(f, &f->client_buff);
 		if (bytes_read < 0) {
-			filter->client_buff = NULL;
-			filter->fatal = 1;
+			f->client_buff = NULL;
+			f->fatal = 1;
 			return (bytes_read);
 		}
 
 		if (bytes_read == 0) {
-			if (filter->archive->client.cursor !=
-			      filter->archive->client.nodes - 1) {
-				if (client_switch_proxy(filter,
-				    filter->archive->client.cursor + 1)
+			if (f->archive->client.cursor !=
+			      f->archive->client.nodes - 1) {
+				if (client_switch_proxy(f,
+				    f->archive->client.cursor + 1)
 				    == ARCHIVE_OK)
 					continue;
 			}
-			filter->client_buff = NULL;
-			filter->end_of_file = 1;
+			f->client_buff = NULL;
+			f->end_of_file = 1;
 			return (total_bytes_skipped);
 		}
 
 		if (bytes_read >= request) {
-			filter->client_next =
-			    ((const char *)filter->client_buff) + request;
-			filter->client_avail = (size_t)(bytes_read - request);
-			filter->client_total = bytes_read;
+			f->client_next =
+			    ((const char *)f->client_buff) + request;
+			f->client_avail = (size_t)(bytes_read - request);
+			f->client_total = bytes_read;
 			total_bytes_skipped += request;
-			filter->position += request;
+			f->position += request;
 			return (total_bytes_skipped);
 		}
 
-		filter->position += bytes_read;
+		f->position += bytes_read;
 		total_bytes_skipped += bytes_read;
 		request -= bytes_read;
 	}
@@ -1609,23 +1684,24 @@ __archive_read_seek(struct archive_read *a, int64_t offset, int whence)
 }
 
 int64_t
-__archive_read_filter_seek(struct archive_read_filter *filter, int64_t offset,
+__archive_read_filter_seek(struct archive_read_filter *f, int64_t offset,
     int whence)
 {
 	struct archive_read_client *client;
 	int64_t r;
 	unsigned int cursor;
 
-	if (filter->closed || filter->fatal)
+	if (f->closed || f->fatal)
 		return (ARCHIVE_FATAL);
-	if (filter->seek == NULL)
+	if (f->can_seek == 0)
 		return (ARCHIVE_FAILED);
 
-	client = &(filter->archive->client);
+	client = &(f->archive->client);
 	switch (whence) {
 	case SEEK_CUR:
 		/* Adjust the offset and use SEEK_SET instead */
-		offset += filter->position;			
+		offset += f->position;
+		__LA_FALLTHROUGH;
 	case SEEK_SET:
 		cursor = 0;
 		while (1)
@@ -1641,10 +1717,10 @@ __archive_read_filter_seek(struct archive_read_filter *filter, int64_t offset,
 			client->dataset[++cursor].begin_position = r;
 		}
 		while (1) {
-			r = client_switch_proxy(filter, cursor);
+			r = client_switch_proxy(f, cursor);
 			if (r != ARCHIVE_OK)
 				return r;
-			if ((r = client_seek_proxy(filter, 0, SEEK_END)) < 0)
+			if ((r = client_seek_proxy(f, 0, SEEK_END)) < 0)
 				return r;
 			client->dataset[cursor].total_size = r;
 			if (client->dataset[cursor].begin_position +
@@ -1659,7 +1735,7 @@ __archive_read_filter_seek(struct archive_read_filter *filter, int64_t offset,
 		if (offset < 0
 		    || offset > client->dataset[cursor].total_size)
 			return ARCHIVE_FATAL;
-		if ((r = client_seek_proxy(filter, offset, SEEK_SET)) < 0)
+		if ((r = client_seek_proxy(f, offset, SEEK_SET)) < 0)
 			return r;
 		break;
 
@@ -1675,10 +1751,10 @@ __archive_read_filter_seek(struct archive_read_filter *filter, int64_t offset,
 			client->dataset[++cursor].begin_position = r;
 		}
 		while (1) {
-			r = client_switch_proxy(filter, cursor);
+			r = client_switch_proxy(f, cursor);
 			if (r != ARCHIVE_OK)
 				return r;
-			if ((r = client_seek_proxy(filter, 0, SEEK_END)) < 0)
+			if ((r = client_seek_proxy(f, 0, SEEK_END)) < 0)
 				return r;
 			client->dataset[cursor].total_size = r;
 			r = client->dataset[cursor].begin_position +
@@ -1699,9 +1775,9 @@ __archive_read_filter_seek(struct archive_read_filter *filter, int64_t offset,
 				client->dataset[cursor].total_size;
 		}
 		offset = (r + offset) - client->dataset[cursor].begin_position;
-		if ((r = client_switch_proxy(filter, cursor)) != ARCHIVE_OK)
+		if ((r = client_switch_proxy(f, cursor)) != ARCHIVE_OK)
 			return r;
-		r = client_seek_proxy(filter, offset, SEEK_SET);
+		r = client_seek_proxy(f, offset, SEEK_SET);
 		if (r < ARCHIVE_OK)
 			return r;
 		break;
@@ -1729,10 +1805,10 @@ __archive_read_filter_seek(struct archive_read_filter *filter, int64_t offset,
 		 * size is (r - offset).  Can we use that to simplify
 		 * the TODO items above?
 		 */
-		filter->avail = filter->client_avail = 0;
-		filter->next = filter->buffer;
-		filter->position = r;
-		filter->end_of_file = 0;
+		f->avail = f->client_avail = 0;
+		f->next = f->buffer;
+		f->position = r;
+		f->end_of_file = 0;
 	}
 	return r;
 }

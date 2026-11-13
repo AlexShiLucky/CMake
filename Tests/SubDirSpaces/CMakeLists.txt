@@ -1,8 +1,8 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required(VERSION 3.10)
 project(SUBDIR)
 
 # Some systems do not seem to support rpath with spaces.
-if(CMAKE_SYSTEM_NAME MATCHES "IRIX|QNX")
+if(CMAKE_SYSTEM_NAME MATCHES "QNX")
   set(CMAKE_SKIP_BUILD_RPATH 1)
 endif()
 
@@ -74,4 +74,3 @@ add_executable(TestWithAuxSourceDir ${SOURCES})
 if(CMAKE_PAREN)
   target_link_libraries(TestWithAuxSourceDir testOddPath)
 endif()
-

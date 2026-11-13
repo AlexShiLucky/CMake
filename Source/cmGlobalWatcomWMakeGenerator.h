@@ -1,19 +1,19 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmGlobalWatcomWMakeGenerator_h
-#define cmGlobalWatcomWMakeGenerator_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
-#include "cmConfigure.h"
+#include "cmConfigure.h" // IWYU pragma: keep
 
-#include "cmGlobalGeneratorFactory.h"
-#include "cmGlobalUnixMakefileGenerator3.h"
-
+#include <iosfwd>
+#include <memory>
 #include <string>
 #include <vector>
 
-class cmMakefile;
+#include "cmBuildOptions.h"
+#include "cmGlobalGeneratorFactory.h"
+#include "cmGlobalUnixMakefileGenerator3.h"
+
 class cmake;
-struct cmDocumentationEntry;
 
 /** \class cmGlobalWatcomWMakeGenerator
  * \brief Write a NMake makefiles.
@@ -24,29 +24,48 @@ class cmGlobalWatcomWMakeGenerator : public cmGlobalUnixMakefileGenerator3
 {
 public:
   cmGlobalWatcomWMakeGenerator(cmake* cm);
-  static cmGlobalGeneratorFactory* NewFactory()
+  static std::unique_ptr<cmGlobalGeneratorFactory> NewFactory()
   {
-    return new cmGlobalGeneratorSimpleFactory<cmGlobalWatcomWMakeGenerator>();
+    return std::unique_ptr<cmGlobalGeneratorFactory>(
+      new cmGlobalGeneratorSimpleFactory<cmGlobalWatcomWMakeGenerator>());
   }
-  ///! Get the name for the generator.
-  std::string GetName() const CM_OVERRIDE
+  //! Get the name for the generator.
+  std::string GetName() const override
   {
     return cmGlobalWatcomWMakeGenerator::GetActualName();
   }
   static std::string GetActualName() { return "Watcom WMake"; }
 
   /** Get the documentation entry for this generator.  */
-  static void GetDocumentation(cmDocumentationEntry& entry);
+  static cmDocumentationEntry GetDocumentation();
+
+  /** Tell the generator about the target system.  */
+  bool SetSystemName(std::string const& s, cmMakefile* mf) override;
 
   /**
    * Try to determine system information such as shared library
    * extension, pthreads, byte order etc.
    */
   void EnableLanguage(std::vector<std::string> const& languages, cmMakefile*,
-                      bool optional) CM_OVERRIDE;
+                      bool optional) override;
 
-  bool AllowNotParallel() const CM_OVERRIDE { return false; }
-  bool AllowDeleteOnError() const CM_OVERRIDE { return false; }
+  bool AllowNotParallel() const override { return false; }
+  bool AllowDeleteOnError() const override { return false; }
+
+  bool IsGNUMakeJobServerAware() const override { return false; }
+
+  bool TargetNamesAreCaseInsensitive() const override { return true; }
+
+  std::string GetShortBinaryOutputDir() const override;
+
+protected:
+  std::vector<GeneratedMakeCommand> GenerateBuildCommand(
+    std::string const& makeProgram, std::string const& projectName,
+    std::string const& projectDir, std::vector<std::string> const& targetNames,
+    std::string const& config, int jobs, bool verbose,
+    cmBuildOptions buildOptions = cmBuildOptions(),
+    std::vector<std::string> const& makeOptions = std::vector<std::string>(),
+    BuildTryCompile isInTryCompile = BuildTryCompile::No) override;
+
+  void PrintBuildCommandAdvice(std::ostream& os, int jobs) const override;
 };
-
-#endif

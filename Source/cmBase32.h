@@ -1,11 +1,10 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
-#ifndef cmBase32_h
-#define cmBase32_h
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
+#pragma once
 
 #include "cmConfigure.h" // IWYU pragma: keep
 
-#include <stddef.h>
+#include <cstddef>
 #include <string>
 
 /** \class cmBase32Encoder
@@ -16,18 +15,15 @@
 class cmBase32Encoder
 {
 public:
-  static const char paddingChar = '=';
+  static char const paddingChar = '=';
 
-public:
   cmBase32Encoder();
-  ~cmBase32Encoder();
+  ~cmBase32Encoder() = default;
 
   // Encodes the given input byte sequence into a string
   // @arg input Input data pointer
   // @arg len Input data size
   // @arg padding Flag to append "=" on demand
-  std::string encodeString(const unsigned char* input, size_t len,
+  std::string encodeString(unsigned char const* input, size_t len,
                            bool padding = true);
 };
-
-#endif

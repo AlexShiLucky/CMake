@@ -1,28 +1,30 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "AddCacheEntry.h"
 
 #include <QCompleter>
 #include <QMetaProperty>
 
-static const int NumTypes = 4;
-static const int DefaultTypeIndex = 0;
-static const QByteArray TypeStrings[NumTypes] = { "BOOL", "PATH", "FILEPATH",
+#include "QCMakeSizeType.h"
+
+static int const NumTypes = 4;
+static int const DefaultTypeIndex = 0;
+static QByteArray const TypeStrings[NumTypes] = { "BOOL", "PATH", "FILEPATH",
                                                   "STRING" };
-static const QCMakeProperty::PropertyType Types[NumTypes] = {
+static QCMakeProperty::PropertyType const Types[NumTypes] = {
   QCMakeProperty::BOOL, QCMakeProperty::PATH, QCMakeProperty::FILEPATH,
   QCMakeProperty::STRING
 };
 
-AddCacheEntry::AddCacheEntry(QWidget* p, const QStringList& varNames,
-                             const QStringList& varTypes)
+AddCacheEntry::AddCacheEntry(QWidget* p, QStringList const& varNames,
+                             QStringList const& varTypes)
   : QWidget(p)
   , VarNames(varNames)
   , VarTypes(varTypes)
 {
   this->setupUi(this);
-  for (int i = 0; i < NumTypes; i++) {
-    this->Type->addItem(TypeStrings[i]);
+  for (auto const& elem : TypeStrings) {
+    this->Type->addItem(elem);
   }
   QWidget* cb = new QCheckBox();
   QWidget* path = new QCMakePathEditor();
@@ -32,16 +34,18 @@ AddCacheEntry::AddCacheEntry(QWidget* p, const QStringList& varNames,
   this->StackedWidget->addWidget(path);
   this->StackedWidget->addWidget(filepath);
   this->StackedWidget->addWidget(string);
-  this->setTabOrder(this->Name, this->Type);
-  this->setTabOrder(this->Type, cb);
-  this->setTabOrder(cb, path);
-  this->setTabOrder(path, filepath);
-  this->setTabOrder(filepath, string);
-  this->setTabOrder(string, this->Description);
+  AddCacheEntry::setTabOrder(this->Name, this->Type);
+  AddCacheEntry::setTabOrder(this->Type, cb);
+  AddCacheEntry::setTabOrder(cb, path);
+  AddCacheEntry::setTabOrder(path, filepath);
+  AddCacheEntry::setTabOrder(filepath, string);
+  AddCacheEntry::setTabOrder(string, this->Description);
   QCompleter* completer = new QCompleter(this->VarNames, this);
   this->Name->setCompleter(completer);
-  connect(completer, SIGNAL(activated(const QString&)), this,
-          SLOT(onCompletionActivated(const QString&)));
+  connect(
+    completer,
+    static_cast<void (QCompleter::*)(QString const&)>(&QCompleter::activated),
+    this, &AddCacheEntry::onCompletionActivated);
 }
 
 QString AddCacheEntry::name() const
@@ -84,9 +88,9 @@ QString AddCacheEntry::typeString() const
   return TypeStrings[DefaultTypeIndex];
 }
 
-void AddCacheEntry::onCompletionActivated(const QString& text)
+void AddCacheEntry::onCompletionActivated(QString const& text)
 {
-  int idx = this->VarNames.indexOf(text);
+  cm_qsizetype idx = this->VarNames.indexOf(text);
   if (idx != -1) {
     QString vartype = this->VarTypes[idx];
     for (int i = 0; i < NumTypes; i++) {

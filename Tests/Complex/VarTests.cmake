@@ -2,6 +2,7 @@
 # Test SET
 #
 set (ZERO_VAR 0)
+set (ZERO_VAR_AND_INDENTED 0)
 set (ZERO_VAR2 0)
 
 if(ZERO_VAR)
@@ -11,14 +12,9 @@ else()
 endif()
 
 set(ONE_VAR 1)
+set(ONE_VAR_AND_INDENTED 1)
 set(ONE_VAR2 1)
 set(STRING_VAR "CMake is great" CACHE STRING "test a cache variable")
-
-#
-# Test VARIABLE_REQUIRES
-#
-variable_requires(ONE_VAR
-                  ONE_VAR_IS_DEFINED ONE_VAR)
 
 #
 # Test various IF/ELSE combinations

@@ -1,14 +1,23 @@
 LINK_WHAT_YOU_USE
----------------------------
+-----------------
 
-This is a boolean option that when set to ``TRUE`` will automatically run
-``ldd -r -u`` on the target after it is linked. In addition, the linker flag
-``-Wl,--no-as-needed`` will be passed to the target with the link command so
-that all libraries specified on the command line will be linked into the
-target. This will result in the link producing a list of libraries that
-provide no symbols used by this target but are being linked to it.
-This is only applicable to executable and shared library targets and
-will only work when ld and ldd accept the flags used.
+.. versionadded:: 3.7
+
+This is a boolean option that, when set to ``TRUE``, adds a link-time check
+to print a list of shared libraries that are being linked but provide no symbols
+used by the target.  This is intended as a lint.
+
+The flag specified by :variable:`CMAKE_<LANG>_LINK_WHAT_YOU_USE_FLAG` will
+be passed to the linker so that all libraries specified on the command line
+will be linked into the target.  Then the command specified by
+:variable:`CMAKE_LINK_WHAT_YOU_USE_CHECK` will run after the target is linked
+to check the binary for unnecessarily-linked shared libraries.
+
+.. note::
+
+  For now, it is only supported for ``ELF`` platforms and is only applicable to
+  executable and shared or module library targets. This property will be
+  ignored for any other targets and configurations.
 
 This property is initialized by the value of
 the :variable:`CMAKE_LINK_WHAT_YOU_USE` variable if it is set

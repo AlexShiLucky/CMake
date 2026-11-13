@@ -1,92 +1,141 @@
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
-   file Copyright.txt or https://cmake.org/licensing for details.  */
+   file LICENSE.rst or https://cmake.org/licensing for details.  */
 #include "cmInstallCommandArguments.h"
 
-#include "cmConfigure.h"
+#include <algorithm>
+#include <functional>
+#include <utility>
 
+#include <cm/string_view>
+#include <cmext/string_view>
+
+#include "cmCMakePath.h"
+#include "cmGeneratorExpression.h"
+#include "cmMakefile.h"
+#include "cmPolicies.h"
+#include "cmRange.h"
+#include "cmStringAlgorithms.h"
 #include "cmSystemTools.h"
 
 // Table of valid permissions.
-const char* cmInstallCommandArguments::PermissionsTable[] = {
+char const* cmInstallCommandArguments::PermissionsTable[] = {
   "OWNER_READ",    "OWNER_WRITE",   "OWNER_EXECUTE", "GROUP_READ",
   "GROUP_WRITE",   "GROUP_EXECUTE", "WORLD_READ",    "WORLD_WRITE",
-  "WORLD_EXECUTE", "SETUID",        "SETGID",        CM_NULLPTR
+  "WORLD_EXECUTE", "SETUID",        "SETGID",        nullptr
 };
 
-const std::string cmInstallCommandArguments::EmptyString;
+std::string const cmInstallCommandArguments::EmptyString;
 
 cmInstallCommandArguments::cmInstallCommandArguments(
-  const std::string& defaultComponent)
-  : Parser()
-  , ArgumentGroup()
-  , Destination(&Parser, "DESTINATION", &ArgumentGroup)
-  , Component(&Parser, "COMPONENT", &ArgumentGroup)
-  , ExcludeFromAll(&Parser, "EXCLUDE_FROM_ALL", &ArgumentGroup)
-  , Rename(&Parser, "RENAME", &ArgumentGroup)
-  , Permissions(&Parser, "PERMISSIONS", &ArgumentGroup)
-  , Configurations(&Parser, "CONFIGURATIONS", &ArgumentGroup)
-  , Optional(&Parser, "OPTIONAL", &ArgumentGroup)
-  , NamelinkOnly(&Parser, "NAMELINK_ONLY", &ArgumentGroup)
-  , NamelinkSkip(&Parser, "NAMELINK_SKIP", &ArgumentGroup)
-  , GenericArguments(CM_NULLPTR)
-  , DefaultComponentName(defaultComponent)
+  std::string defaultComponent, cmMakefile& makefile)
+  : DefaultComponentName(std::move(defaultComponent))
 {
+  std::function<ArgumentParser::Continue(cm::string_view)> normalizeDest;
+
+  switch (makefile.GetPolicyStatus(cmPolicies::CMP0177)) {
+    case cmPolicies::OLD:
+      normalizeDest = [this](cm::string_view arg) -> ArgumentParser::Continue {
+        this->Destination = std::string(arg.begin(), arg.end());
+        return ArgumentParser::Continue::No;
+      };
+      break;
+    case cmPolicies::WARN:
+      normalizeDest =
+        [this, &makefile](cm::string_view arg) -> ArgumentParser::Continue {
+        this->Destination = std::string(arg.begin(), arg.end());
+        // We can't be certain if a warning is appropriate if there are any
+        // generator expressions
+        if (cmGeneratorExpression::Find(arg) == cm::string_view::npos &&
+            arg != cmCMakePath(arg).Normal().String()) {
+          makefile.IssuePolicyWarning(cmPolicies::CMP0177);
+        }
+        return ArgumentParser::Continue::No;
+      };
+      break;
+    case cmPolicies::NEW:
+      normalizeDest = [this](cm::string_view arg) -> ArgumentParser::Continue {
+        if (cmGeneratorExpression::Find(arg) == cm::string_view::npos) {
+          this->Destination = cmCMakePath(arg).Normal().String();
+        } else {
+          this->Destination =
+            cmStrCat("$<PATH:CMAKE_PATH,NORMALIZE,", arg, '>');
+        }
+        return ArgumentParser::Continue::No;
+      };
+      break;
+  }
+
+  this->Bind("DESTINATION"_s, normalizeDest);
+  this->Bind("COMPONENT"_s, this->Component);
+  this->Bind("NAMELINK_COMPONENT"_s, this->NamelinkComponent);
+  this->Bind("EXCLUDE_FROM_ALL"_s, this->ExcludeFromAll);
+  this->Bind("RENAME"_s, this->Rename);
+  this->Bind("PERMISSIONS"_s, this->Permissions);
+  this->Bind("CONFIGURATIONS"_s, this->Configurations);
+  this->Bind("OPTIONAL"_s, this->Optional);
+  this->Bind("NAMELINK_ONLY"_s, this->NamelinkOnly);
+  this->Bind("NAMELINK_SKIP"_s, this->NamelinkSkip);
+  this->Bind("TYPE"_s, this->Type);
 }
 
-const std::string& cmInstallCommandArguments::GetDestination() const
+std::string const& cmInstallCommandArguments::GetDestination() const
 {
   if (!this->DestinationString.empty()) {
     return this->DestinationString;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetDestination();
   }
-  return this->EmptyString;
+  return EmptyString;
 }
 
-const std::string& cmInstallCommandArguments::GetComponent() const
+std::string const& cmInstallCommandArguments::GetComponent() const
 {
-  if (!this->Component.GetString().empty()) {
-    return this->Component.GetString();
+  if (!this->Component.empty()) {
+    return this->Component;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetComponent();
   }
-  if (!this->DefaultComponentName.empty()) {
-    return this->DefaultComponentName;
-  }
-  static std::string unspecifiedComponent = "Unspecified";
-  return unspecifiedComponent;
+  return this->DefaultComponentName;
 }
 
-const std::string& cmInstallCommandArguments::GetRename() const
+std::string const& cmInstallCommandArguments::GetNamelinkComponent() const
 {
-  if (!this->Rename.GetString().empty()) {
-    return this->Rename.GetString();
+  if (!this->NamelinkComponent.empty()) {
+    return this->NamelinkComponent;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  return this->GetComponent();
+}
+
+std::string const& cmInstallCommandArguments::GetRename() const
+{
+  if (!this->Rename.empty()) {
+    return this->Rename;
+  }
+  if (this->GenericArguments) {
     return this->GenericArguments->GetRename();
   }
-  return this->EmptyString;
+  return EmptyString;
 }
 
-const std::string& cmInstallCommandArguments::GetPermissions() const
+std::string const& cmInstallCommandArguments::GetPermissions() const
 {
   if (!this->PermissionsString.empty()) {
     return this->PermissionsString;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetPermissions();
   }
-  return this->EmptyString;
+  return EmptyString;
 }
 
 bool cmInstallCommandArguments::GetOptional() const
 {
-  if (this->Optional.IsEnabled()) {
+  if (this->Optional) {
     return true;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetOptional();
   }
   return false;
@@ -94,10 +143,10 @@ bool cmInstallCommandArguments::GetOptional() const
 
 bool cmInstallCommandArguments::GetExcludeFromAll() const
 {
-  if (this->ExcludeFromAll.IsEnabled()) {
+  if (this->ExcludeFromAll) {
     return true;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetExcludeFromAll();
   }
   return false;
@@ -105,10 +154,10 @@ bool cmInstallCommandArguments::GetExcludeFromAll() const
 
 bool cmInstallCommandArguments::GetNamelinkOnly() const
 {
-  if (this->NamelinkOnly.IsEnabled()) {
+  if (this->NamelinkOnly) {
     return true;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetNamelinkOnly();
   }
   return false;
@@ -116,25 +165,46 @@ bool cmInstallCommandArguments::GetNamelinkOnly() const
 
 bool cmInstallCommandArguments::GetNamelinkSkip() const
 {
-  if (this->NamelinkSkip.IsEnabled()) {
+  if (this->NamelinkSkip) {
     return true;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetNamelinkSkip();
   }
   return false;
 }
 
-const std::vector<std::string>& cmInstallCommandArguments::GetConfigurations()
+bool cmInstallCommandArguments::HasNamelinkComponent() const
+{
+  if (!this->NamelinkComponent.empty()) {
+    return true;
+  }
+  if (this->GenericArguments) {
+    return this->GenericArguments->HasNamelinkComponent();
+  }
+  return false;
+}
+
+std::string const& cmInstallCommandArguments::GetType() const
+{
+  return this->Type;
+}
+
+std::string const& cmInstallCommandArguments::GetDefaultComponent() const
+{
+  return this->DefaultComponentName;
+}
+
+std::vector<std::string> const& cmInstallCommandArguments::GetConfigurations()
   const
 {
-  if (!this->Configurations.GetVector().empty()) {
-    return this->Configurations.GetVector();
+  if (!this->Configurations.empty()) {
+    return this->Configurations;
   }
-  if (this->GenericArguments != CM_NULLPTR) {
+  if (this->GenericArguments) {
     return this->GenericArguments->GetConfigurations();
   }
-  return this->Configurations.GetVector();
+  return this->Configurations;
 }
 
 bool cmInstallCommandArguments::Finalize()
@@ -142,35 +212,26 @@ bool cmInstallCommandArguments::Finalize()
   if (!this->CheckPermissions()) {
     return false;
   }
-  this->DestinationString = this->Destination.GetString();
+  this->DestinationString = this->Destination;
   cmSystemTools::ConvertToUnixSlashes(this->DestinationString);
   return true;
 }
 
-void cmInstallCommandArguments::Parse(const std::vector<std::string>* args,
-                                      std::vector<std::string>* unconsumedArgs)
-{
-  this->Parser.Parse(args, unconsumedArgs);
-}
-
 bool cmInstallCommandArguments::CheckPermissions()
 {
-  this->PermissionsString = "";
-  for (std::vector<std::string>::const_iterator permIt =
-         this->Permissions.GetVector().begin();
-       permIt != this->Permissions.GetVector().end(); ++permIt) {
-    if (!this->CheckPermissions(*permIt, this->PermissionsString)) {
-      return false;
-    }
-  }
-  return true;
+  this->PermissionsString.clear();
+  return std::all_of(this->Permissions.begin(), this->Permissions.end(),
+                     [this](std::string const& perm) -> bool {
+                       return cmInstallCommandArguments::CheckPermissions(
+                         perm, this->PermissionsString);
+                     });
 }
 
 bool cmInstallCommandArguments::CheckPermissions(
-  const std::string& onePermission, std::string& permissions)
+  std::string const& onePermission, std::string& permissions)
 {
   // Check the permission against the table.
-  for (const char** valid = cmInstallCommandArguments::PermissionsTable;
+  for (char const** valid = cmInstallCommandArguments::PermissionsTable;
        *valid; ++valid) {
     if (onePermission == *valid) {
       // This is a valid permission.
@@ -183,27 +244,36 @@ bool cmInstallCommandArguments::CheckPermissions(
   return false;
 }
 
-cmInstallCommandIncludesArgument::cmInstallCommandIncludesArgument()
-{
-}
+cmInstallCommandIncludesArgument::cmInstallCommandIncludesArgument() = default;
 
-const std::vector<std::string>&
+std::vector<std::string> const&
 cmInstallCommandIncludesArgument::GetIncludeDirs() const
 {
   return this->IncludeDirs;
 }
 
 void cmInstallCommandIncludesArgument::Parse(
-  const std::vector<std::string>* args, std::vector<std::string>*)
+  std::vector<std::string> const* args, std::vector<std::string>*)
 {
   if (args->empty()) {
     return;
   }
-  std::vector<std::string>::const_iterator it = args->begin();
-  ++it;
-  for (; it != args->end(); ++it) {
-    std::string dir = *it;
+  for (std::string dir : cmMakeRange(*args).advance(1)) {
     cmSystemTools::ConvertToUnixSlashes(dir);
-    this->IncludeDirs.push_back(dir);
+    this->IncludeDirs.push_back(std::move(dir));
   }
+}
+
+cmInstallCommandFileSetArguments::cmInstallCommandFileSetArguments(
+  std::string defaultComponent, cmMakefile& makefile)
+  : cmInstallCommandArguments(std::move(defaultComponent), makefile)
+{
+  this->Bind("FILE_SET"_s, this->FileSet);
+}
+
+void cmInstallCommandFileSetArguments::Parse(
+  std::vector<std::string> args, std::vector<std::string>* unconsumedArgs)
+{
+  args.insert(args.begin(), "FILE_SET");
+  this->cmInstallCommandArguments::Parse(args, unconsumedArgs);
 }
